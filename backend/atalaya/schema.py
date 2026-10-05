@@ -4,7 +4,39 @@ from __future__ import annotations
 
 TEMPLATES: dict[str, dict] = {
     "units": {
-        "dynamic": "false",
+        "dynamic": "true",
+        "dynamic_templates": [
+            {
+                "part_dip_floats": {
+                    "match": "part_dip_*",
+                    "mapping": {"type": "float"},
+                }
+            },
+            {
+                "abst_dip_floats": {
+                    "match": "abst_dip_*",
+                    "mapping": {"type": "float"},
+                }
+            },
+            {
+                "strings_as_keywords": {
+                    "match_mapping_type": "string",
+                    "mapping": {"type": "keyword"},
+                }
+            },
+            {
+                "numbers_as_floats": {
+                    "match_mapping_type": "double",
+                    "mapping": {"type": "float"},
+                }
+            },
+            {
+                "long_numbers_as_floats": {
+                    "match_mapping_type": "long",
+                    "mapping": {"type": "float"},
+                }
+            },
+        ],
         "properties": {
             "id": {"type": "keyword"},
             "level": {"type": "keyword"},
@@ -38,8 +70,9 @@ TEMPLATES: dict[str, dict] = {
             "pct_po2sm": {"type": "float"},
             "im_2020": {"type": "float"},
             "gm_2020": {"type": "keyword"},
-            # Model & risk columns (§4.8)
+            # Model & risk columns (§4.8 & §9.2)
             "lista_nominal": {"type": "long"},
+            "coverage_ln": {"type": "float"},
             "last_year": {"type": "integer"},
             "last_participation": {"type": "float"},
             "pred_participation": {"type": "float"},
@@ -50,6 +83,7 @@ TEMPLATES: dict[str, dict] = {
             "volatility_pp": {"type": "float"},
             "risk_score": {"type": "float"},
             "category": {"type": "keyword"},
+            "drivers": {"type": "object", "enabled": False},
             # Optional geographic centroid
             "centroid": {"type": "geo_point"},
         },
@@ -59,6 +93,7 @@ TEMPLATES: dict[str, dict] = {
         "properties": {
             "id": {"type": "keyword"},
             "unit_id": {"type": "keyword"},
+            "name": {"type": "keyword"},
             "level": {"type": "keyword"},
             "cve_ent": {"type": "keyword"},
             "election": {"type": "keyword"},

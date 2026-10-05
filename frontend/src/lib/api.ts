@@ -8,6 +8,7 @@ import type {
   ScenarioResult,
   RegionDetail,
   ModelMetrics,
+  HealthResponse,
   ChatRequest,
   ChatStreamHandlers,
   ChatPlan,
@@ -59,6 +60,17 @@ export class ApiError extends Error {
   }
 }
 
+export function shouldFallbackToMock(err: unknown): boolean {
+  if (err instanceof ApiError) {
+    // 422 Validation error: do NOT fallback to mock; UI needs the backend error message
+    if (err.status === 422) return false;
+    // 404 endpoint not implemented on backend or 5xx server error: fallback
+    return err.status === 404 || err.status >= 500;
+  }
+  // Network errors (Failed to fetch, connection refused): fallback
+  return true;
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -81,6 +93,44 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+// 0. GET /api/health
+export async function getHealth(): Promise<HealthResponse> {
+  if (isMockEnabled()) {
+    return {
+      status: "ok",
+      store: "memory",
+      llm: false,
+      warmup: "ready",
+      data: {
+        units_mun: 2475,
+        units_state: 32,
+        participation_rows: 14820,
+        years: [2009, 2012, 2015, 2018, 2021, 2024],
+      },
+    };
+  }
+  try {
+    return await fetchJson<HealthResponse>("/api/health");
+  } catch (err) {
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      return {
+        status: "ok",
+        store: "memory",
+        llm: false,
+        warmup: "ready",
+        data: {
+          units_mun: 2475,
+          units_state: 32,
+          participation_rows: 14820,
+          years: [2009, 2012, 2015, 2018, 2021, 2024],
+        },
+      };
+    }
+    throw err;
+  }
+}
+
 // 1. GET /api/meta
 export async function getMeta(): Promise<Meta> {
   if (isMockEnabled()) {
@@ -89,8 +139,11 @@ export async function getMeta(): Promise<Meta> {
   try {
     return await fetchJson<Meta>("/api/meta");
   } catch (err) {
-    setMockActive(true);
-    return MOCK_META;
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      return MOCK_META;
+    }
+    throw err;
   }
 }
 
@@ -114,12 +167,15 @@ export async function getRisk(
   try {
     return await fetchJson<{ level: Level; scenario: ScenarioId; items: RiskItem[] }>(`/api/risk?${query.toString()}`);
   } catch (err) {
-    setMockActive(true);
-    const items =
-      level === "mun" && ent
-        ? generateMockMunicipalityItems(ent, scenario)
-        : generateMockStates(scenario);
-    return { level, scenario, items };
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      const items =
+        level === "mun" && ent
+          ? generateMockMunicipalityItems(ent, scenario)
+          : generateMockStates(scenario);
+      return { level, scenario, items };
+    }
+    throw err;
   }
 }
 
@@ -136,13 +192,19 @@ export async function simulateScenario(req: ScenarioRequest): Promise<ScenarioRe
       body: JSON.stringify(req),
     });
   } catch (err) {
-    setMockActive(true);
-    return simulateMockScenario(req);
+    if (err instanceof ApiError && err.status === 422) {
+      throw err;
+    }
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      return simulateMockScenario(req);
+    }
+    throw err;
   }
 }
 
 // 4. GET /api/region/{id}?scenario=base
-export async function getRegion(id: string, scenario: ScenarioId = "base"): Promise<RegionDetail> {
+export async function getRegion(id: string, scenario: ScenarioId = "base"): Promise<RegionDetail | null> {
   if (isMockEnabled()) {
     return getMockRegionDetail(id, scenario);
   }
@@ -151,8 +213,17 @@ export async function getRegion(id: string, scenario: ScenarioId = "base"): Prom
     const query = new URLSearchParams({ scenario });
     return await fetchJson<RegionDetail>(`/api/region/${encodeURIComponent(id)}?${query.toString()}`);
   } catch (err) {
-    setMockActive(true);
-    return getMockRegionDetail(id, scenario);
+    if (err instanceof ApiError && err.status === 404) {
+      // 404 from real API means unit doesn't exist
+      if (!isMockEnabled()) {
+        return null;
+      }
+    }
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      return getMockRegionDetail(id, scenario);
+    }
+    throw err;
   }
 }
 
@@ -173,8 +244,11 @@ export async function getRanking(
   try {
     return await fetchJson<{ items: RiskItem[] }>(`/api/ranking?${query.toString()}`);
   } catch (err) {
-    setMockActive(true);
-    return { items: getMockRanking(level, ent, scenario, limit) };
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      return { items: getMockRanking(level, ent, scenario, limit) };
+    }
+    throw err;
   }
 }
 
@@ -187,8 +261,11 @@ export async function getMetrics(): Promise<ModelMetrics> {
   try {
     return await fetchJson<ModelMetrics>("/api/metrics");
   } catch (err) {
-    setMockActive(true);
-    return MOCK_METRICS;
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      return MOCK_METRICS;
+    }
+    throw err;
   }
 }
 
@@ -266,7 +343,12 @@ export async function streamChat(
     });
 
     if (!res.ok) {
-      throw new ApiError(`HTTP ${res.status}: ${res.statusText}`, res.status);
+      const err = new ApiError(`HTTP ${res.status}: ${res.statusText}`, res.status);
+      if (shouldFallbackToMock(err)) {
+        setMockActive(true);
+        return streamMockChat(req, handlers, signal);
+      }
+      throw err;
     }
 
     if (!res.body) {
@@ -345,8 +427,10 @@ export async function streamChat(
     if ((err as Error)?.name === "AbortError") {
       return;
     }
-    // Fallback to mock if network/server error
-    setMockActive(true);
-    return streamMockChat(req, handlers, signal);
+    if (shouldFallbackToMock(err)) {
+      setMockActive(true);
+      return streamMockChat(req, handlers, signal);
+    }
+    handlers.onError?.({ message: (err as Error)?.message || "Error al conectar con el asistente" });
   }
 }

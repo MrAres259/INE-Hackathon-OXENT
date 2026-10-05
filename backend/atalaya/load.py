@@ -36,6 +36,23 @@ def prepare_units_docs(store: PandasStore) -> list[dict[str, Any]]:
     if df.empty:
         return []
 
+    drivers_path = store.build_dir / "drivers.parquet"
+    drivers_by_id: dict[str, list[dict[str, Any]]] = {}
+    if drivers_path.is_file():
+        try:
+            ddf = pd.read_parquet(drivers_path)
+            for _, r in ddf.iterrows():
+                uid = str(r.get("id") or r.get("cvegeo", "")).strip()
+                if uid:
+                    item = _clean_doc(r.to_dict())
+                    if "rank" in item and item["rank"] is not None:
+                        item["rank"] = int(item["rank"])
+                    if "contribution_pp" in item and item["contribution_pp"] is not None:
+                        item["contribution_pp"] = float(item["contribution_pp"])
+                    drivers_by_id.setdefault(uid, []).append(item)
+        except Exception:
+            pass
+
     valid_cve_ents = {f"{i:02d}" for i in range(1, 33)}
     docs = []
     seen_ids = set()
@@ -59,6 +76,7 @@ def prepare_units_docs(store: PandasStore) -> list[dict[str, Any]]:
             from atalaya.ingest.common import norm_name
             d["name_norm"] = norm_name(d["name"])
 
+        d["drivers"] = drivers_by_id.get(u_id, [])
         docs.append(d)
 
     return docs
@@ -69,6 +87,11 @@ def prepare_participation_docs(store: PandasStore) -> list[dict[str, Any]]:
     df = store._get_participation()
     if df.empty:
         return []
+
+    units_df = store._get_units()
+    unit_name_map = {}
+    if not units_df.empty and "id" in units_df.columns and "name" in units_df.columns:
+        unit_name_map = dict(zip(units_df["id"].astype(str), units_df["name"]))
 
     docs = []
     seen_ids = set()
@@ -87,6 +110,7 @@ def prepare_participation_docs(store: PandasStore) -> list[dict[str, Any]]:
         seen_ids.add(doc_id)
         d["id"] = doc_id
         d["unit_id"] = u_id
+        d["name"] = unit_name_map.get(u_id, "")
         if d.get("cve_ent"):
             d["cve_ent"] = zpad(d["cve_ent"], 2)
 

@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { useAtalaya } from "@/lib/state";
-import { formatInt, formatPp } from "@/lib/format";
+import { formatInt, formatPp, CATEGORY_COLORS, CATEGORY_LABELS } from "@/lib/format";
+import { ApiError } from "@/lib/api";
 
 export function ScenarioControls() {
   const {
@@ -13,10 +14,13 @@ export function ScenarioControls() {
     setScenarioParams,
     runSimulation,
     simulationResult,
+    scenario,
   } = useAtalaya();
 
-  const [localParams, setLocalParams] = useState(scenarioParams);
+  const [localParams, setLocalParams] = useState<Record<string, number | string>>(scenarioParams);
   const [isSimulating, setIsSimulating] = useState(false);
+  const [paramErrors, setParamErrors] = useState<Record<string, string>>({});
+  const [generalError, setGeneralError] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalParams(scenarioParams);
@@ -24,14 +28,39 @@ export function ScenarioControls() {
 
   if (!isScenarioModalOpen) return null;
 
-  const intervencionDef = meta?.scenarios.find((s) => s.id === "intervencion");
+  // Find scenario definition dynamically from meta
+  const scenarioDef =
+    meta?.scenarios.find((s) => s.id === scenario && s.params && s.params.length > 0) ??
+    meta?.scenarios.find((s) => s.id === "intervencion") ??
+    meta?.scenarios[0];
+
+  const paramsList = scenarioDef?.params ?? [];
 
   const handleSimulate = async () => {
     setIsSimulating(true);
-    setScenarioParams(localParams);
+    setParamErrors({});
+    setGeneralError(null);
     try {
       await runSimulation(localParams);
-      setIsScenarioModalOpen(false);
+      setScenarioParams(localParams);
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 422) {
+        const errors: Record<string, string> = {};
+        const data = err.data as any;
+        if (Array.isArray(data?.detail)) {
+          for (const item of data.detail) {
+            const key = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : "general";
+            errors[key] = item.msg || "Parámetro inválido";
+          }
+        } else if (typeof data?.detail === "string") {
+          setGeneralError(data.detail);
+        } else {
+          setGeneralError("Error de validación (422) en los parámetros enviados.");
+        }
+        setParamErrors(errors);
+      } else {
+        setGeneralError((err as Error)?.message || "Error al simular escenario");
+      }
     } finally {
       setIsSimulating(false);
     }
@@ -39,15 +68,17 @@ export function ScenarioControls() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 text-white shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 text-white shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              Ajustar Escenario de Intervención
+              {scenarioDef?.label ? `Ajustar: ${scenarioDef.label}` : "Ajustar Escenario de Intervención"}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Parametriza palancas operativas y simula el impacto en el riesgo electoral 2027.
+              {scenarioDef?.description ??
+                "Parametriza palancas operativas y simula el impacto en el riesgo electoral 2027."}
             </p>
           </div>
           <button
@@ -61,106 +92,185 @@ export function ScenarioControls() {
           </button>
         </div>
 
-        {/* Form Params */}
+        {generalError && (
+          <div className="mb-4 p-3 bg-rose-950/80 border border-rose-800 rounded-xl text-xs text-rose-300">
+            {generalError}
+          </div>
+        )}
+
+        {/* Dynamic Controls generated from Meta.scenarios[].params */}
         <div className="space-y-4">
-          {/* Palanca */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Palanca de intervención institucional
-            </label>
-            <select
-              value={localParams.palanca as string}
-              onChange={(e) => setLocalParams({ ...localParams, palanca: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="promocion_jovenes">Promoción de voto en jóvenes (18-24 años)</option>
-              <option value="casillas_rurales">Instalación y accesibilidad de casillas rurales</option>
-              <option value="materiales_lengua_indigena">Materiales y difusión en lenguas indígenas</option>
-              <option value="campana_general">Campaña intensiva general de participación</option>
-            </select>
-          </div>
+          {paramsList.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">
+              No se encontraron parámetros configurables para este escenario.
+            </p>
+          ) : (
+            paramsList.map((p) => {
+              const currentVal = localParams[p.key] ?? p.default;
+              const hasError = !!paramErrors[p.key];
 
-          {/* Focalización */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              Focalización territorial
-            </label>
-            <select
-              value={localParams.focalizacion as string}
-              onChange={(e) => setLocalParams({ ...localParams, focalizacion: e.target.value })}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="rojo">Solo municipios en Riesgo Crítico (Rojo)</option>
-              <option value="rojo_naranja">Municipios en Riesgo Alto y Crítico (Rojo + Naranja)</option>
-              <option value="todos">Cobertura universal (todos los municipios)</option>
-            </select>
-          </div>
+              if (p.type === "select") {
+                return (
+                  <div key={p.key}>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      {p.label}
+                    </label>
+                    <select
+                      value={String(currentVal)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setLocalParams((prev) => ({ ...prev, [p.key]: val }));
+                        setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                      }}
+                      className={`w-full bg-slate-800 border ${
+                        hasError ? "border-rose-500" : "border-slate-700"
+                      } rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                    >
+                      {p.options?.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    {hasError && (
+                      <p className="text-xs text-rose-400 mt-1 font-medium">{paramErrors[p.key]}</p>
+                    )}
+                  </div>
+                );
+              }
 
-          {/* Effect pp slider */}
-          <div>
-            <div className="flex justify-between items-center mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">
-                Efecto esperado de incremento en participación
-              </label>
-              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                +{Number(localParams.effect_pp ?? 3.5).toFixed(1)} pp
-              </span>
-            </div>
-            <input
-              type="range"
-              min={0.5}
-              max={10.0}
-              step={0.5}
-              value={Number(localParams.effect_pp ?? 3.5)}
-              onChange={(e) => setLocalParams({ ...localParams, effect_pp: parseFloat(e.target.value) })}
-              className="w-full accent-emerald-500 cursor-pointer"
-            />
-            <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
-              <span>+0.5 pp (Conservador)</span>
-              <span>+5.0 pp (Moderado)</span>
-              <span>+10.0 pp (Agresivo)</span>
-            </div>
-          </div>
+              if (p.type === "number") {
+                const numVal = Number(currentVal);
+                const min = p.min ?? 0;
+                const max = p.max ?? 10;
+                const step = p.step ?? 0.1;
 
-          {/* Coverage slider */}
-          <div>
-            <div className="flex justify-between items-center mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">
-                Cobertura operativa estimada
-              </label>
-              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                {Math.round(Number(localParams.coverage ?? 0.8) * 100)}%
-              </span>
-            </div>
-            <input
-              type="range"
-              min={0.1}
-              max={1.0}
-              step={0.05}
-              value={Number(localParams.coverage ?? 0.8)}
-              onChange={(e) => setLocalParams({ ...localParams, coverage: parseFloat(e.target.value) })}
-              className="w-full accent-emerald-500 cursor-pointer"
-            />
-            <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
-              <span>10% (Piloto acotado)</span>
-              <span>80% (Capacidad INE estándar)</span>
-              <span>100% (Despliegue total)</span>
-            </div>
-          </div>
+                return (
+                  <div key={p.key}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-xs font-semibold text-slate-300">
+                        {p.label}
+                      </label>
+                      <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
+                        {p.unit === "%"
+                          ? `${Math.round(numVal <= 1.0 ? numVal * 100 : numVal)}%`
+                          : p.unit === "pp"
+                          ? `+${numVal.toFixed(1)} pp`
+                          : `${numVal} ${p.unit ?? ""}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={isNaN(numVal) ? min : numVal}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setLocalParams((prev) => ({ ...prev, [p.key]: val }));
+                          setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                        }}
+                        className="flex-1 accent-emerald-500 cursor-pointer"
+                      />
+                      <input
+                        type="number"
+                        min={min}
+                        max={max}
+                        step={step}
+                        value={isNaN(numVal) ? "" : numVal}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setLocalParams((prev) => ({
+                            ...prev,
+                            [p.key]: isNaN(val) ? 0 : val,
+                          }));
+                          setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                        }}
+                        className={`w-20 bg-slate-800 border ${
+                          hasError ? "border-rose-500" : "border-slate-700"
+                        } rounded-lg px-2 py-1 text-xs text-white text-right font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500`}
+                      />
+                    </div>
+                    {hasError && (
+                      <p className="text-xs text-rose-400 mt-1 font-medium">{paramErrors[p.key]}</p>
+                    )}
+                  </div>
+                );
+              }
+
+              return null;
+            })
+          )}
         </div>
 
-        {/* Previous simulation summary banner if available */}
+        {/* Simulation Summary: counts by category vs base, additional votes, mean delta pp */}
         {simulationResult && (
-          <div className="mt-4 p-3 bg-slate-800/80 rounded-xl border border-slate-700/80 text-xs flex items-center justify-between">
-            <span className="text-slate-300">Última simulación:</span>
-            <div className="flex items-center gap-3">
-              <span className="text-emerald-400 font-semibold">
-                +{formatInt(simulationResult.summary.votos_adicionales)} votos recuperados
+          <div className="mt-5 p-4 bg-slate-800/90 rounded-xl border border-slate-700/80 space-y-3 text-xs">
+            <div className="font-semibold text-slate-200 flex items-center justify-between">
+              <span>Resumen del Escenario Simulado</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {simulationResult.summary.n_units} zonas evaluadas
               </span>
-              <span className="text-slate-400">|</span>
-              <span className="text-emerald-400 font-semibold">
-                {formatPp(simulationResult.summary.mean_delta_pp)} promedio
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                  Votos Adicionales Estimados
+                </span>
+                <span className="text-base font-bold text-emerald-400 mt-0.5 block">
+                  +{formatInt(simulationResult.summary.votos_adicionales)}
+                </span>
+              </div>
+              <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                  Efecto Promedio en Abstención
+                </span>
+                <span className="text-base font-bold text-emerald-400 mt-0.5 block">
+                  {formatPp(simulationResult.summary.mean_delta_pp)}
+                </span>
+              </div>
+            </div>
+
+            {/* Counts by category vs base */}
+            <div>
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1.5">
+                Distribución por Semáforo: Simulado vs Base
               </span>
+              <div className="grid grid-cols-4 gap-1.5 text-center font-mono">
+                {(["verde", "amarillo", "naranja", "rojo"] as const).map((cat) => {
+                  const simCount = simulationResult.summary.by_category?.[cat] ?? 0;
+                  const baseCount = simulationResult.summary.by_category_base?.[cat] ?? 0;
+                  const diff = simCount - baseCount;
+
+                  return (
+                    <div
+                      key={cat}
+                      className="p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col items-center"
+                    >
+                      <div className="flex items-center gap-1 text-[10px] text-slate-300 capitalize mb-0.5">
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: CATEGORY_COLORS[cat] }}
+                        />
+                        <span>{CATEGORY_LABELS[cat]}</span>
+                      </div>
+                      <div className="text-sm font-bold text-white">
+                        {simCount}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        base: {baseCount}{" "}
+                        {diff !== 0 && (
+                          <span className={diff > 0 ? "text-emerald-400" : "text-amber-400"}>
+                            ({diff > 0 ? `+${diff}` : diff})
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
@@ -172,7 +282,7 @@ export function ScenarioControls() {
             onClick={() => setIsScenarioModalOpen(false)}
             className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
           >
-            Cancelar
+            Cerrar
           </button>
           <button
             type="button"
@@ -189,7 +299,7 @@ export function ScenarioControls() {
                 <span>Simulando...</span>
               </>
             ) : (
-              <span>Aplicar y Simular</span>
+              <span>Simular</span>
             )}
           </button>
         </div>

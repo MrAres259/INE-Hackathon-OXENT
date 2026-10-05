@@ -8,14 +8,23 @@ import type {
   RegionDetail,
   ScenarioResult,
   Meta,
+  HealthResponse,
 } from "./types";
-import { getMeta, getRisk, getRegion, simulateScenario, subscribeMockStatus, isMockEnabled } from "./api";
+import {
+  getHealth,
+  getMeta,
+  getRisk,
+  getRegion,
+  simulateScenario,
+  subscribeMockStatus,
+  isMockEnabled,
+} from "./api";
 
 interface AtalayaContextValue {
   scenario: ScenarioId;
   setScenario: (s: ScenarioId) => void;
   scenarioParams: Record<string, number | string>;
-  setScenarioParams: (p: Record<string, number | string>) => void;
+  setScenarioParams: React.Dispatch<React.SetStateAction<Record<string, number | string>>>;
   level: Level;
   selectedEnt: string | null;
   selectedRegionId: string | null;
@@ -28,6 +37,9 @@ interface AtalayaContextValue {
   isMock: boolean;
   isScenarioModalOpen: boolean;
   setIsScenarioModalOpen: (open: boolean) => void;
+  health: HealthResponse | null;
+  apiAvailable: boolean;
+  hasData: boolean;
   selectState: (ent: string) => void;
   selectMunicipality: (cvegeo: string) => void;
   selectRegion: (id: string | null) => void;
@@ -56,12 +68,37 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   const [simulationResult, setSimulationResult] = useState<ScenarioResult | null>(null);
   const [isMock, setIsMock] = useState(isMockEnabled());
   const [isScenarioModalOpen, setIsScenarioModalOpen] = useState(false);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [apiAvailable, setApiAvailable] = useState<boolean>(true);
+  const [hasData, setHasData] = useState<boolean>(true);
 
   // Subscribe to mock state changes
   useEffect(() => {
     return subscribeMockStatus((mockActive) => {
       setIsMock(mockActive);
+      if (mockActive) {
+        setApiAvailable(false);
+      }
     });
+  }, []);
+
+  // Health check on startup
+  useEffect(() => {
+    getHealth()
+      .then((h) => {
+        setHealth(h);
+        const units = h?.data?.units_mun ?? 0;
+        if (units === 0 && !isMockEnabled()) {
+          setHasData(false);
+        } else {
+          setHasData(true);
+        }
+        setApiAvailable(!isMockEnabled());
+      })
+      .catch(() => {
+        setApiAvailable(false);
+        setHasData(true);
+      });
   }, []);
 
   // Fetch Meta once
@@ -81,22 +118,45 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Load risk items whenever level, ent, or scenario changes
-  const loadRisk = useCallback(async () => {
-    setLoadingRisk(true);
-    try {
-      const res = await getRisk(level, selectedEnt ?? undefined, scenario);
-      setRiskItems(res.items);
-    } catch {
-      // handled inside api.ts fallback
-    } finally {
-      setLoadingRisk(false);
-    }
-  }, [level, selectedEnt, scenario]);
-
+  // Base scenario risk loader
   useEffect(() => {
-    loadRisk();
-  }, [loadRisk]);
+    if (scenario !== "base") return;
+    setLoadingRisk(true);
+    getRisk(level, selectedEnt ?? undefined, "base")
+      .then((res) => {
+        setRiskItems(res.items);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingRisk(false));
+  }, [scenario, level, selectedEnt]);
+
+  // Non-base scenario: re-simulation with 400ms debounce
+  useEffect(() => {
+    if (scenario === "base") {
+      setSimulationResult(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setLoadingRisk(true);
+      try {
+        const res = await simulateScenario({
+          scenario,
+          params: scenarioParams,
+          level,
+          ent: selectedEnt,
+        });
+        setSimulationResult(res);
+        setRiskItems(res.items);
+      } catch {
+        // Handled in controls or fallback
+      } finally {
+        setLoadingRisk(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [scenario, scenarioParams, level, selectedEnt]);
 
   // Load region detail whenever selectedRegionId or scenario changes
   useEffect(() => {
@@ -114,7 +174,7 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   const selectState = useCallback((ent: string) => {
     setSelectedEnt(ent);
     setLevel("mun");
-    setSelectedRegionId(ent); // initially select the state itself in details
+    setSelectedRegionId(ent);
   }, []);
 
   const selectMunicipality = useCallback((cvegeo: string) => {
@@ -187,6 +247,9 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
         isMock,
         isScenarioModalOpen,
         setIsScenarioModalOpen,
+        health,
+        apiAvailable,
+        hasData,
         selectState,
         selectMunicipality,
         selectRegion,

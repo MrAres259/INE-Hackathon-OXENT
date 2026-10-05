@@ -18,6 +18,7 @@ export function RegionDetailPanel() {
     loadingDetail,
     riskItems,
     selectRegion,
+    selectState,
     meta,
     scenario,
     simulationResult,
@@ -159,9 +160,18 @@ export function RegionDetailPanel() {
             {selectedDetail.level === "state" ? "Entidad Federativa" : "Municipio"} · Clave {selectedDetail.id}
           </span>
           {selectedDetail.parent && (
-            <span className="text-[10px] text-slate-400">
-              Estado: <span className="text-slate-200">{selectedDetail.parent.name}</span>
-            </span>
+            <button
+              type="button"
+              onClick={() => selectState(selectedDetail.parent!.id)}
+              className="text-[10px] text-slate-400 hover:text-white transition-colors cursor-pointer flex items-center gap-1 group"
+              title={`Volver a ${selectedDetail.parent.name}`}
+            >
+              <span>Estado:</span>
+              <span className="text-emerald-400 font-semibold group-hover:underline">
+                {selectedDetail.parent.name}
+              </span>
+              <span>←</span>
+            </button>
           )}
         </div>
         <h2 className="text-xl font-extrabold text-white mt-1.5">{selectedDetail.name}</h2>
@@ -303,11 +313,15 @@ export function RegionDetailPanel() {
       </div>
 
       {/* Risk Drivers (Divergent Bar Chart) */}
-      {selectedDetail.drivers && selectedDetail.drivers.length > 0 && (
-        <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-            Factores que Más Influyen en el Riesgo
-          </h3>
+      <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
+        <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
+          Factores que Más Influyen en el Riesgo
+        </h3>
+        {!selectedDetail.drivers || selectedDetail.drivers.length === 0 ? (
+          <div className="text-xs text-slate-400 py-3 text-center">
+            Sin información suficiente
+          </div>
+        ) : (
           <div className="space-y-2">
             {selectedDetail.drivers.map((d) => {
               const isUp = d.direction === "sube_abstencion";
@@ -339,8 +353,8 @@ export function RegionDetailPanel() {
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Sociodemographic Features vs National Median */}
       {selectedDetail.features && selectedDetail.features.length > 0 && (
@@ -361,25 +375,27 @@ export function RegionDetailPanel() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {selectedDetail.features.slice(0, 7).map((f) => (
+                {selectedDetail.features.slice(0, 10).map((f) => (
                   <tr key={f.key} className="hover:bg-slate-800/30">
                     <td className="py-1.5 text-slate-300 text-[11px] pr-2">{f.label}</td>
                     <td className="py-1.5 text-right font-mono font-bold text-white">
                       {typeof f.value === "number"
                         ? f.unit === "proporción"
                           ? formatPct(f.value)
-                          : f.unit === "hab."
+                          : f.unit === "personas" || f.unit === "votos" || f.unit === "hab."
                           ? formatInt(f.value)
                           : f.value.toFixed(1)
                         : f.value ?? "—"}
                     </td>
                     <td className="py-1.5 text-right font-mono text-slate-400 text-[10px]">
                       {f.national_median !== null
-                        ? f.unit === "proporción"
-                          ? formatPct(f.national_median)
-                          : f.unit === "hab."
-                          ? formatInt(f.national_median)
-                          : f.national_median.toFixed(1)
+                        ? typeof f.national_median === "number"
+                          ? f.unit === "proporción"
+                            ? formatPct(f.national_median)
+                            : f.unit === "personas" || f.unit === "votos" || f.unit === "hab."
+                            ? formatInt(f.national_median)
+                            : f.national_median.toFixed(1)
+                          : String(f.national_median)
                         : "—"}
                     </td>
                   </tr>
@@ -391,11 +407,15 @@ export function RegionDetailPanel() {
       )}
 
       {/* Recommendations */}
-      {selectedDetail.recommendations && selectedDetail.recommendations.length > 0 && (
-        <div>
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-            Recomendaciones Preventivas
-          </h3>
+      <div>
+        <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
+          Recomendaciones Preventivas
+        </h3>
+        {!selectedDetail.recommendations || selectedDetail.recommendations.length === 0 ? (
+          <div className="p-3 bg-slate-800/40 rounded-xl border border-slate-800 text-xs text-slate-400 text-center">
+            Sin información suficiente
+          </div>
+        ) : (
           <div className="space-y-2.5">
             {selectedDetail.recommendations.map((rec) => {
               const badgeBg =
@@ -426,8 +446,8 @@ export function RegionDetailPanel() {
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -1,15 +1,11 @@
 // MOCK DATA: Synthetic coarse GeoJSON for Mexican states and municipalities
 import type { FeatureCollection, Polygon, Geometry } from "geojson";
+import type { GeoIndexFile, GeoIndexItem, GeoIndexState, GeoIndexMun } from "../types";
+import { toIndexItems } from "../geo";
 import { MOCK_STATES } from "./meta";
 import { MOCK_MUN_TEMPLATES } from "./risk";
 
-export interface GeoIndexItem {
-  id: string;
-  name: string;
-  level: "state" | "mun";
-  ent: string;
-  bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
-}
+export type { GeoIndexItem };
 
 // Approximate centroids for the 32 Mexican states [lat, lon]
 export const STATE_CENTROIDS: Record<string, [number, number]> = {
@@ -63,7 +59,7 @@ function createBoxPolygon(lat: number, lon: number, dLat: number, dLon: number):
   };
 }
 
-export function getMockStatesGeoJson(): FeatureCollection<Geometry, { cve_ent: string; nom_ent: string }> {
+export function getMockStatesGeoJson(): FeatureCollection<Geometry, { id: string; name: string }> {
   return {
     type: "FeatureCollection",
     features: MOCK_STATES.map((state) => {
@@ -77,8 +73,8 @@ export function getMockStatesGeoJson(): FeatureCollection<Geometry, { cve_ent: s
         type: "Feature",
         id: state.id,
         properties: {
-          cve_ent: state.id,
-          nom_ent: state.name,
+          id: state.id,
+          name: state.name,
         },
         geometry: createBoxPolygon(centroid[0], centroid[1], dLat, dLon),
       };
@@ -86,7 +82,9 @@ export function getMockStatesGeoJson(): FeatureCollection<Geometry, { cve_ent: s
   };
 }
 
-export function getMockMunGeoJson(ent: string): FeatureCollection<Geometry, { cvegeo: string; cve_ent: string; nom_mun: string }> {
+export function getMockMunGeoJson(
+  ent: string
+): FeatureCollection<Geometry, { id: string; ent: string; name: string }> {
   const centroid = STATE_CENTROIDS[ent] ?? [23.0, -102.0];
   const templates = MOCK_MUN_TEMPLATES[ent] ?? [];
   const count = Math.max(templates.length, 6);
@@ -109,9 +107,9 @@ export function getMockMunGeoJson(ent: string): FeatureCollection<Geometry, { cv
       type: "Feature" as const,
       id: m.cvegeo,
       properties: {
-        cvegeo: m.cvegeo,
-        cve_ent: ent,
-        nom_mun: m.name,
+        id: m.cvegeo,
+        ent,
+        name: m.name,
       },
       geometry: createBoxPolygon(lat, lon, cellHeight * 0.45, cellWidth * 0.45),
     };
@@ -123,22 +121,18 @@ export function getMockMunGeoJson(ent: string): FeatureCollection<Geometry, { cv
   };
 }
 
-export function getMockGeoIndex(): GeoIndexItem[] {
-  const items: GeoIndexItem[] = [];
-
-  // States
+export function getMockGeoIndexFile(): GeoIndexFile {
+  const states: Record<string, GeoIndexState> = {};
   for (const s of MOCK_STATES) {
     const [lat, lon] = STATE_CENTROIDS[s.id] ?? [23.0, -102.0];
-    items.push({
-      id: s.id,
+    states[s.id] = {
       name: s.name,
-      level: "state",
-      ent: s.id,
       bbox: [lon - 0.8, lat - 0.8, lon + 0.8, lat + 0.8],
-    });
+      centroid: [lon, lat],
+    };
   }
 
-  // Municipalities for sampled states
+  const mun: Record<string, GeoIndexMun> = {};
   for (const [ent, muns] of Object.entries(MOCK_MUN_TEMPLATES)) {
     const [stateLat, stateLon] = STATE_CENTROIDS[ent] ?? [23.0, -102.0];
     muns.forEach((m, idx) => {
@@ -146,15 +140,20 @@ export function getMockGeoIndex(): GeoIndexItem[] {
       const c = idx % 3;
       const lat = stateLat + 0.35 - r * 0.35;
       const lon = stateLon - 0.45 + c * 0.45;
-      items.push({
-        id: m.cvegeo,
+      mun[m.cvegeo] = {
         name: m.name,
-        level: "mun",
         ent,
-        bbox: [lon - 0.2, lat - 0.2, lon + 0.2, lat + 0.2],
-      });
+        centroid: [lon, lat],
+      };
     });
   }
 
-  return items;
+  return {
+    states,
+    mun,
+  };
+}
+
+export function getMockGeoIndex(): GeoIndexItem[] {
+  return toIndexItems(getMockGeoIndexFile());
 }

@@ -19,6 +19,7 @@ export function RankingTable() {
     scenario,
     selectRegion,
     meta,
+    simulationResult,
   } = useAtalaya();
 
   const [level, setLevel] = useState<Level>(contextLevel);
@@ -36,12 +37,26 @@ export function RankingTable() {
   }, [selectedEnt]);
 
   useEffect(() => {
+    // If scenario != base and simulationResult is available for this level
+    if (scenario !== "base" && simulationResult && simulationResult.level === level) {
+      let filtered = simulationResult.items.filter((item) => item.category !== "sin_dato");
+      if (level === "mun" && entFilter) {
+        filtered = filtered.filter((item) => item.ent === entFilter);
+      }
+      filtered.sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0));
+      setItems(filtered.slice(0, 20));
+      return;
+    }
+
     setLoading(true);
     getRanking(level, entFilter || undefined, scenario, 20)
-      .then((res) => setItems(res.items))
+      .then((res) => {
+        const valid = res.items.filter((item) => item.category !== "sin_dato");
+        setItems(valid);
+      })
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [level, entFilter, scenario]);
+  }, [level, entFilter, scenario, simulationResult]);
 
   const handleExportCsv = () => {
     const csvContent = generateRankingCsv(items);

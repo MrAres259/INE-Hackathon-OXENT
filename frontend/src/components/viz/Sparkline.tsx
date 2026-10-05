@@ -16,26 +16,37 @@ export function Sparkline({
   series,
   predParticipation,
   targetYear = 2027,
-  height = 140,
+  height = 145,
   width = 340,
 }: SparklineProps) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<SeriesPoint | null>(null);
 
   if (!series || series.length === 0) {
     return <div className="text-xs text-slate-500 py-4 text-center">Sin serie histórica disponible</div>;
   }
 
-  // Combine with prediction point if available
+  // Separate DIP_FED (principal series with connected line) and PRES (presidential separate points)
+  const dipFedPoints = series
+    .filter((p) => !p.election || p.election === "DIP_FED")
+    .sort((a, b) => a.year - b.year);
+
+  const presPoints = series
+    .filter((p) => p.election === "PRES")
+    .sort((a, b) => a.year - b.year);
+
   const allPoints = [...series].sort((a, b) => a.year - b.year);
   const minYear = allPoints[0].year;
-  const maxYear = predParticipation !== undefined && predParticipation !== null ? targetYear : allPoints[allPoints.length - 1].year;
+  const maxYear =
+    predParticipation !== undefined && predParticipation !== null
+      ? targetYear
+      : allPoints[allPoints.length - 1].year;
 
   // Find min/max participation for dynamic range
   const allValues = allPoints.map((p) => p.participation);
   if (predParticipation !== undefined && predParticipation !== null) {
     allValues.push(predParticipation);
   }
-  const minVal = Math.max(0.2, Math.floor((Math.min(...allValues) - 0.05) * 10) / 10);
+  const minVal = Math.max(0.1, Math.floor((Math.min(...allValues) - 0.05) * 10) / 10);
   const maxVal = Math.min(1.0, Math.ceil((Math.max(...allValues) + 0.05) * 10) / 10);
 
   const padLeft = 36;
@@ -47,27 +58,33 @@ export function Sparkline({
   const chartHeight = height - padTop - padBottom;
 
   const getX = (year: number) => {
+    if (maxYear === minYear) return padLeft + chartWidth / 2;
     return padLeft + ((year - minYear) / (maxYear - minYear)) * chartWidth;
   };
 
   const getY = (val: number) => {
+    if (maxVal === minVal) return padTop + chartHeight / 2;
     return padTop + chartHeight - ((val - minVal) / (maxVal - minVal)) * chartHeight;
   };
 
-  // Build SVG path
-  const pathD = allPoints
+  // Connected line for DIP_FED
+  const pathD = dipFedPoints
     .map((p, i) => `${i === 0 ? "M" : "L"} ${getX(p.year)} ${getY(p.participation)}`)
     .join(" ");
 
-  // Projection segment to 2027
+  // Projection segment to 2027 from last DIP_FED point
   let projPathD = "";
-  if (predParticipation !== undefined && predParticipation !== null) {
-    const lastP = allPoints[allPoints.length - 1];
+  if (
+    predParticipation !== undefined &&
+    predParticipation !== null &&
+    dipFedPoints.length > 0
+  ) {
+    const lastP = dipFedPoints[dipFedPoints.length - 1];
     projPathD = `M ${getX(lastP.year)} ${getY(lastP.participation)} L ${getX(targetYear)} ${getY(predParticipation)}`;
   }
 
   return (
-    <div className="relative w-full overflow-hidden">
+    <div className="relative w-full overflow-hidden space-y-2">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="w-full h-auto overflow-visible select-none font-sans"
@@ -99,15 +116,17 @@ export function Sparkline({
           );
         })}
 
-        {/* Historical line */}
-        <path
-          d={pathD}
-          fill="none"
-          stroke="#0284c7"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        {/* DIP_FED continuous line */}
+        {pathD && (
+          <path
+            d={pathD}
+            fill="none"
+            stroke="#0284c7"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
 
         {/* Projection dashed line to 2027 */}
         {projPathD && (
@@ -121,42 +140,26 @@ export function Sparkline({
           />
         )}
 
-        {/* Historical Data points */}
-        {allPoints.map((p, i) => {
+        {/* DIP_FED Data points */}
+        {dipFedPoints.map((p, i) => {
           const cx = getX(p.year);
           const cy = getY(p.participation);
-          const isPresidential = [2012, 2018, 2024].includes(p.year);
-          const isHovered = hoveredIndex === i;
 
           return (
             <g
-              key={i}
+              key={`dip-${i}`}
               className="cursor-pointer"
-              onMouseEnter={() => setHoveredIndex(i)}
-              onMouseLeave={() => setHoveredIndex(null)}
+              onMouseEnter={() => setHoveredPoint(p)}
+              onMouseLeave={() => setHoveredPoint(null)}
             >
-              {/* Outer halo for presidential election */}
-              {isPresidential && (
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r="7"
-                  fill="none"
-                  stroke="#38bdf8"
-                  strokeWidth="1.5"
-                  opacity="0.8"
-                />
-              )}
-              {/* Main circle */}
               <circle
                 cx={cx}
                 cy={cy}
-                r={isHovered ? "5" : isPresidential ? "4.5" : "3.5"}
-                fill={isPresidential ? "#0284c7" : "#e2e8f0"}
-                stroke="#0f172a"
+                r="4"
+                fill="#0284c7"
+                stroke="#ffffff"
                 strokeWidth="1.5"
               />
-              {/* X-axis year label */}
               <text
                 x={cx}
                 y={height - 6}
@@ -166,6 +169,30 @@ export function Sparkline({
               >
                 {p.year}
               </text>
+            </g>
+          );
+        })}
+
+        {/* PRES Data points (diamonds) */}
+        {presPoints.map((p, i) => {
+          const cx = getX(p.year);
+          const cy = getY(p.participation);
+          const s = 5.5; // size of diamond half-diagonal
+          const diamondPath = `M ${cx} ${cy - s} L ${cx + s} ${cy} L ${cx} ${cy + s} L ${cx - s} ${cy} Z`;
+
+          return (
+            <g
+              key={`pres-${i}`}
+              className="cursor-pointer"
+              onMouseEnter={() => setHoveredPoint(p)}
+              onMouseLeave={() => setHoveredPoint(null)}
+            >
+              <path
+                d={diamondPath}
+                fill="#a855f7"
+                stroke="#ffffff"
+                strokeWidth="1.5"
+              />
             </g>
           );
         })}
@@ -196,23 +223,50 @@ export function Sparkline({
       </svg>
 
       {/* Hover tooltip */}
-      {hoveredIndex !== null && allPoints[hoveredIndex] && (
+      {hoveredPoint && (
         <div
           className="absolute z-10 bg-slate-950 text-white text-[11px] p-2 rounded shadow-lg border border-slate-700 pointer-events-none"
           style={{
-            left: `${(getX(allPoints[hoveredIndex].year) / width) * 100}%`,
+            left: `${(getX(hoveredPoint.year) / width) * 100}%`,
             top: "0px",
             transform: "translateX(-50%)",
           }}
         >
           <div className="font-bold text-sky-400">
-            {allPoints[hoveredIndex].year}{" "}
-            {[2012, 2018, 2024].includes(allPoints[hoveredIndex].year) ? "(Presidencial)" : "(Intermedia)"}
+            {hoveredPoint.year} ·{" "}
+            {hoveredPoint.election === "PRES"
+              ? "Presidencial (PRES)"
+              : "Diputaciones Federales (DIP_FED)"}
           </div>
-          <div>Participación: <span className="font-semibold text-white">{formatPct(allPoints[hoveredIndex].participation)}</span></div>
-          <div className="text-slate-400">Lista: {formatInt(allPoints[hoveredIndex].lista_nominal)}</div>
+          <div>
+            Participación:{" "}
+            <span className="font-semibold text-white">
+              {formatPct(hoveredPoint.participation)}
+            </span>
+          </div>
+          <div className="text-slate-400">
+            Lista: {formatInt(hoveredPoint.lista_nominal)}
+          </div>
         </div>
       )}
+
+      {/* Complete Legend */}
+      <div className="flex flex-wrap items-center justify-between text-[10px] text-slate-400 pt-1.5 border-t border-slate-800">
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 bg-sky-500 inline-block"></span>
+          <span className="w-2 h-2 rounded-full bg-sky-500 inline-block"></span>
+          <span>DIP_FED</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rotate-45 bg-purple-500 inline-block"></span>
+          <span>PRES (Presidencial)</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 border-b border-dashed border-emerald-400 inline-block"></span>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+          <span>Pronóstico 2027</span>
+        </div>
+      </div>
     </div>
   );
 }

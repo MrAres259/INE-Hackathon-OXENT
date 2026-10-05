@@ -122,6 +122,7 @@ export type Backtest = {
   train_until: number;
   test_year: number;
   mae_pp: number;
+  baseline_mae_pp?: number;
   rmse_pp: number;
   spearman: number;
   n: number;
@@ -134,6 +135,45 @@ export type ModelMetrics = {
   coefficients: { key: string; label: string; coef_pp_per_sd: number }[];
   generated_at: string;
   data_sources: { name: string; file: string; rows: number }[];
+};
+
+export type HealthResponse = {
+  status: string;
+  store: "es" | "memory";
+  llm: boolean;
+  warmup: "ready" | "loading";
+  data: {
+    units_mun: number;
+    units_state: number;
+    participation_rows: number;
+    years: number[];
+  };
+};
+
+export type GeoIndexState = {
+  name: string;
+  bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+  centroid: [number, number]; // [lon, lat]
+};
+
+export type GeoIndexMun = {
+  name: string;
+  ent: string;
+  centroid: [number, number]; // [lon, lat]
+};
+
+export type GeoIndexFile = {
+  states: Record<string, GeoIndexState>;
+  mun: Record<string, GeoIndexMun>;
+};
+
+export type GeoIndexItem = {
+  id: string;
+  name: string;
+  level: Level;
+  ent: string;
+  bbox?: [number, number, number, number];
+  centroid?: [number, number];
 };
 
 export type ChatRequest = {

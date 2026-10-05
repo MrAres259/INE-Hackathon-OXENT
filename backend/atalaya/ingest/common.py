@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import csv
 import io
 import re
@@ -56,16 +57,17 @@ def norm_col(name: str | None) -> str:
     return s
 
 
-def zpad(value: any, width: int) -> str:
+def zpad(value: any, width: int, empty: str = "") -> str:
     """Format numeric/string code with leading zeros.
     
     Examples: 7 -> '07', '7.0' -> '07', '07101' -> '07101'.
+    Returns empty (default "") for None, NaN, or empty input.
     """
     if value is None or (isinstance(value, float) and np.isnan(value)):
-        return "0".zfill(width)
+        return empty
     val_str = str(value).strip()
-    if not val_str or val_str.lower() == "nan":
-        return "0".zfill(width)
+    if not val_str or val_str.lower() in ("nan", "none", "null"):
+        return empty
 
     # Handle float strings like '7.0'
     if "." in val_str:
@@ -176,8 +178,9 @@ def _detect_csv_encoding_and_delimiter(
 
     for enc in encodings:
         try:
-            # Check if it decodes cleanly
-            decoded_text = file_bytes[:100000].decode(enc)
+            # Use incremental decoder so multibyte characters split at the 100KB boundary don't fail
+            decoder = codecs.getincrementaldecoder(enc)(errors="strict")
+            decoded_text = decoder.decode(file_bytes[:100000], final=False)
             chosen_enc = enc
             break
         except UnicodeDecodeError:
@@ -282,14 +285,26 @@ def read_table(
     chosen_enc, delimiter, parsed_rows = _detect_csv_encoding_and_delimiter(file_bytes)
     header_idx = _find_header_row_index(parsed_rows, expect_any)
 
-    df = pd.read_csv(
-        path,
-        encoding=chosen_enc,
-        sep=delimiter,
-        skiprows=header_idx,
-        dtype=str,
-        low_memory=False,
-    )
+    enc_candidates = [chosen_enc] + [e for e in ["cp1252", "latin-1"] if e != chosen_enc]
+    df = None
+    last_err = None
+    for enc in enc_candidates:
+        try:
+            df = pd.read_csv(
+                path,
+                encoding=enc,
+                sep=delimiter,
+                skiprows=header_idx,
+                dtype=str,
+                low_memory=False,
+            )
+            break
+        except UnicodeDecodeError as exc:
+            last_err = exc
+            continue
+    if df is None:
+        raise last_err
+
     df.columns = _dedup_columns(df.columns)
     return _clean_empty_rows_and_cols(df)
 
@@ -298,14 +313,26 @@ def _read_csv_from_bytes(raw_bytes: bytes, expect_any: Iterable[str]) -> pd.Data
     chosen_enc, delimiter, parsed_rows = _detect_csv_encoding_and_delimiter(raw_bytes)
     header_idx = _find_header_row_index(parsed_rows, expect_any)
 
-    df = pd.read_csv(
-        io.BytesIO(raw_bytes),
-        encoding=chosen_enc,
-        sep=delimiter,
-        skiprows=header_idx,
-        dtype=str,
-        low_memory=False,
-    )
+    enc_candidates = [chosen_enc] + [e for e in ["cp1252", "latin-1"] if e != chosen_enc]
+    df = None
+    last_err = None
+    for enc in enc_candidates:
+        try:
+            df = pd.read_csv(
+                io.BytesIO(raw_bytes),
+                encoding=enc,
+                sep=delimiter,
+                skiprows=header_idx,
+                dtype=str,
+                low_memory=False,
+            )
+            break
+        except UnicodeDecodeError as exc:
+            last_err = exc
+            continue
+    if df is None:
+        raise last_err
+
     df.columns = _dedup_columns(df.columns)
     return _clean_empty_rows_and_cols(df)
 

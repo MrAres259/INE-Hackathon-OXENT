@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import functools
+import json
 import logging
 import re
 from pathlib import Path
@@ -91,6 +92,15 @@ class DataStore(Protocol):
     ) -> dict:
         ...
 
+    def drivers(self, unit_id: str) -> list[dict]:
+        ...
+
+    def metrics(self) -> dict:
+        ...
+
+    def reload(self) -> None:
+        ...
+
     def stats(self) -> dict:
         ...
 
@@ -107,6 +117,17 @@ class PandasStore:
         self._participation_df: pd.DataFrame | None = None
         self._catalog_df: pd.DataFrame | None = None
         self._states_df: pd.DataFrame | None = None
+        self._drivers_df: pd.DataFrame | None = None
+        self._metrics_dict: dict | None = None
+
+    def reload(self) -> None:
+        """Clear all cached DataFrames and dictionaries."""
+        self._units_df = None
+        self._participation_df = None
+        self._catalog_df = None
+        self._states_df = None
+        self._drivers_df = None
+        self._metrics_dict = None
 
     def healthy(self) -> bool:
         """Returns True since local PandasStore is always available."""
@@ -225,6 +246,29 @@ class PandasStore:
             if state_rows:
                 state_df = pd.DataFrame(state_rows)
                 df = pd.concat([df, state_df], ignore_index=True)
+
+        # Derive coverage_ln if missing
+        if "coverage_ln" not in df.columns and "lista_nominal" in df.columns and "pob_18ymas" in df.columns:
+            ln = pd.to_numeric(df["lista_nominal"], errors="coerce")
+            p18 = pd.to_numeric(df["pob_18ymas"], errors="coerce")
+            with np.errstate(divide="ignore", invalid="ignore"):
+                df["coverage_ln"] = np.where(p18 > 0, np.clip(ln / p18, 0.0, 1.2), np.nan)
+
+        # Pivot participation (DIP_FED) to part_dip_<year> and abst_dip_<year> for mun and state
+        part_df = self._get_participation()
+        if not part_df.empty and "election" in part_df.columns:
+            dip = part_df[part_df["election"] == "DIP_FED"]
+            if not dip.empty and "year" in dip.columns:
+                years = sorted(dip["year"].dropna().unique().astype(int))
+                for yr in years:
+                    part_col = f"part_dip_{yr}"
+                    abst_col = f"abst_dip_{yr}"
+                    if part_col not in df.columns:
+                        yr_dip = dip[dip["year"] == yr]
+                        part_map = dict(zip(yr_dip["unit_id"].astype(str), yr_dip["participacion"]))
+                        abst_map = dict(zip(yr_dip["unit_id"].astype(str), yr_dip["abstencion"]))
+                        df[part_col] = df["id"].astype(str).map(part_map).astype(float)
+                        df[abst_col] = df["id"].astype(str).map(abst_map).astype(float)
 
         return df
 
@@ -403,13 +447,42 @@ class PandasStore:
         filters: dict | None,
     ) -> pd.DataFrame:
         filters = filters or {}
-        needs_part = any(m in PARTICIPATION_METRICS for m in metrics)
+        election = filters.get("election", "DIP_FED")
+
+        # Map participacion / abstencion to part_dip_<yr> / abst_dip_<yr> if election is DIP_FED
+        alias_map: dict[str, str] = {}
+        if election == "DIP_FED":
+            units_raw = self._get_units()
+            dip_cols = [c for c in units_raw.columns if c.startswith("part_dip_")]
+            years = sorted([int(c.split("_")[-1]) for c in dip_cols if c.split("_")[-1].isdigit()])
+            target_year = filters.get("year")
+            if target_year is not None:
+                chosen_year = int(target_year)
+            elif years:
+                chosen_year = years[-1]
+            else:
+                part_raw = self._get_participation()
+                if not part_raw.empty and "year" in part_raw.columns:
+                    dip_part = part_raw[part_raw["election"] == "DIP_FED"]
+                    chosen_year = int(dip_part["year"].max()) if not dip_part.empty else 2024
+                else:
+                    chosen_year = 2024
+
+            for m in metrics:
+                if m == "participacion":
+                    alias_map[m] = f"part_dip_{chosen_year}"
+                elif m == "abstencion":
+                    alias_map[m] = f"abst_dip_{chosen_year}"
+
+        # If any metric is still in PARTICIPATION_METRICS (e.g. lista_nominal, votos_totales or election != DIP_FED),
+        # we need the participation table
+        remaining_part_metrics = [m for m in metrics if m in PARTICIPATION_METRICS and m not in alias_map]
+        needs_part = bool(remaining_part_metrics)
 
         if needs_part:
             df_part = self._get_participation().copy()
             df_part = df_part[df_part["level"] == level]
 
-            election = filters.get("election", "DIP_FED")
             if election:
                 df_part = df_part[df_part["election"] == election]
 
@@ -433,6 +506,10 @@ class PandasStore:
         else:
             df = self._get_units().copy()
             df = df[df["level"] == level]
+            # Copy wide column values to metric aliases if present
+            for orig_m, wide_c in alias_map.items():
+                if wide_c in df.columns:
+                    df[orig_m] = df[wide_c]
 
         # Apply common filters
         if "cve_ent" in filters:
@@ -492,14 +569,15 @@ class PandasStore:
         results = []
         for _, row in df.iterrows():
             u_id = row.get("unit_id") or row.get("id")
-            results.append({
+            res_item = {
                 "id": str(u_id),
                 "name": str(row.get("name", "")),
                 "level": level,
                 "cve_ent": str(row.get("cve_ent", "")),
                 "value": float(row["_metric_num"]),
                 metric: float(row["_metric_num"]),
-            })
+            }
+            results.append(res_item)
         return results
 
     def aggregate(
@@ -600,6 +678,48 @@ class PandasStore:
             "years": years,
             "elections": elections,
         }
+
+    def drivers(self, unit_id: str) -> list[dict]:
+        if self._drivers_df is None:
+            drivers_path = self.build_dir / "drivers.parquet"
+            if drivers_path.is_file():
+                self._drivers_df = pd.read_parquet(drivers_path)
+            else:
+                self._drivers_df = pd.DataFrame()
+        if self._drivers_df.empty:
+            return []
+        uid_str = str(unit_id)
+        id_col = "id" if "id" in self._drivers_df.columns else ("cvegeo" if "cvegeo" in self._drivers_df.columns else None)
+        if not id_col:
+            return []
+        matches = self._drivers_df[self._drivers_df[id_col].astype(str) == uid_str]
+        if matches.empty and "cvegeo" in self._drivers_df.columns and id_col != "cvegeo":
+            matches = self._drivers_df[self._drivers_df["cvegeo"].astype(str) == uid_str]
+        if matches.empty:
+            return []
+        if "rank" in matches.columns:
+            matches = matches.sort_values(by="rank", ascending=True)
+        elif "contribution_pp" in matches.columns:
+            matches = matches.reindex(matches["contribution_pp"].abs().sort_values(ascending=False).index)
+        results = []
+        for _, r in matches.iterrows():
+            d = {k: (None if pd.isna(v) else v) for k, v in r.to_dict().items()}
+            if "rank" in d and d["rank"] is not None:
+                d["rank"] = int(d["rank"])
+            if "contribution_pp" in d and d["contribution_pp"] is not None:
+                d["contribution_pp"] = float(d["contribution_pp"])
+            results.append(d)
+        return results
+
+    def metrics(self) -> dict:
+        metrics_file = self.build_dir / "metrics.json"
+        if metrics_file.is_file():
+            try:
+                return json.loads(metrics_file.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.warning("Could not read metrics.json: %s", exc)
+                return {}
+        return {}
 
 
 class EsStore:
@@ -779,6 +899,42 @@ class EsStore:
 
         return es_filters
 
+    @functools.lru_cache(maxsize=8)
+    def _get_latest_part_year(self, election: str = "DIP_FED") -> int:
+        es = self._client()
+        idx = index_name("participation")
+        body = {
+            "size": 0,
+            "query": {"term": {"election": election}},
+            "aggs": {"max_year": {"max": {"field": "year"}}},
+        }
+        try:
+            res = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            val = res.get("aggregations", {}).get("max_year", {}).get("value")
+            return int(val) if val is not None else 2024
+        except Exception:
+            return 2024
+
+    def reload(self) -> None:
+        if hasattr(self._get_latest_part_year, "cache_clear"):
+            self._get_latest_part_year.cache_clear()
+
+    def drivers(self, unit_id: str) -> list[dict]:
+        doc = self.unit(unit_id)
+        if doc and "drivers" in doc and isinstance(doc["drivers"], list):
+            return doc["drivers"]
+        return []
+
+    def metrics(self) -> dict:
+        metrics_file = BUILD_DIR / "metrics.json"
+        if metrics_file.is_file():
+            try:
+                return json.loads(metrics_file.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.warning("Could not read metrics.json: %s", exc)
+                return {}
+        return {}
+
     def top(
         self,
         metric: str,
@@ -789,19 +945,30 @@ class EsStore:
         limit: int = 10,
     ) -> list[dict]:
         es = self._client()
-        idx = index_name("participation" if metric in PARTICIPATION_METRICS else "units")
-        es_filters = self._build_es_filter(filters, level)
-        if metric in PARTICIPATION_METRICS:
-            if filters and "year" in filters:
-                es_filters.append({"term": {"year": filters["year"]}})
-            if filters and "election" in filters:
-                es_filters.append({"term": {"election": filters["election"]}})
+        filters = filters or {}
+        election = filters.get("election", "DIP_FED")
+        target_field = metric
+
+        if metric in ("participacion", "abstencion") and election == "DIP_FED":
+            idx = index_name("units")
+            es_filters = self._build_es_filter(filters, level)
+            yr = filters.get("year") or self._get_latest_part_year("DIP_FED")
+            target_field = f"part_dip_{yr}" if metric == "participacion" else f"abst_dip_{yr}"
+        elif metric in PARTICIPATION_METRICS:
+            idx = index_name("participation")
+            es_filters = self._build_es_filter(filters, level)
+            yr = filters.get("year") or self._get_latest_part_year(election)
+            es_filters.append({"term": {"year": yr}})
+            es_filters.append({"term": {"election": election}})
+        else:
+            idx = index_name("units")
+            es_filters = self._build_es_filter(filters, level)
 
         sort_dir = "desc" if order.lower() == "desc" else "asc"
         body = {
             "size": limit,
             "query": {"bool": {"filter": es_filters}},
-            "sort": [{metric: {"order": sort_dir}}],
+            "sort": [{target_field: {"order": sort_dir}}],
         }
         try:
             resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
@@ -809,7 +976,7 @@ class EsStore:
             results = []
             for h in hits:
                 src = h["_source"]
-                val = src.get(metric)
+                val = src.get(target_field) if target_field in src else src.get(metric)
                 results.append({
                     "id": src.get("unit_id") or src.get("id"),
                     "name": src.get("name", ""),
@@ -817,6 +984,7 @@ class EsStore:
                     "cve_ent": src.get("cve_ent", ""),
                     "value": float(val) if val is not None else None,
                     metric: float(val) if val is not None else None,
+                    target_field: float(val) if val is not None else None,
                 })
             return results
         except Exception as e:
@@ -832,8 +1000,24 @@ class EsStore:
         stat: str = "avg",
     ) -> list[dict]:
         es = self._client()
-        idx = index_name("participation" if metric in PARTICIPATION_METRICS else "units")
-        es_filters = self._build_es_filter(filters, level)
+        filters = filters or {}
+        election = filters.get("election", "DIP_FED")
+        target_field = metric
+
+        if metric in ("participacion", "abstencion") and election == "DIP_FED":
+            idx = index_name("units")
+            es_filters = self._build_es_filter(filters, level)
+            yr = filters.get("year") or self._get_latest_part_year("DIP_FED")
+            target_field = f"part_dip_{yr}" if metric == "participacion" else f"abst_dip_{yr}"
+        elif metric in PARTICIPATION_METRICS:
+            idx = index_name("participation")
+            es_filters = self._build_es_filter(filters, level)
+            yr = filters.get("year") or self._get_latest_part_year(election)
+            es_filters.append({"term": {"year": yr}})
+            es_filters.append({"term": {"election": election}})
+        else:
+            idx = index_name("units")
+            es_filters = self._build_es_filter(filters, level)
 
         stat_map = {
             "avg": "avg",
@@ -845,7 +1029,7 @@ class EsStore:
             "median": "percentiles",
         }
         es_stat = stat_map.get(stat.lower(), "avg")
-        stat_body: dict[str, Any] = {"field": metric}
+        stat_body: dict[str, Any] = {"field": target_field}
         if es_stat == "percentiles":
             stat_body["percents"] = [50]
 
@@ -907,6 +1091,20 @@ class EsStore:
         es = self._client()
         idx = index_name("units")
         es_filters = self._build_es_filter(filters, level)
+        filters = filters or {}
+        election = filters.get("election", "DIP_FED")
+
+        es_fields = []
+        field_alias_map = {}
+        for f in fields:
+            if f in ("participacion", "abstencion") and election == "DIP_FED":
+                yr = filters.get("year") or self._get_latest_part_year("DIP_FED")
+                translated = f"part_dip_{yr}" if f == "participacion" else f"abst_dip_{yr}"
+                es_fields.append(translated)
+                field_alias_map[translated] = f
+            else:
+                es_fields.append(f)
+                field_alias_map[f] = f
 
         body = {
             "size": 0,
@@ -914,7 +1112,7 @@ class EsStore:
             "aggs": {
                 "matrix": {
                     "matrix_stats": {
-                        "fields": fields
+                        "fields": es_fields
                     }
                 }
             },
@@ -933,7 +1131,9 @@ class EsStore:
                     if f1 == f2:
                         corr_matrix[f1][f2] = 1.0
                     else:
-                        val = res_dict.get(f1, {}).get(f2)
+                        t1 = next((k for k, v in field_alias_map.items() if v == f1), f1)
+                        t2 = next((k for k, v in field_alias_map.items() if v == f2), f2)
+                        val = res_dict.get(t1, {}).get(t2)
                         corr_matrix[f1][f2] = round(float(val), 4) if val is not None else None
 
             return {"n": doc_count, "fields": fields, "matrix": corr_matrix}

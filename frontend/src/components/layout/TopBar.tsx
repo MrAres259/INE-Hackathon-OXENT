@@ -14,6 +14,8 @@ export function TopBar() {
     setIsScenarioModalOpen,
     level,
     selectedEnt,
+    hasData,
+    apiAvailable,
   } = useAtalaya();
 
   const storeType = meta?.store ?? "memoria";
@@ -139,6 +141,21 @@ export function TopBar() {
           </Link>
         </div>
       </div>
+
+      {/* Discreet Banner for Health / Data State */}
+      {!hasData ? (
+        <div className="bg-amber-950/90 border-t border-amber-800/80 text-amber-200 text-xs px-4 py-2 text-center font-medium flex items-center justify-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+          <span>
+            Aún no hay datos cargados. Coloque los archivos en <code className="bg-slate-900 px-1 py-0.5 rounded text-white font-mono">data/raw/</code> y ejecute <code className="bg-slate-900 px-1 py-0.5 rounded text-white font-mono">scripts\build_all.ps1</code>.
+          </span>
+        </div>
+      ) : (!apiAvailable || isMock) ? (
+        <div className="bg-slate-800/90 border-t border-slate-700 text-slate-300 text-xs px-4 py-1.5 text-center font-medium flex items-center justify-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span>Datos de demostración (API no disponible)</span>
+        </div>
+      ) : null}
     </header>
   );
 }

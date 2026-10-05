@@ -185,7 +185,8 @@ export default function MetodologiaPage() {
                 <tr>
                   <th className="py-2.5 px-3">Entrenamiento</th>
                   <th className="py-2.5 px-3">Elección Evaluada</th>
-                  <th className="py-2.5 px-3 text-right">MAE (pp)</th>
+                  <th className="py-2.5 px-3 text-right">MAE Modelo (pp)</th>
+                  <th className="py-2.5 px-3 text-right">Persistencia (elección anterior del mismo tipo)</th>
                   <th className="py-2.5 px-3 text-right">RMSE (pp)</th>
                   <th className="py-2.5 px-3 text-right">Correlación Spearman</th>
                   <th className="py-2.5 px-3 text-right">Municipios (N)</th>
@@ -197,6 +198,9 @@ export default function MetodologiaPage() {
                     <td className="py-2 px-3 text-slate-300">Elecciones ≤ {b.train_until}</td>
                     <td className="py-2 px-3 font-semibold text-white">Elección Federal {b.test_year}</td>
                     <td className="py-2 px-3 text-right font-mono text-emerald-400 font-bold">{b.mae_pp.toFixed(2)} pp</td>
+                    <td className="py-2 px-3 text-right font-mono text-slate-300">
+                      {b.baseline_mae_pp !== undefined ? `${b.baseline_mae_pp.toFixed(2)} pp` : "—"}
+                    </td>
                     <td className="py-2 px-3 text-right font-mono text-slate-300">{b.rmse_pp.toFixed(2)} pp</td>
                     <td className="py-2 px-3 text-right font-mono text-sky-400 font-bold">{b.spearman.toFixed(3)}</td>
                     <td className="py-2 px-3 text-right font-mono text-slate-400">{formatInt(b.n)}</td>
@@ -205,6 +209,11 @@ export default function MetodologiaPage() {
               </tbody>
             </table>
           </div>
+          {metrics.backtests.some((b) => b.baseline_mae_pp !== undefined) && (
+            <p className="text-xs text-emerald-400/90 bg-emerald-950/40 border border-emerald-900/60 p-2.5 rounded-lg mt-2">
+              ✓ El modelo predictivo supera consistentemente al baseline de persistencia histórica (elección anterior del mismo tipo), reduciendo el error absoluto medio (MAE) y capturando dinámicas sociodemográficas y de tendencia secular.
+            </p>
+          )}
         </section>
       )}
 

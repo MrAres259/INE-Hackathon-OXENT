@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -77,6 +78,35 @@ def store_env(tmp_path: Path):
         ],
     }
     pd.DataFrame(part_data).to_parquet(build_dir / "participation.parquet", index=False)
+
+    # 5. Drivers parquet
+    drivers_data = {
+        "id": ["07101", "07101", "07102"],
+        "level": ["mun", "mun", "mun"],
+        "key": ["pct_18_24", "graproes", "graproes"],
+        "label": ["Jóvenes", "Escolaridad", "Escolaridad"],
+        "contribution_pp": [2.5, -1.8, 3.1],
+        "direction": ["sube_abstencion", "baja_abstencion", "sube_abstencion"],
+        "rank": [1, 2, 1],
+    }
+    pd.DataFrame(drivers_data).to_parquet(build_dir / "drivers.parquet", index=False)
+
+    # 6. Metrics json
+    metrics_info = {
+        "target_year": 2027,
+        "train_years": [2009, 2012, 2015, 2018, 2021, 2024],
+        "backtests": [
+            {"train_until": 2018, "test_year": 2021, "mae_pp": 3.2, "rmse_pp": 4.1, "spearman": 0.85, "n": 2450}
+        ],
+        "coefficients": [
+            {"key": "graproes", "label": "Escolaridad", "coef_pp_per_sd": -2.1}
+        ],
+        "generated_at": "2026-10-04T12:00:00Z",
+        "data_sources": [
+            {"name": "INE SICEE", "file": "participation.parquet", "rows": 10}
+        ],
+    }
+    (build_dir / "metrics.json").write_text(json.dumps(metrics_info), encoding="utf-8")
 
     return PandasStore(build_dir=build_dir, seed_dir=seed_dir)
 
@@ -170,3 +200,75 @@ def test_get_store_returns_pandas_store():
     store = get_store()
     assert isinstance(store, PandasStore)
     assert store.kind == "memory"
+
+
+def test_wide_participation_columns_in_units(store_env: PandasStore):
+    store = store_env
+    mun_df = store.units(level="mun")
+    assert "part_dip_2021" in mun_df.columns
+    assert "part_dip_2024" in mun_df.columns
+    assert "abst_dip_2021" in mun_df.columns
+    assert "abst_dip_2024" in mun_df.columns
+
+    tux = mun_df[mun_df["id"] == "07101"].iloc[0]
+    assert tux["part_dip_2021"] == 0.50
+    assert tux["part_dip_2024"] == 0.60
+    assert tux["abst_dip_2021"] == 0.50
+    assert tux["abst_dip_2024"] == 0.40
+
+    state_df = store.units(level="state")
+    assert "part_dip_2021" in state_df.columns
+    assert "part_dip_2024" in state_df.columns
+    chis = state_df[state_df["id"] == "07"].iloc[0]
+    assert pytest.approx(chis["part_dip_2021"], 0.001) == 300000 / 580000
+
+
+def test_correlation_participacion_graproes_with_year(store_env: PandasStore):
+    store = store_env
+
+    # Correlate participacion and graproes for 2021
+    res_2021 = store.correlation(["participacion", "graproes"], level="mun", filters={"year": 2021})
+    assert res_2021["n"] == 5
+    assert "participacion" in res_2021["matrix"]
+    assert "graproes" in res_2021["matrix"]["participacion"]
+    corr_2021 = res_2021["matrix"]["participacion"]["graproes"]
+    assert corr_2021 is not None
+
+    # Correlate participacion and graproes for 2024
+    res_2024 = store.correlation(["participacion", "graproes"], level="mun", filters={"year": 2024})
+    assert res_2024["n"] == 5
+    corr_2024 = res_2024["matrix"]["participacion"]["graproes"]
+    assert corr_2024 is not None
+
+    # Top participacion using resolved wide column
+    top_p = store.top("participacion", level="mun", filters={"year": 2024}, limit=2)
+    assert len(top_p) == 2
+    assert top_p[0]["id"] == "09001"
+    assert top_p[0]["value"] == 0.75
+
+
+def test_drivers(store_env: PandasStore):
+    store = store_env
+    d1 = store.drivers("07101")
+    assert len(d1) == 2
+    assert d1[0]["key"] == "pct_18_24"
+    assert d1[0]["rank"] == 1
+
+    d2 = store.drivers("99999")
+    assert d2 == []
+
+
+def test_metrics(store_env: PandasStore):
+    store = store_env
+    m = store.metrics()
+    assert m.get("target_year") == 2027
+    assert len(m.get("coefficients", [])) == 1
+
+
+def test_reload(store_env: PandasStore):
+    store = store_env
+    _ = store.units()
+    assert store._units_df is not None
+    store.reload()
+    assert store._units_df is None
+

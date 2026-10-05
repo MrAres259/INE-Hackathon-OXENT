@@ -48,8 +48,10 @@ def test_zpad():
     assert zpad("07101", 5) == "07101"
     assert zpad(101, 3) == "101"
     assert zpad(101, 5) == "00101"
-    assert zpad(None, 2) == "00"
-    assert zpad(np.nan, 3) == "000"
+    assert zpad(None, 2) == ""
+    assert zpad(np.nan, 3) == ""
+    assert zpad("", 2) == ""
+    assert zpad("nan", 2) == ""
 
 
 def test_to_num():
@@ -144,3 +146,46 @@ def test_write_and_read_parquet(tmp_path: Path):
     read_back = read_parquet(target)
     assert len(read_back) == 2
     assert list(read_back["cvegeo"]) == ["07101", "07102"]
+
+
+def test_read_table_utf8_split_at_boundary(tmp_path: Path):
+    header = b"CVE_ENT,NOM_ENT\n"
+    target_pos = 99999
+    # Build content where byte 99999 is the first byte of 'ñ' (\xc3\xb1)
+    filler_len = target_pos - len(header)
+    filler = b"01," + b"A" * (filler_len - 4) + b"\n"
+    assert len(header) + len(filler) == 99999
+
+    content = header + filler + b"07,Nandambua_\xc3\xb1\n" + b"09,CDMX\n" * 100
+    assert len(content) > 100000
+
+    csv_path = tmp_path / "split_utf8.csv"
+    csv_path.write_bytes(content)
+
+    df = read_table(csv_path, expect_any=["CVE_ENT", "NOM_ENT"])
+    assert len(df) > 2
+    assert "07" in df["CVE_ENT"].values
+    nand_row = df[df["CVE_ENT"] == "07"].iloc[0]
+    assert "Nandambua_ñ" in nand_row["NOM_ENT"]
+
+
+def test_read_table_invalid_utf8_after_150kb(tmp_path: Path):
+    header = b"CVE_ENT,NOM_ENT\n"
+    # First 155 KB pure ASCII
+    chunk = b"01,Municipio Normal\n"
+    repeat_count = 155000 // len(chunk)
+    ascii_part = chunk * repeat_count
+    # Byte after 155KB contains invalid UTF-8 byte for cp1252/latin-1 (e.g. \xe1 without multibyte prefix)
+    latin_part = "07,Tuxtla Gutiérrez\n".encode("cp1252")
+    content = header + ascii_part + latin_part
+
+    assert len(content) > 155000
+    csv_path = tmp_path / "late_cp1252.csv"
+    csv_path.write_bytes(content)
+
+    df = read_table(csv_path, expect_any=["CVE_ENT", "NOM_ENT"])
+    assert len(df) > repeat_count
+    assert "07" in df["CVE_ENT"].values
+    chis_row = df[df["CVE_ENT"] == "07"].iloc[0]
+    assert "Gutiérrez" in chis_row["NOM_ENT"]
+

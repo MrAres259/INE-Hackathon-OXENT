@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { fetchGeoIndex } from "@/lib/geo";
-import type { GeoIndexItem } from "@/lib/mocks/geo";
+import type { GeoIndexItem } from "@/lib/types";
 import { useAtalaya } from "@/lib/state";
 
 export function RegionSearch() {

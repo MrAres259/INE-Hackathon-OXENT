@@ -12,8 +12,15 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { FeatureCollection, Geometry } from "geojson";
 import { useAtalaya } from "@/lib/state";
-import { fetchStatesGeoJson, fetchMunGeoJson, fetchGeoIndex } from "@/lib/geo";
-import { CATEGORY_COLORS, formatPct, getCategoryLabel } from "@/lib/format";
+import {
+  fetchStatesGeoJson,
+  fetchMunGeoJson,
+  fetchGeoIndex,
+  colorForFeature,
+  type StateProperties,
+  type MunProperties,
+} from "@/lib/geo";
+import { formatPct, getCategoryLabel } from "@/lib/format";
 import type { RiskItem } from "@/lib/types";
 import { Legend } from "./Legend";
 import { Breadcrumb } from "./Breadcrumb";
@@ -80,8 +87,8 @@ export function LeafletInnerMap() {
     selectMunicipality,
   } = useAtalaya();
 
-  const [statesGeo, setStatesGeo] = useState<FeatureCollection<Geometry, any> | null>(null);
-  const [munGeo, setMunGeo] = useState<FeatureCollection<Geometry, any> | null>(null);
+  const [statesGeo, setStatesGeo] = useState<FeatureCollection<Geometry, StateProperties> | null>(null);
+  const [munGeo, setMunGeo] = useState<FeatureCollection<Geometry, MunProperties> | null>(null);
 
   // Load states geo on mount
   useEffect(() => {
@@ -106,9 +113,8 @@ export function LeafletInnerMap() {
 
   // Style state polygons
   const getStateStyle = (feature: any) => {
-    const entId = feature?.properties?.cve_ent ?? feature?.id;
-    const item = riskById.get(entId);
-    const color = item ? CATEGORY_COLORS[item.category] : CATEGORY_COLORS.sin_dato;
+    const entId = feature?.properties?.id ?? feature?.id;
+    const color = colorForFeature(feature, riskById);
     const isSelected = selectedEnt === entId;
     const isDimmed = level === "mun" && selectedEnt && !isSelected;
 
@@ -123,8 +129,8 @@ export function LeafletInnerMap() {
 
   // State feature interaction handlers
   const onEachStateFeature = (feature: any, layer: L.Layer) => {
-    const entId = feature?.properties?.cve_ent ?? feature?.id;
-    const name = feature?.properties?.nom_ent ?? `Estado ${entId}`;
+    const entId = feature?.properties?.id ?? feature?.id;
+    const name = feature?.properties?.name ?? `Estado ${entId}`;
     const item = riskById.get(entId);
     const part = item?.last_participation !== null ? formatPct(item?.last_participation) : "—";
     const predAbs = item?.pred_abstention !== null ? formatPct(item?.pred_abstention) : "—";
@@ -163,9 +169,8 @@ export function LeafletInnerMap() {
 
   // Municipal polygon style
   const getMunStyle = (feature: any) => {
-    const cvegeo = feature?.properties?.cvegeo ?? feature?.id;
-    const item = riskById.get(cvegeo);
-    const color = item ? CATEGORY_COLORS[item.category] : CATEGORY_COLORS.sin_dato;
+    const cvegeo = feature?.properties?.id ?? feature?.id;
+    const color = colorForFeature(feature, riskById);
     const isSelected = selectedRegionId === cvegeo;
 
     return {
@@ -179,8 +184,8 @@ export function LeafletInnerMap() {
 
   // Municipal feature interaction handlers
   const onEachMunFeature = (feature: any, layer: L.Layer) => {
-    const cvegeo = feature?.properties?.cvegeo ?? feature?.id;
-    const name = feature?.properties?.nom_mun ?? `Municipio ${cvegeo}`;
+    const cvegeo = feature?.properties?.id ?? feature?.id;
+    const name = feature?.properties?.name ?? `Municipio ${cvegeo}`;
     const item = riskById.get(cvegeo);
     const predAbs = item?.pred_abstention !== null ? formatPct(item?.pred_abstention) : "—";
     const catLabel = item ? getCategoryLabel(item.category) : "Sin dato";

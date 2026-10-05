@@ -1,0 +1,346 @@
+"""Tests for deterministic chat query executor."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import pytest
+
+from atalaya.chat.executor import execute, format_value, get_variable_meta
+from atalaya.chat.spec import DataResult, QuerySpec
+from atalaya.store import PandasStore
+
+
+@pytest.fixture
+def mock_store(tmp_path: Path, monkeypatch) -> PandasStore:
+    """Create a fully populated synthetic PandasStore."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Seed files
+    states_csv = seed_dir / "states.csv"
+    states_csv.write_text(
+        "cve_ent,name,iso,aliases\n"
+        "07,Chiapas,MX-CHP,CHIS\n"
+        "09,Ciudad de México,MX-CMX,CDMX|DF\n"
+        "14,Jalisco,MX-JAL,JAL\n"
+        "15,México,MX-MEX,EDOMEX\n"
+        "20,Oaxaca,MX-OAX,OAX\n",
+        encoding="utf-8",
+    )
+
+    variables_csv = seed_dir / "variables.csv"
+    variables_csv.write_text(
+        "key,label_es,description,source,unit,level\n"
+        "participacion,Participación ciudadana,Votos entre lista nominal,INE,proporción,mun|state\n"
+        "abstencion,Abstención,1 menos participación,INE,proporción,mun|state\n"
+        "risk_score,Índice de riesgo,Índice 0 a 100,ATALAYA,índice,mun|state\n"
+        "pred_abstention,Abstención pronosticada 2027,Estimación 2027,ATALAYA,proporción,mun|state\n"
+        "graproes,Escolaridad promedio,Grado escolaridad,INEGI,años,mun|state\n"
+        "im_2020,Índice de marginación,Marginación 2020,CONAPO,índice,mun\n"
+        "lista_nominal,Lista nominal,Inscritos en lista,INE,personas,mun|state\n",
+        encoding="utf-8",
+    )
+
+    # 2. Units parquet
+    mun_rows = []
+    # 10 municipalities for Chiapas (07), using 07101..07110
+    for idx, i in enumerate(range(101, 111), 1):
+        uid = f"07{i:03d}"
+        mun_rows.append({
+            "id": uid,
+            "level": "mun",
+            "cve_ent": "07",
+            "cve_mun": f"{i:03d}",
+            "cvegeo": uid,
+            "name": f"Municipio Chis {idx}",
+            "pob_tot": 50000 + idx * 1000,
+            "pob_18ymas": 35000 + idx * 500,
+            "lista_nominal": 34000 + idx * 500,
+            "last_year": 2024,
+            "last_participation": 0.50 + (idx * 0.01),
+            "pred_participation": 0.48 + (idx * 0.01),
+            "pred_abstention": 0.52 - (idx * 0.01),
+            "risk_score": 85.0 - (idx * 3.0),
+            "category": "rojo" if idx <= 3 else ("naranja" if idx <= 6 else "amarillo"),
+            "trend_pp": -1.0 - (idx * 0.1),
+            "volatility_pp": 2.5,
+            "graproes": 6.0 + (idx * 0.5),
+            "im_2020": 1.5 - (idx * 0.2),
+            "part_dip_2021": 0.45 + (idx * 0.01),
+            "abst_dip_2021": 0.55 - (idx * 0.01),
+        })
+
+    # One municipality with NaN risk score to test omitted handling
+    mun_rows.append({
+        "id": "07999",
+        "level": "mun",
+        "cve_ent": "07",
+        "cve_mun": "999",
+        "cvegeo": "07999",
+        "name": "Municipio Sin Dato",
+        "pob_tot": 10000,
+        "pob_18ymas": 7000,
+        "lista_nominal": 6500,
+        "last_year": 2024,
+        "last_participation": np.nan,
+        "pred_participation": np.nan,
+        "pred_abstention": np.nan,
+        "risk_score": np.nan,
+        "category": "sin_dato",
+        "trend_pp": np.nan,
+        "volatility_pp": np.nan,
+        "graproes": np.nan,
+        "im_2020": np.nan,
+        "part_dip_2021": np.nan,
+        "abst_dip_2021": np.nan,
+    })
+
+    # Other states municipalities
+    for ent, name in [("09", "CDMX"), ("14", "Jalisco"), ("15", "Edomex"), ("20", "Oaxaca")]:
+        mun_rows.append({
+            "id": f"{ent}001",
+            "level": "mun",
+            "cve_ent": ent,
+            "cve_mun": "001",
+            "cvegeo": f"{ent}001",
+            "name": f"Capital {name}",
+            "pob_tot": 500000,
+            "pob_18ymas": 350000,
+            "lista_nominal": 340000,
+            "last_year": 2024,
+            "last_participation": 0.55,
+            "pred_participation": 0.53,
+            "pred_abstention": 0.47,
+            "risk_score": 45.0,
+            "category": "amarillo",
+            "trend_pp": 0.5,
+            "volatility_pp": 1.8,
+            "graproes": 11.5,
+            "im_2020": -1.2,
+            "part_dip_2021": 0.54,
+            "abst_dip_2021": 0.46,
+        })
+
+    # State level units
+    state_rows = [
+        {"id": "07", "level": "state", "cve_ent": "07", "cve_mun": "", "cvegeo": "07", "name": "Chiapas", "lista_nominal": 3500000, "pred_abstention": 0.50, "risk_score": 75.0, "category": "rojo", "part_dip_2021": 0.50, "abst_dip_2021": 0.50},
+        {"id": "09", "level": "state", "cve_ent": "09", "cve_mun": "", "cvegeo": "09", "name": "Ciudad de México", "lista_nominal": 7500000, "pred_abstention": 0.48, "risk_score": 38.0, "category": "amarillo", "part_dip_2021": 0.52, "abst_dip_2021": 0.48},
+        {"id": "14", "level": "state", "cve_ent": "14", "cve_mun": "", "cvegeo": "14", "name": "Jalisco", "lista_nominal": 6000000, "pred_abstention": 0.45, "risk_score": 42.0, "category": "amarillo", "part_dip_2021": 0.54, "abst_dip_2021": 0.46},
+        {"id": "15", "level": "state", "cve_ent": "15", "cve_mun": "", "cvegeo": "15", "name": "México", "lista_nominal": 12000000, "pred_abstention": 0.51, "risk_score": 52.0, "category": "amarillo", "part_dip_2021": 0.49, "abst_dip_2021": 0.51},
+        {"id": "20", "level": "state", "cve_ent": "20", "cve_mun": "", "cvegeo": "20", "name": "Oaxaca", "lista_nominal": 3000000, "pred_abstention": 0.47, "risk_score": 68.0, "category": "naranja", "part_dip_2021": 0.53, "abst_dip_2021": 0.47},
+    ]
+
+    units_df = pd.DataFrame(mun_rows + state_rows)
+    units_df.to_parquet(build_dir / "units.parquet", index=False)
+
+    # 3. Participation parquet (both state and mun)
+    part_rows = []
+    years = [2009, 2012, 2015, 2018, 2021, 2024]
+    # State rows
+    for ent in ["07", "09", "14", "15", "20"]:
+        for yr in years:
+            p_val = 0.45 + ((yr - 2009) * 0.01)
+            part_rows.append({
+                "unit_id": ent,
+                "level": "state",
+                "cvegeo": ent,
+                "cve_ent": ent,
+                "year": yr,
+                "election": "DIP_FED",
+                "lista_nominal": 3000000,
+                "votos_totales": int(3000000 * p_val),
+                "participacion": p_val,
+                "abstencion": 1.0 - p_val,
+            })
+    # Mun rows for Chiapas (07101..07110)
+    for idx, i in enumerate(range(101, 111), 1):
+        uid = f"07{i:03d}"
+        for yr in years:
+            p_val = 0.40 + (idx * 0.02) + ((yr - 2009) * 0.005)
+            part_rows.append({
+                "unit_id": uid,
+                "level": "mun",
+                "cvegeo": uid,
+                "cve_ent": "07",
+                "year": yr,
+                "election": "DIP_FED",
+                "lista_nominal": 30000,
+                "votos_totales": int(30000 * p_val),
+                "participacion": p_val,
+                "abstencion": 1.0 - p_val,
+            })
+
+    part_df = pd.DataFrame(part_rows)
+    part_df.to_parquet(build_dir / "participation.parquet", index=False)
+
+    # 4. Drivers parquet
+    driver_rows = [
+        {"id": "07101", "level": "mun", "key": "graproes", "label": "Baja escolaridad", "contribution_pp": 3.5, "direction": "sube_abstencion", "rank": 1},
+        {"id": "07101", "level": "mun", "key": "pct_18_24", "label": "Población joven", "contribution_pp": 2.1, "direction": "sube_abstencion", "rank": 2},
+        {"id": "07101", "level": "mun", "key": "pct_internet", "label": "Acceso a internet", "contribution_pp": -1.4, "direction": "baja_abstencion", "rank": 3},
+    ]
+    pd.DataFrame(driver_rows).to_parquet(build_dir / "drivers.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    monkeypatch.setattr("atalaya.chat.executor.get_store", lambda: store)
+    return store
+
+
+def test_format_value_helpers():
+    """Verify numeric formatting conforms to specification."""
+    # Proportions formatted as % with 1 decimal
+    assert format_value("participacion", 0.5428) == "54.3%"
+    assert format_value("abstencion", 0.4572) == "45.7%"
+    assert format_value("pct_18_24", 0.1834) == "18.3%"
+
+    # Points with sign
+    assert format_value("trend_pp", -1.5) == "-1.5 pp"
+    assert format_value("trend_pp", 2.3) == "+2.3 pp"
+
+    # Counts with comma separator
+    assert format_value("lista_nominal", 1234567) == "1,234,567"
+
+    # Index with 1 decimal
+    assert format_value("risk_score", 78.49) == "78.5"
+
+
+def test_executor_ranking(mock_store):
+    """Verify ranking intent produces expected table, format, and omits NaNs."""
+    spec = QuerySpec(
+        intent="ranking",
+        level="mun",
+        filters={"cve_ent": "07"},
+        metric="risk_score",
+        order="desc",
+        limit=5,
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert len(result.columns) == 4
+    assert result.columns[:3] == ["#", "Zona", "Estado"]
+    assert "riesgo" in result.columns[3].lower()
+    assert len(result.rows) == 5
+    assert result.rows[0][0] == 1
+    assert result.rows[0][2] == "Chiapas"
+    # Unit with NaN (07999) must be omitted
+    omitted_present = any("Sin Dato" in str(r[1]) for r in result.rows)
+    assert not omitted_present
+    assert any("Top 1" in f for f in result.facts)
+    assert any("Se omitieron 1 unidades sin dato" in f for f in result.facts)
+
+
+def test_executor_lookup(mock_store):
+    """Verify lookup returns specific unit value and cites source."""
+    spec = QuerySpec(
+        intent="lookup",
+        level="state",
+        unit_ids=["14"],
+        metric="participacion",
+        year=2021,
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert len(result.rows) == 1
+    val = result.rows[0][3]
+    assert val == "54.0%"
+    assert "INE" in result.source
+    assert any("Jalisco" in f and "54.0%" in f for f in result.facts)
+
+
+def test_executor_compare(mock_store):
+    """Verify compare intent between CDMX and Edomex computes absolute difference."""
+    spec = QuerySpec(
+        intent="compare",
+        level="state",
+        unit_ids=["09", "15"],
+        metric="abstencion",
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert len(result.rows) == 2
+    # Verify difference fact present
+    diff_fact = [f for f in result.facts if "diferencia" in f.lower()]
+    assert len(diff_fact) > 0
+
+
+def test_executor_trend(mock_store):
+    """Verify trend intent returns full historical time series sorted by year."""
+    spec = QuerySpec(
+        intent="trend",
+        level="state",
+        unit_ids=["07"],
+        metric="participacion",
+        election="DIP_FED",
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert result.columns == ["Año", "Elección", "Participación", "Abstención", "Lista Nominal"]
+    assert len(result.rows) == 6
+    years = [r[0] for r in result.rows]
+    assert years == sorted(years)
+    assert any("Historial de 6 elecciones" in f for f in result.facts)
+
+
+def test_executor_correlation(mock_store):
+    """Verify correlation computes Pearson r, strength, direction and quintiles table."""
+    spec = QuerySpec(
+        intent="correlation",
+        level="mun",
+        filters={"cve_ent": "07"},
+        metric="participacion",
+        x_metric="graproes",
+    )
+    result = execute(spec)
+    # Check Pearson fact and mandatory statement
+    assert any("Correlación no implica causalidad." in f for f in result.facts)
+    r_facts = [f for f in result.facts if "Pearson" in f]
+    assert len(r_facts) > 0
+    # Quintiles table
+    assert len(result.columns) == 4
+    assert result.columns[0] == "Quintil"
+    assert len(result.rows) > 0
+
+
+def test_executor_scenario(mock_store):
+    """Verify scenario simulation returns delta pp and category summary."""
+    spec = QuerySpec(
+        intent="scenario",
+        level="mun",
+        filters={"cve_ent": "07"},
+        scenario="intervencion",
+        scenario_params={"lever": "promocion_jovenes", "targeting": "rojo", "effect_pp": 4.0},
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert "Abstención Base" in result.columns
+    assert "Abstención Simulada" in result.columns
+    assert any("Votos adicionales" in f for f in result.facts)
+
+
+def test_executor_explain_unit(mock_store):
+    """Verify explain_unit provides drivers and actionable recommendations."""
+    spec = QuerySpec(
+        intent="explain_unit",
+        level="mun",
+        unit_ids=["07101"],
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert result.columns == ["Factor", "Impacto (pp)", "Efecto"]
+    assert any("Factores determinantes" in f for f in result.facts)
+    assert any("Recomendación" in f for f in result.facts)
+
+
+def test_executor_help_and_catalog(mock_store):
+    """Verify catalog table and help empty result with examples."""
+    cat_result = execute(QuerySpec(intent="catalog"))
+    assert not cat_result.empty
+    assert cat_result.columns == ["Clave", "Variable", "Fuente", "Unidad"]
+
+    help_result = execute(QuerySpec(intent="help"))
+    assert help_result.empty
+    assert len(help_result.facts) >= 4
