@@ -1,0 +1,13 @@
+{
+  "name": "atalaya-geo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build_geo.mjs",
+    "test": "node test/build_geo.test.mjs"
+  },
+  "dependencies": {
+    "mapshaper": "0.7.74"
+  }
+}

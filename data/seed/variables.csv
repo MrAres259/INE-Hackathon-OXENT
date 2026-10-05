@@ -1,0 +1,22 @@
+key,label_es,description,source,unit,level
+participacion,Participación ciudadana,"Votos totales entre lista nominal en la elección indicada",INE,proporción,mun|state
+abstencion,Abstención,"1 menos la participación ciudadana",INE,proporción,mun|state
+lista_nominal,Lista nominal,"Ciudadanos inscritos en la lista nominal de electores",INE,personas,mun|state
+votos_totales,Votos totales,"Votos emitidos incluidos nulos y candidaturas no registradas",INE,votos,mun|state
+pred_abstention,Abstención pronosticada 2027,"Abstención estimada por el modelo para la elección federal objetivo, escenario base",ATALAYA,proporción,mun|state
+risk_score,Índice de riesgo de abstención,"Índice 0 a 100 que combina abstención pronosticada, tendencia y volatilidad",ATALAYA,índice,mun|state
+category,Semáforo de riesgo,"verde, amarillo, naranja o rojo según el índice de riesgo",ATALAYA,categoría,mun|state
+trend_pp,Tendencia de participación,"Cambio promedio de participación por elección en puntos porcentuales",ATALAYA,pp por elección,mun|state
+pob_tot,Población total,"Población total, Censo 2020",INEGI,personas,mun|state
+pob_18ymas,Población de 18 años y más,"Población en edad de votar, Censo 2020",INEGI,personas,mun|state
+pct_18_24,Jóvenes de 18 a 24 años,"Proporción de la población de 18 y más que tiene 18 a 24 años",INEGI,proporción,mun|state
+pct_65ymas,Adultos mayores,"Proporción de la población de 18 y más que tiene 65 años o más",INEGI,proporción,mun|state
+graproes,Escolaridad promedio,"Grado promedio de escolaridad de la población de 15 años y más",INEGI,años,mun|state
+pct_hli,Población hablante de lengua indígena,"Proporción de la población de 3 años y más que habla alguna lengua indígena",INEGI,proporción,mun|state
+pct_sin_servsalud,Sin afiliación a servicios de salud,"Proporción de la población sin afiliación a servicios de salud",INEGI,proporción,mun|state
+pct_internet,Viviendas con internet,"Proporción de viviendas particulares habitadas que disponen de internet",INEGI,proporción,mun|state
+pct_rural,Población rural,"Proporción de la población que vive en localidades de menos de 2500 habitantes",INEGI,proporción,mun|state
+pct_analfabeta,Analfabetismo,"Porcentaje de población de 15 años o más analfabeta, expresado como proporción",CONAPO,proporción,mun|state
+pct_po2sm,Ingresos bajos,"Proporción de la población ocupada con ingresos de hasta 2 salarios mínimos",CONAPO,proporción,mun|state
+im_2020,Índice de marginación 2020,"Índice de marginación municipal de CONAPO 2020",CONAPO,índice,mun
+gm_2020,Grado de marginación 2020,"Muy bajo, Bajo, Medio, Alto o Muy alto",CONAPO,categoría,mun

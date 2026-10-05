@@ -1,0 +1,15 @@
+ENTIDAD,NOM_ENT,MUN,NOM_MUN,LOC,NOM_LOC,POBTOT,P_18YMAS,P_18A24,POB65_MAS,GRAPROES,P_3YMAS,P3YM_HLI,PSINDER,VPH_INTER,TVIVPARHAB
+00,Total Nacional,000,Total Nacional,0000,Total Nacional,126014024,89000000,15000000,10000000,9.7,118000000,7000000,30000000,18000000,35000000
+01,Aguascalientes,000,Total Entidad,0000,Total Entidad,1425607,1000000,200000,100000,10.3,1300000,5000,200000,250000,380000
+01,Aguascalientes,001,Aguascalientes,0000,Total Municipio,100000,70000,14000,7000,10.5,95000,500,15000,20000,25000
+01,Aguascalientes,001,Aguascalientes,0001,Aguascalientes,80000,*,*,*,*,*,*,*,*,*
+01,Aguascalientes,001,Aguascalientes,0002,El Salto,1500,*,*,*,*,*,*,*,*,*
+01,Aguascalientes,001,Aguascalientes,9998,Localidades de una vivienda,5,*,*,*,*,*,*,*,*,*
+01,Aguascalientes,001,Aguascalientes,9999,Localidades de dos viviendas,10,*,*,*,*,*,*,*,*,*
+07,Chiapas,000,Total Entidad,0000,Total Entidad,5543828,3800000,600000,400000,7.8,5000000,1400000,1800000,400000,1300000
+07,Chiapas,101,Tuxtla Gutiérrez,0000,Total Municipio,50000,35000,7000,3500,9.8,48000,8000,10000,10000,15000
+07,Chiapas,101,Tuxtla Gutiérrez,0001,Tuxtla Gutiérrez,40000,*,*,*,*,*,*,*,*,*
+07,Chiapas,101,Tuxtla Gutiérrez,0002,Copoya,2000,*,*,*,*,*,*,*,*,*
+07,Chiapas,102,Tonalá,0000,Total Municipio,20000,14000,*,1400,*,19000,N/D,*,2000,5000
+07,Chiapas,102,Tonalá,0001,Tonalá,18000,*,*,*,*,*,*,*,*,*
+07,Chiapas,102,Tonalá,0002,Paredón,1000,*,*,*,*,*,*,*,*,*

@@ -1,0 +1,19 @@
+{
+  "categories": {
+    "test": { "timeout": 240, "idle": 90 },
+    "build": { "timeout": 480, "idle": 150 },
+    "install": { "timeout": 600, "idle": 180 },
+    "other": { "timeout": 900, "idle": 240 }
+  },
+  "env": { "NEXT_AGENT_BUILD": "1", "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8" },
+  "inject_single_process_flags": true,
+  "passthrough_patterns": [],
+  "daemon_patterns": [],
+  "never_wrap_patterns": [],
+  "deny_patterns": [
+    "\\bpip3?\\s+install\\b",
+    "\\bpython\\s+-m\\s+pip\\s+install\\b",
+    "\\bcreate-next-app\\b",
+    "Desktop[\\\\/]+Hackathon[\\\\/].*\\b(rm|del|Remove-Item|Move-Item|Set-Content|Out-File)\\b"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "CVE_ENT": "07",
+        "NOMGEO": "Chiapas"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-93.0, 16.0],
+            [-92.0, 16.0],
+            [-92.0, 17.0],
+            [-93.0, 17.0],
+            [-93.0, 16.0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "CVE_ENT": "16",
+        "NOMGEO": "Michoacán de Ocampo"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-102.0, 19.0],
+            [-101.0, 19.0],
+            [-101.0, 20.0],
+            [-102.0, 20.0],
+            [-102.0, 19.0]
+          ]
+        ]
+      }
+    }
+  ]
+}

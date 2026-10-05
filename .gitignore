@@ -1,0 +1,24 @@
+# secrets
+.env
+backend/.env
+# orchestration plans (local only)
+temp/
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+backend/.pytest_tmp/
+# data (downloads, build outputs, caches) — seeds are versioned
+data/raw/
+data/build/
+data/cache/
+# node
+node_modules/
+.next/
+frontend/out/
+*.log
+.run-safe-logs/
+# screenshot of the challenge
+Captura*.png
+*.tsbuildinfo

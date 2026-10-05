@@ -1,0 +1,68 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "CVEGEO": "07101",
+        "CVE_ENT": "07",
+        "CVE_MUN": "101",
+        "NOMGEO": "Tuxtla Gutiérrez"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-93.0, 16.0],
+            [-92.5, 16.0],
+            [-92.5, 16.5],
+            [-93.0, 16.5],
+            [-93.0, 16.0]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "CVEGEO": "07102",
+        "CVE_ENT": "07",
+        "CVE_MUN": "102",
+        "NOMGEO": "San Cristóbal de las Casas"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-92.5, 16.5],
+            [-92.0, 16.5],
+            [-92.0, 17.0],
+            [-92.5, 17.0],
+            [-92.5, 16.5]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "CVEGEO": "16053",
+        "CVE_ENT": "16",
+        "CVE_MUN": "053",
+        "NOMGEO": "Morelia"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [-102.0, 19.0],
+            [-101.0, 19.0],
+            [-101.0, 20.0],
+            [-102.0, 20.0],
+            [-102.0, 19.0]
+          ]
+        ]
+      }
+    }
+  ]
+}

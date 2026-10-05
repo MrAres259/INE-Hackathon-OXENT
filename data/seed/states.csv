@@ -1,0 +1,33 @@
+cve_ent,name,iso,aliases
+01,Aguascalientes,MX-AGU,AGS
+02,Baja California,MX-BCN,BC|BAJA CALIFORNIA NORTE
+03,Baja California Sur,MX-BCS,BCS
+04,Campeche,MX-CAM,CAMP
+05,Coahuila de Zaragoza,MX-COA,COAHUILA|COAH
+06,Colima,MX-COL,COL
+07,Chiapas,MX-CHP,CHIS
+08,Chihuahua,MX-CHH,CHIH
+09,Ciudad de México,MX-CMX,CDMX|DISTRITO FEDERAL|DF|CIUDAD DE MEXICO
+10,Durango,MX-DUR,DGO
+11,Guanajuato,MX-GUA,GTO
+12,Guerrero,MX-GRO,GRO
+13,Hidalgo,MX-HID,HGO
+14,Jalisco,MX-JAL,JAL
+15,México,MX-MEX,ESTADO DE MEXICO|EDOMEX|EDO MEX|MEXICO
+16,Michoacán de Ocampo,MX-MIC,MICHOACAN|MICH
+17,Morelos,MX-MOR,MOR
+18,Nayarit,MX-NAY,NAY
+19,Nuevo León,MX-NLE,NUEVO LEON|NL
+20,Oaxaca,MX-OAX,OAX
+21,Puebla,MX-PUE,PUE
+22,Querétaro,MX-QUE,QUERETARO|QUERETARO DE ARTEAGA|QRO
+23,Quintana Roo,MX-ROO,QROO|Q ROO
+24,San Luis Potosí,MX-SLP,SAN LUIS POTOSI|SLP
+25,Sinaloa,MX-SIN,SIN
+26,Sonora,MX-SON,SON
+27,Tabasco,MX-TAB,TAB
+28,Tamaulipas,MX-TAM,TAMPS
+29,Tlaxcala,MX-TLA,TLAX
+30,Veracruz de Ignacio de la Llave,MX-VER,VERACRUZ|VER
+31,Yucatán,MX-YUC,YUCATAN|YUC
+32,Zacatecas,MX-ZAC,ZAC
