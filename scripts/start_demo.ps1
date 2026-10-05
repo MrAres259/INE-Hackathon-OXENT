@@ -1,4 +1,4 @@
-# ATALAYA - Demo Launcher (Backend + Frontend)
+﻿# ATALAYA - Demo Launcher (Backend + Frontend)
 # Compatible with PowerShell 5.1 (no &&, ??, or ternary operators)
 
 [CmdletBinding()]
@@ -8,6 +8,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 # Comentario: los procesos se lanzan desacoplados porque los hijos de una shell de agente mueren con ella.
 
@@ -34,6 +37,31 @@ Write-Host " Root:     $repoRoot" -ForegroundColor Gray
 Write-Host " Mock:     $Mock" -ForegroundColor Gray
 Write-Host " Rebuild:  $Rebuild" -ForegroundColor Gray
 Write-Host "==========================================================" -ForegroundColor Cyan
+
+function Stop-ProcessSafely {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 4) { return }
+
+    # 1. Verify PID exists before attempting kill
+    $proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        return
+    }
+
+    # 2. Wrap native call with temporary ErrorActionPreference = Continue
+    $prevEAP = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & taskkill /T /F /PID $ProcessId 2>&1 | Out-Null
+        # 3. Ignore taskkill exit code if process already terminated
+        $global:LASTEXITCODE = 0
+    } catch {
+        # Process already terminated
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+}
 
 function Get-ProcessInfo {
     param([int]$ProcessId)
@@ -161,13 +189,13 @@ function Ensure-PortAvailable {
 
         if ($isRepo) {
             Write-Host "Stopping existing repo process on port $($Port) (PID: $($procId), Name: $($name))..." -ForegroundColor Yellow
-            & taskkill /T /F /PID $procId 2>&1 | Out-Null
+            Stop-ProcessSafely -ProcessId $procId
             if ($savedWebPid -gt 0 -and $Port -eq 3000) {
-                & taskkill /T /F /PID $savedWebPid 2>&1 | Out-Null
+                Stop-ProcessSafely -ProcessId $savedWebPid
                 Remove-Item -Path $webPidFile -Force -ErrorAction SilentlyContinue
             }
             if ($savedApiPid -gt 0 -and $Port -eq 8001) {
-                & taskkill /T /F /PID $savedApiPid 2>&1 | Out-Null
+                Stop-ProcessSafely -ProcessId $savedApiPid
                 Remove-Item -Path $apiPidFile -Force -ErrorAction SilentlyContinue
             }
             Start-Sleep -Seconds 1
@@ -235,7 +263,7 @@ if (-not $Mock) {
         $elapsedSec = [math]::Round($swBack.Elapsed.TotalSeconds, 1)
         Write-Host "[-] Backend did not become ready after ${elapsedSec}s. Check logs in $apiErrLog" -ForegroundColor Red
         if (Test-Path $apiPidFile) {
-            & taskkill /T /F /PID $apiProc.Id 2>&1 | Out-Null
+            Stop-ProcessSafely -ProcessId $apiProc.Id
             Remove-Item -Path $apiPidFile -Force -ErrorAction SilentlyContinue
         }
         exit 1
@@ -315,11 +343,11 @@ if (-not $frontendReady) {
     $elapsedSec = [math]::Round($swFront.Elapsed.TotalSeconds, 1)
     Write-Host "[-] Frontend did not respond with 200 after ${elapsedSec}s. Check logs in $nextErrLog" -ForegroundColor Red
     if (Test-Path $webPidFile) {
-        & taskkill /T /F /PID $webProc.Id 2>&1 | Out-Null
+        Stop-ProcessSafely -ProcessId $webProc.Id
         Remove-Item -Path $webPidFile -Force -ErrorAction SilentlyContinue
     }
     if (-not $Mock -and (Test-Path $apiPidFile)) {
-        & taskkill /T /F /PID $apiProc.Id 2>&1 | Out-Null
+        Stop-ProcessSafely -ProcessId $apiProc.Id
         Remove-Item -Path $apiPidFile -Force -ErrorAction SilentlyContinue
     }
     exit 1

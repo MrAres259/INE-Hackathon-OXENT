@@ -79,7 +79,7 @@ def get_variable_meta(key: str) -> dict[str, str]:
         return {
             "label_es": f"Participación DIP_FED {year}",
             "description": f"Participación ciudadana en diputaciones federales {year}",
-            "source": f"INE · Diputaciones federales {year}",
+            "source": f"INE · Conteos Censales de Participación Ciudadana {year}",
             "unit": "proporción",
             "level": "mun|state",
         }
@@ -88,7 +88,7 @@ def get_variable_meta(key: str) -> dict[str, str]:
         return {
             "label_es": f"Abstención DIP_FED {year}",
             "description": f"Abstención en diputaciones federales {year}",
-            "source": f"INE · Diputaciones federales {year}",
+            "source": f"INE · Conteos Censales de Participación Ciudadana {year}",
             "unit": "proporción",
             "level": "mun|state",
         }
@@ -112,17 +112,17 @@ def format_value(key: str, val: Any) -> str:
         if (
             key in ("participacion", "abstencion", "pred_abstention", "pred_participation", "pred_low", "pred_high")
             or key.startswith("pct_")
-            or key.startswith("part_dip_")
-            or key.startswith("abst_dip_")
+            or key.startswith("part_")
+            or key.startswith("abst_")
         ):
             return f"{float(val) * 100:.1f}%"
         # Points / change
-        elif key in ("trend_pp", "delta_vs_base_pp"):
+        elif key in ("trend_pp", "delta_vs_base_pp", "gap_youth_pp", "gap_sexo_pp"):
             return f"{float(val):+.1f} pp"
         elif key == "volatility_pp":
             return f"{float(val):.1f} pp"
         # Counts
-        elif key in ("lista_nominal", "votos_totales", "pob_tot", "pob_18ymas", "votos_adicionales"):
+        elif key in ("lista_nominal", "votos_totales", "pob_tot", "pob_18ymas", "votos_adicionales", "ln", "sv", "nv", "ns"):
             return f"{int(round(float(val))):,}"
         # Indices and grades
         elif key in ("risk_score", "im_2020", "graproes"):
@@ -135,7 +135,7 @@ def format_value(key: str, val: Any) -> str:
 
 def _resolve_sources(keys: list[str], spec: QuerySpec | None = None, store: Any = None) -> str:
     """Build unified, deduplicated source citation string with effective year."""
-    eff_election = "Diputaciones federales"
+    eff_election = "CCPC"
     if spec and spec.election:
         if spec.election == "PRES":
             eff_election = "Presidencia"
@@ -174,13 +174,13 @@ def _resolve_sources(keys: list[str], spec: QuerySpec | None = None, store: Any 
         # Check for wide columns like part_dip_2021 or abst_dip_2021
         if k.startswith("part_dip_") or k.startswith("abst_dip_"):
             yr = k.split("_")[-1]
-            _add_source(f"INE · {eff_election} {yr}")
+            _add_source(f"INE · Conteos Censales de Participación Ciudadana {yr}")
             continue
 
         if raw_src.startswith("INE ·") or raw_src.startswith("INEGI ·") or raw_src.startswith("CONAPO ·") or raw_src.startswith("ATALAYA ·"):
             _add_source(raw_src)
-        elif raw_src == "INE":
-            _add_source(f"INE · {eff_election} {eff_year}")
+        elif raw_src in ("INE", "INE CCPC"):
+            _add_source(f"INE · Conteos Censales de Participación Ciudadana {eff_year}")
         elif raw_src == "INEGI":
             _add_source("INEGI · Censo 2020")
         elif raw_src == "CONAPO":
@@ -191,7 +191,7 @@ def _resolve_sources(keys: list[str], spec: QuerySpec | None = None, store: Any 
             _add_source(raw_src)
 
     if not sources:
-        return f"INE · {eff_election} {eff_year}"
+        return f"INE · Conteos Censales de Participación Ciudadana {eff_year}"
 
     return "; ".join(sources)
 
@@ -268,7 +268,21 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
 
     meta = get_variable_meta(spec.metric)
     label = meta.get("label_es", spec.metric)
-    columns = ["Zona", "Nivel", "Estado", label]
+    raw_source = meta.get("source", "")
+    is_census = (
+        raw_source.startswith("INEGI")
+        or raw_source.startswith("CONAPO")
+        or spec.metric in (
+            "pob_tot", "pob_18ymas", "pct_18_24", "pct_65ymas", "graproes",
+            "pct_hli", "pct_sin_servsalud", "pct_internet", "pct_rural",
+            "pct_analfabeta", "pct_po2sm", "im_2020", "gm_2020"
+        )
+    )
+
+    if is_census:
+        columns = ["Zona", "Nivel", "Estado", "Año", label]
+    else:
+        columns = ["Zona", "Nivel", "Estado", label]
 
     rows = []
     facts = []
@@ -282,9 +296,9 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
                 zona = u.get("name") or uid
                 nivel = "Estado" if u.get("level") == "state" else "Municipio"
                 estado = get_state_name(u.get("cve_ent"))
-                
+
                 # Check participation or wide columns
-                if spec.year and spec.metric in ("participacion", "abstencion", "lista_nominal", "votos_totales"):
+                if not is_census and spec.year and spec.metric in ("participacion", "abstencion", "lista_nominal", "votos_totales"):
                     wide_col = f"part_dip_{spec.year}" if spec.metric == "participacion" else (
                         f"abst_dip_{spec.year}" if spec.metric == "abstencion" else None
                     )
@@ -298,7 +312,7 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
                 else:
                     val = u.get(spec.metric)
                     if val is None or pd.isna(val):
-                        if spec.metric in ("participacion", "abstencion", "lista_nominal", "votos_totales"):
+                        if not is_census and spec.metric in ("participacion", "abstencion", "lista_nominal", "votos_totales"):
                             pdf = store.participation([uid], level=u.get("level", spec.level), election=spec.election)
                             if not pdf.empty:
                                 latest = pdf.sort_values(by="year").iloc[-1]
@@ -308,12 +322,19 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
 
                 if val is not None and not pd.isna(val):
                     val_str = format_value(spec.metric, val)
-                    rows.append([zona, nivel, estado, val_str])
-                    
-                    yr_text = f" en {spec.year}" if spec.year else ""
-                    facts.append(
-                        f"La {label.lower()} en {zona} ({estado}){yr_text} fue de {val_str}."
-                    )
+                    if is_census:
+                        rows.append([zona, nivel, estado, 2020, val_str])
+                        facts.append(
+                            f"La {label.lower()} en {zona} ({estado}) en 2020 fue de {val_str}."
+                        )
+                        if spec.year and spec.year != 2020:
+                            facts.append("El dato censal corresponde a 2020.")
+                    else:
+                        rows.append([zona, nivel, estado, val_str])
+                        yr_text = f" en {spec.year}" if spec.year else ""
+                        facts.append(
+                            f"La {label.lower()} en {zona} ({estado}){yr_text} fue de {val_str}."
+                        )
     else:
         ent = spec.filters.get("cve_ent")
         agg = store.aggregate(spec.metric, level=spec.level, filters=spec.filters, stat="avg")
@@ -322,8 +343,14 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
             zona = get_state_name(ent) if ent else "Nacional"
             nivel = "Estado" if spec.level == "state" else "Municipal"
             val_str = format_value(spec.metric, val)
-            rows.append([zona, nivel, zona, val_str])
-            facts.append(f"El promedio de {label.lower()} para {zona} ({nivel.lower()}) es de {val_str}.")
+            if is_census:
+                rows.append([zona, nivel, zona, 2020, val_str])
+                facts.append(f"El promedio de {label.lower()} para {zona} ({nivel.lower()}) en 2020 es de {val_str}.")
+                if spec.year and spec.year != 2020:
+                    facts.append("El dato censal corresponde a 2020.")
+            else:
+                rows.append([zona, nivel, zona, val_str])
+                facts.append(f"El promedio de {label.lower()} para {zona} ({nivel.lower()}) es de {val_str}.")
 
     if not rows:
         facts.append("No se encontraron registros para la consulta solicitada.")
@@ -332,6 +359,74 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
         columns=columns,
         rows=rows,
         source=_resolve_sources(sources, spec, store),
+        facts=facts,
+        empty=len(rows) == 0,
+    )
+
+
+def _execute_profile(spec: QuerySpec, store: Any, region_id: str | None = None) -> DataResult:
+    target_ids = list(spec.unit_ids)
+    if not target_ids and region_id:
+        target_ids = [region_id]
+    elif not target_ids and spec.filters.get("cve_ent"):
+        target_ids = [spec.filters["cve_ent"]]
+
+    target_id = target_ids[0] if target_ids else ("01" if spec.level == "state" else "01001")
+    unit = store.unit(str(target_id)) if hasattr(store, "unit") else None
+    zona = unit.get("name") if unit else str(target_id)
+    estado = get_state_name(unit.get("cve_ent")) if unit else ""
+
+    raw_profile = []
+    if hasattr(store, "profile"):
+        try:
+            raw_profile = store.profile(str(target_id), year=spec.year)
+        except Exception as e:
+            logger.warning("Error fetching profile from store: %s", e)
+
+    columns = ["Grupo de edad", "Sexo", "Lista Nominal", "Votaron (SV)", "No Votaron (NV)", "Participación"]
+    rows = []
+    facts = []
+
+    if raw_profile:
+        eff_year = spec.year
+        if eff_year is None:
+            eff_year = max(int(r["year"]) for r in raw_profile if "year" in r and r["year"] is not None)
+        filtered = [r for r in raw_profile if int(r.get("year", 0)) == int(eff_year)]
+        filtered.sort(key=lambda r: (str(r.get("age_group", "")), str(r.get("sexo", ""))))
+
+        for r in filtered:
+            ag = str(r.get("age_group", ""))
+            sx = str(r.get("sexo", ""))
+            ln_str = format_value("lista_nominal", r.get("ln"))
+            sv_str = format_value("votos_totales", r.get("sv"))
+            nv_str = format_value("votos_totales", r.get("nv"))
+            part_str = format_value("participacion", r.get("participacion"))
+            rows.append([ag, sx, ln_str, sv_str, nv_str, part_str])
+
+        location_desc = f"{zona} ({estado})" if estado and estado != zona else zona
+        facts.append(
+            f"Perfil de participación ciudadana por grupo de edad y sexo en {location_desc} para {eff_year} (CCPC)."
+        )
+        valid_parts = [r for r in filtered if r.get("participacion") is not None and pd.notna(r.get("participacion"))]
+        if valid_parts:
+            top_g = max(valid_parts, key=lambda x: float(x["participacion"]))
+            bot_g = min(valid_parts, key=lambda x: float(x["participacion"]))
+            facts.append(
+                f"Mayor participación: {top_g.get('age_group')} ({top_g.get('sexo')}) con {format_value('participacion', top_g.get('participacion'))}."
+            )
+            facts.append(
+                f"Menor participación: {bot_g.get('age_group')} ({bot_g.get('sexo')}) con {format_value('participacion', bot_g.get('participacion'))}."
+            )
+    else:
+        eff_year = spec.year or 2024
+        facts.append("No se encontró información de perfil demográfico (CCPC) para la zona solicitada.")
+
+    source = f"INE · Conteos Censales de Participación Ciudadana {eff_year}"
+
+    return DataResult(
+        columns=columns,
+        rows=rows,
+        source=source,
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -807,6 +902,8 @@ def execute(
         res = _execute_explain_unit(spec, store, region_id)
     elif spec.intent == "catalog":
         res = _execute_catalog(spec)
+    elif spec.intent == "profile":
+        res = _execute_profile(spec, store, region_id)
     elif spec.intent in ("help", "out_of_scope"):
         res = _execute_help()
     else:

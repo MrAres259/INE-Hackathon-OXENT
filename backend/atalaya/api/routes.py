@@ -195,6 +195,28 @@ def get_meta() -> dict[str, Any]:
         "categories": CATEGORIES,
         "store": store.kind,
         "llm": is_llm_enabled(),
+        "data_sources": [
+            {
+                "name": "CCPC",
+                "url": "https://ine.mx/transparencia/datos-abiertos/visualizacion-datos/conteos-censales-participacion/",
+                "years": [2009, 2012, 2015, 2018, 2021, 2024],
+            },
+            {
+                "name": "INEGI ITER 2020",
+                "url": "https://www.inegi.org.mx/programas/ccpv/2020/",
+                "years": [2020],
+            },
+            {
+                "name": "CONAPO IMM 2020",
+                "url": "https://www.gob.mx/conapo/documentos/indices-de-marginacion-2020-284372",
+                "years": [2020],
+            },
+            {
+                "name": "INEGI MG 2024",
+                "url": "https://www.inegi.org.mx/temas/mg/",
+                "years": [2024],
+            },
+        ],
     }
 
 
@@ -290,8 +312,28 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
                     "participation": _clean_float(r.get("participacion")) or 0.0,
                     "lista_nominal": _clean_int(r.get("lista_nominal")) or 0,
                 })
+            # Ensure PJF 2025 is included in series
+            has_pjf = any(s.get("election") == "PJF" or s.get("year") == 2025 for s in series)
+            if not has_pjf:
+                pj_val = _clean_float(unit.get("part_pj_2025"))
+                if pj_val is not None:
+                    series.append({
+                        "year": 2025,
+                        "election": "PJF",
+                        "participation": pj_val,
+                        "lista_nominal": _clean_int(unit.get("lista_nominal")) or 0,
+                    })
         else:
-            series = []
+            pj_val = _clean_float(unit.get("part_pj_2025"))
+            if pj_val is not None:
+                series = [{
+                    "year": 2025,
+                    "election": "PJF",
+                    "participation": pj_val,
+                    "lista_nominal": _clean_int(unit.get("lista_nominal")) or 0,
+                }]
+            else:
+                series = []
     except Exception:
         series = []
 
@@ -396,6 +438,53 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
                 if s["pred_abstention"] is not None:
                     unit_data["pred_participation"] = round(1.0 - s["pred_abstention"], 6)
 
+    # 7. CCPC profile, pj_2025, ccpc features, and imputed_census
+    try:
+        raw_profile = store.profile(id)
+        if raw_profile:
+            avail_years = sorted(list({int(r["year"]) for r in raw_profile if "year" in r and r["year"] is not None}))
+            if avail_years:
+                target_years = {avail_years[0], avail_years[-1]}
+                prof_items = []
+                for r in raw_profile:
+                    yr = int(r.get("year", 0))
+                    if yr in target_years:
+                        prof_items.append({
+                            "year": yr,
+                            "age_group": str(r.get("age_group", "")),
+                            "sexo": str(r.get("sexo", "")),
+                            "ln": _clean_int(r.get("ln")) or 0,
+                            "participation": _clean_float(r.get("participacion")),
+                        })
+                profile_res = prof_items
+            else:
+                profile_res = []
+        else:
+            profile_res = []
+    except Exception as exc:
+        logger.debug("Error getting profile for %s: %s", id, exc)
+        profile_res = []
+
+    # pj_2025
+    pj_part = _clean_float(unit.get("part_pj_2025"))
+    if pj_part is None:
+        pjf_pt = next((s for s in series if s.get("election") == "PJF" or s.get("year") == 2025), None)
+        if pjf_pt:
+            pj_part = pjf_pt.get("participation")
+    pj_2025 = {"participation": pj_part}
+
+    # ccpc summary for latest year
+    ccpc_res = {
+        "pct_ln_18_34": _clean_float(unit.get("pct_ln_18_34_last") if unit.get("pct_ln_18_34_last") is not None else unit.get("pct_ln_18_34")),
+        "part_18_34": _clean_float(unit.get("part_18_34_last") if unit.get("part_18_34_last") is not None else unit.get("part_18_34")),
+        "gap_youth_pp": _clean_float(unit.get("gap_youth_pp_last") if unit.get("gap_youth_pp_last") is not None else unit.get("gap_youth_pp")),
+        "gap_sexo_pp": _clean_float(unit.get("gap_sexo_pp_last") if unit.get("gap_sexo_pp_last") is not None else unit.get("gap_sexo_pp")),
+        "pct_ln_rural": _clean_float(unit.get("pct_ln_rural_last") if unit.get("pct_ln_rural_last") is not None else unit.get("pct_ln_rural")),
+    }
+
+    # imputed_census
+    imputed_census = bool(unit.get("imputed_census", False)) if pd.notna(unit.get("imputed_census")) else False
+
     detail = _format_risk_item(unit_data, is_delta_allowed=(scenario != "base"))
     detail.update({
         "parent": parent,
@@ -404,6 +493,10 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
         "drivers": drivers,
         "scenarios": scenarios_res,
         "recommendations": recommendations,
+        "profile": profile_res,
+        "pj_2025": pj_2025,
+        "ccpc": ccpc_res,
+        "imputed_census": imputed_census,
     })
     return detail
 

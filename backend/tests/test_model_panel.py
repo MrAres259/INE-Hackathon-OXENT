@@ -164,3 +164,85 @@ def test_intermediate_turnout():
     assert target.loc["01001"] == pytest.approx(45.0)
     assert target.loc["01002"] == pytest.approx(51.0)
 
+
+def test_training_rows_with_ccpc_features_and_coverage():
+    """Verify training rows pull CCPC features from T-3 and dynamic coverage from L."""
+    Y = pd.DataFrame(
+        {
+            2009: [0.45],
+            2012: [0.55],
+            2015: [0.48],
+            2018: [0.62],
+        },
+        index=["01001"],
+    )
+    L = pd.DataFrame(
+        {
+            2009: [8000],
+            2012: [9000],
+            2015: [9500],
+            2018: [10000],
+        },
+        index=["01001"],
+    )
+    feats = pd.DataFrame(
+        {
+            "cvegeo": ["01001"],
+            "pob_18ymas": [10000],
+            "pct_18_24": [0.20],
+        }
+    )
+    ccpc_feats = pd.DataFrame(
+        [
+            {"cvegeo": "01001", "year": 2012, "gap_youth_pp": -10.5, "pct_ln_18_34": 0.32},
+            {"cvegeo": "01001", "year": 2015, "gap_youth_pp": -7.2, "pct_ln_18_34": 0.35},
+        ]
+    )
+
+    targets = [2015, 2018]
+    train_df = training_rows(Y, feats, targets, ccpc_feats=ccpc_feats, L=L)
+    assert len(train_df) == 2
+
+    # Target 2015 -> features from T-3 = 2012
+    row_2015 = train_df[train_df["target_year"] == 2015].iloc[0]
+    assert row_2015["gap_youth_pp"] == pytest.approx(-10.5)
+    assert row_2015["pct_ln_18_34"] == pytest.approx(0.32)
+    # coverage_ln = L[2012] / pob_18ymas = 9000 / 10000 = 0.90
+    assert row_2015["coverage_ln"] == pytest.approx(0.90)
+
+    # Target 2018 -> features from T-3 = 2015
+    row_2018 = train_df[train_df["target_year"] == 2018].iloc[0]
+    assert row_2018["gap_youth_pp"] == pytest.approx(-7.2)
+    assert row_2018["pct_ln_18_34"] == pytest.approx(0.35)
+    # coverage_ln = L[2015] / pob_18ymas = 9500 / 10000 = 0.95
+    assert row_2018["coverage_ln"] == pytest.approx(0.95)
+
+
+def test_intermediate_ccpc_features():
+    """Verify intermediate_ccpc_features averages over intermediate years 2009, 2015, 2021."""
+    from atalaya.model.panel import intermediate_ccpc_features
+    ccpc_df = pd.DataFrame(
+        [
+            {"cvegeo": "01001", "year": 2009, "gap_youth_pp": -10.0, "pct_ln_18_34": 0.30},
+            {"cvegeo": "01001", "year": 2012, "gap_youth_pp": -20.0, "pct_ln_18_34": 0.50},  # Pres - excluded
+            {"cvegeo": "01001", "year": 2015, "gap_youth_pp": -8.0, "pct_ln_18_34": 0.32},
+            {"cvegeo": "01001", "year": 2018, "gap_youth_pp": -15.0, "pct_ln_18_34": 0.40},  # Pres - excluded
+            {"cvegeo": "01001", "year": 2021, "gap_youth_pp": -6.0, "pct_ln_18_34": 0.34},
+        ]
+    )
+    res = intermediate_ccpc_features(ccpc_df)
+    # Means across 2009, 2015, 2021:
+    # gap_youth_pp: (-10 + -8 + -6) / 3 = -8.0
+    # pct_ln_18_34: (0.30 + 0.32 + 0.34) / 3 = 0.32
+    assert res.loc["01001", "gap_youth_pp"] == pytest.approx(-8.0)
+    assert res.loc["01001", "pct_ln_18_34"] == pytest.approx(0.32)
+
+
+def test_load_inputs_with_include_ccpc(tmp_path):
+    """Verify load_inputs with include_ccpc=True returns 3 DataFrames."""
+    part, feats, ccpc = load_inputs(tmp_path, include_ccpc=True)
+    assert isinstance(part, pd.DataFrame)
+    assert isinstance(feats, pd.DataFrame)
+    assert isinstance(ccpc, pd.DataFrame)
+
+

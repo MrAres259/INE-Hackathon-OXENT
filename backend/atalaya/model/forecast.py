@@ -10,7 +10,7 @@ import pandas as pd
 
 from atalaya.model.panel import training_rows
 
-FEATURES: tuple[str, ...] = (
+BASE_FEATURES: tuple[str, ...] = (
     "pct_18_24",
     "pct_65ymas",
     "graproes",
@@ -23,6 +23,16 @@ FEATURES: tuple[str, ...] = (
     "coverage_ln",
     "log_pob_18ymas",
 )
+
+CCPC_FEATURES: tuple[str, ...] = (
+    "pct_ln_18_34",
+    "gap_youth_pp",
+    "gap_sexo_pp",
+    "pct_ln_rural",
+    "ns_rate",
+)
+
+FEATURES: tuple[str, ...] = BASE_FEATURES
 
 PREDICTORS: list[str] = ["lag1", "lag2", "pres"] + list(FEATURES)
 
@@ -170,15 +180,26 @@ def predict(model: RidgeModel, X: pd.DataFrame) -> np.ndarray:
     return np.clip(pred, 5.0, 98.0)
 
 
-def contributions(model: RidgeModel, X: pd.DataFrame) -> pd.DataFrame:
+def contributions(
+    model: RidgeModel,
+    X: pd.DataFrame,
+    features: Sequence[str] | None = None,
+) -> pd.DataFrame:
     """Compute feature contributions (coef_k * z_ik) in pp of participation.
 
-    Computed per row and per feature in FEATURES (excluding lags and pres).
+    Computed per row and per feature in model.features (excluding lags and pres).
     """
     N = len(X)
     contrib_dict: dict[str, np.ndarray] = {}
 
-    for feat in FEATURES:
+    if features is not None:
+        feats_to_use = list(features)
+    elif model.features == list(PREDICTORS):
+        feats_to_use = list(FEATURES)
+    else:
+        feats_to_use = [f for f in model.features if f not in ("lag1", "lag2", "pres")]
+
+    for feat in feats_to_use:
         if feat in model.features and feat in X.columns:
             vals = pd.to_numeric(X[feat], errors="coerce").values.astype(float)
             med = model.medians.get(feat, 0.0)
@@ -199,6 +220,8 @@ def backtest(
     Y: pd.DataFrame,
     feats: pd.DataFrame,
     lam: float,
+    ccpc_feats: pd.DataFrame | None = None,
+    L: pd.DataFrame | None = None,
 ) -> list[dict]:
     """Run temporal backtesting folds: (train <= 2018 -> 2021) and (train <= 2021 -> 2024).
 
@@ -208,6 +231,8 @@ def backtest(
         (2018, 2021),
         (2021, 2024),
     ]
+
+    candidate_preds = ["lag1", "lag2", "pres"] + list(BASE_FEATURES) + list(CCPC_FEATURES)
 
     results: list[dict] = []
     for train_until, test_year in fold_specs:
@@ -219,14 +244,14 @@ def backtest(
         if not train_targets:
             continue
 
-        train_df = training_rows(Y, feats, train_targets)
-        test_df = training_rows(Y, feats, [test_year])
+        train_df = training_rows(Y, feats, train_targets, ccpc_feats=ccpc_feats, L=L)
+        test_df = training_rows(Y, feats, [test_year], ccpc_feats=ccpc_feats, L=L)
 
         if len(train_df) < 5 or len(test_df) == 0:
             continue
 
         # Check predictors present
-        pred_cols = [c for c in PREDICTORS if c in train_df.columns]
+        pred_cols = [c for c in candidate_preds if c in train_df.columns]
         if len(pred_cols) < 3:
             continue
 
@@ -264,6 +289,8 @@ def select_lambda(
     Y: pd.DataFrame,
     feats: pd.DataFrame,
     grid: Sequence[float] = (0.1, 1.0, 3.0, 10.0, 30.0, 100.0),
+    ccpc_feats: pd.DataFrame | None = None,
+    L: pd.DataFrame | None = None,
 ) -> float:
     """Select ridge penalty lambda minimizing MAE on the earliest available backtest fold (test 2021).
 
@@ -274,7 +301,10 @@ def select_lambda(
     found = False
 
     for lam in grid:
-        folds = backtest(Y, feats, float(lam))
+        if ccpc_feats is not None or L is not None:
+            folds = backtest(Y, feats, float(lam), ccpc_feats=ccpc_feats, L=L)
+        else:
+            folds = backtest(Y, feats, float(lam))
         if folds:
             found = True
             first_fold_mae = folds[0]["mae_pp"]
@@ -291,6 +321,7 @@ def fit_structural(
     lam: float | None = None,
     folds_by: pd.Series | None = None,
     grid: Sequence[float] = (0.1, 1.0, 3.0, 10.0, 30.0, 100.0),
+    features: Sequence[str] | None = None,
 ) -> StructuralModel:
     """Fit cross-sectional Ridge model explaining average intermediate turnout.
 
@@ -325,7 +356,12 @@ def fit_structural(
     if len(y_clean) > 0 and np.nanmax(y_clean.values) <= 1.05:
         y_clean = y_clean * 100.0
 
-    feature_names = [f for f in FEATURES if f in X_clean.columns]
+    if features is not None:
+        feature_names = [f for f in features if f in X_clean.columns]
+    else:
+        candidate_feats = list(BASE_FEATURES) + [f for f in CCPC_FEATURES if f in X_clean.columns]
+        feature_names = [f for f in candidate_feats if f in X_clean.columns]
+
     if not feature_names:
         feature_names = [c for c in X_clean.columns if c not in ("cvegeo", "cve_ent", "cve_mun", "nom_ent", "nom_mun", "id", "level", "name")]
     if not feature_names:
@@ -419,16 +455,24 @@ def fit_structural(
 def contributions_structural(
     model: StructuralModel | RidgeModel,
     X: pd.DataFrame,
+    features: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """Compute structural feature contributions (coef_k * z_ik) in pp of participation.
 
-    Computed per row and per feature in FEATURES.
+    Computed per row and per feature.
     z_ik is standardized relative to the training distribution (national mean/std).
     """
     N = len(X)
     contrib_dict: dict[str, np.ndarray] = {}
 
-    for feat in FEATURES:
+    if features is not None:
+        feats_to_use = list(features)
+    elif model.features == list(FEATURES):
+        feats_to_use = list(FEATURES)
+    else:
+        feats_to_use = [f for f in model.features if f not in ("lag1", "lag2", "pres")]
+
+    for feat in feats_to_use:
         if feat in model.features and feat in X.columns:
             vals = pd.to_numeric(X[feat], errors="coerce").values.astype(float)
             med = model.medians.get(feat, 0.0)

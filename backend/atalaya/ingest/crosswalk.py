@@ -1,7 +1,11 @@
 """Crosswalk module for mapping INE municipalities to canonical INEGI cvegeo.
 
-Produces data/build/crosswalk.parquet, data/build/participation.parquet,
-and data/build/crosswalk_unmatched.csv.
+Produces:
+- data/build/crosswalk.parquet
+- data/build/participation.parquet
+- data/build/ccpc_profile_mun.parquet (if ccpc_profile exists)
+- data/build/ccpc_seccion_mun.parquet (if ccpc_seccion exists)
+- data/build/crosswalk_unmatched.csv
 """
 
 from __future__ import annotations
@@ -35,16 +39,22 @@ PARTICIPATION_COLUMNS = [
     "lista_nominal",
     "votos_totales",
     "participacion",
+    "nv",
+    "ns",
 ]
 UNMATCHED_COLUMNS = ["cve_ent", "mun_norm", "mun_name", "best_candidate", "best_score", "years"]
 
 HONORIFIC_PREFIXES = [
     "HEROICA CIUDAD DE ",
     "HEROICA VILLA DE ",
+    "HEROICA CIUDAD ",
     "HEROICA ",
+    "HEROICO ",
     "CIUDAD DE ",
     "VILLA DE ",
     "SAN JUAN BAUTISTA ",
+    "PUEBLO DE ",
+    "MUNICIPIO DE ",
 ]
 
 TOKEN_EQUIVS = {
@@ -52,14 +62,43 @@ TOKEN_EQUIVS = {
     "STA": "SANTA",
     "STO": "SANTO",
     "DR": "DOCTOR",
+    "DRA": "DOCTORA",
+    "LIC": "LICENCIADO",
+    "PROFR": "PROFESOR",
+    "PROF": "PROFESOR",
+    "ING": "INGENIERO",
+    "CORL": "CORONEL",
+    "CNEL": "CORONEL",
+    "TTE": "TENIENTE",
+    "CD": "CIUDAD",
+    "SN": "SAN",
+    "PTO": "PUERTO",
+    "NTRA": "NUESTRA",
+    "NTR": "NUESTRA",
+    "SRA": "SENORA",
+    "FNCISCO": "FRANCISCO",
+    "MA": "MARIA",
+}
+
+NUMERAL_MAP = {
+    "1": "I",
+    "2": "II",
+    "3": "III",
+    "4": "IV",
+    "5": "V",
+    "6": "VI",
 }
 
 
 def strip_variants(text: str) -> str:
-    """Strip honorific prefixes and apply token abbreviations."""
+    """Strip honorific prefixes, standardize abbreviations, articles, and numerals."""
     s = norm_name(text)
     if not s:
         return ""
+
+    # Normalize DE EL -> DEL, A EL -> AL
+    s = re.sub(r"\bDE EL\b", "DEL", s)
+    s = re.sub(r"\bA EL\b", "AL", s)
 
     # Remove known honorific prefixes at start of string
     changed = True
@@ -75,7 +114,17 @@ def strip_variants(text: str) -> str:
     for token, full in TOKEN_EQUIVS.items():
         s = re.sub(rf"\b{token}\b", full, s)
 
+    # Standardize numbers to Roman numerals
+    for num, roman in NUMERAL_MAP.items():
+        s = re.sub(rf"\b{num}\b", roman, s)
+
     return " ".join(s.split())
+
+
+def strip_connecting_words(text: str) -> str:
+    """Strip connecting prepositions and articles (DE, DEL, LA, EL, LOS, LAS, Y)."""
+    tokens = [t for t in text.split() if t not in ("DE", "DEL", "LA", "LAS", "EL", "LOS", "Y")]
+    return " ".join(tokens)
 
 
 def load_overrides(overrides_path: Path | str | None = None) -> dict[tuple[str, str], str]:
@@ -106,27 +155,53 @@ def load_overrides(overrides_path: Path | str | None = None) -> dict[tuple[str, 
 def process_crosswalk(
     participation_ine_path: Path | str | None = None,
     features_path: Path | str | None = None,
+    geo_catalog_path: Path | str | None = None,
     overrides_path: Path | str | None = None,
+    ccpc_profile_path: Path | str | None = None,
+    ccpc_seccion_path: Path | str | None = None,
     out_crosswalk: Path | str | None = None,
     out_participation: Path | str | None = None,
     out_unmatched: Path | str | None = None,
+    out_profile_mun: Path | str | None = None,
+    out_seccion_mun: Path | str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Build crosswalk mapping INE municipalities to INEGI cvegeo."""
+    """Build crosswalk mapping INE municipalities to canonical INEGI cvegeo and attach to CCPC tables."""
     ine_file = Path(participation_ine_path) if participation_ine_path else BUILD_DIR / "participation_ine.parquet"
     feat_file = Path(features_path) if features_path else BUILD_DIR / "features.parquet"
     cw_out = Path(out_crosswalk) if out_crosswalk else BUILD_DIR / "crosswalk.parquet"
     part_out = Path(out_participation) if out_participation else BUILD_DIR / "participation.parquet"
     unm_out = Path(out_unmatched) if out_unmatched else BUILD_DIR / "crosswalk_unmatched.csv"
+    profile_out = Path(out_profile_mun) if out_profile_mun else BUILD_DIR / "ccpc_profile_mun.parquet"
+    seccion_out = Path(out_seccion_mun) if out_seccion_mun else BUILD_DIR / "ccpc_seccion_mun.parquet"
 
     empty_cw = pd.DataFrame(columns=CROSSWALK_COLUMNS)
     empty_part = pd.DataFrame(columns=PARTICIPATION_COLUMNS)
     empty_unm = pd.DataFrame(columns=UNMATCHED_COLUMNS)
 
-    if not ine_file.is_file() or not feat_file.is_file():
+    # Determine destination catalog:
+    # 1. geo_catalog_path if explicitly provided and exists
+    # 2. features_path if explicitly provided (and not default BUILD_DIR/features.parquet) and exists
+    # 3. BUILD_DIR / geo_mun_catalog.csv (MG 2024 catalog from W3-D)
+    # 4. feat_file (BUILD_DIR / features.parquet)
+    cat_df = None
+    if geo_catalog_path and Path(geo_catalog_path).is_file():
+        logger.info("Using destination catalog from geo_catalog_path: %s", geo_catalog_path)
+        cat_df = pd.read_csv(Path(geo_catalog_path), dtype=str)
+    elif features_path and Path(features_path) != BUILD_DIR / "features.parquet" and Path(features_path).is_file():
+        logger.info("Using destination catalog from explicit features_path: %s", features_path)
+        cat_df = read_parquet(Path(features_path))
+    elif (BUILD_DIR / "geo_mun_catalog.csv").is_file():
+        logger.info("Using destination catalog from BUILD_DIR/geo_mun_catalog.csv")
+        cat_df = pd.read_csv(BUILD_DIR / "geo_mun_catalog.csv", dtype=str)
+    elif feat_file.is_file():
+        logger.info("Using destination catalog from BUILD_DIR/features.parquet")
+        cat_df = read_parquet(feat_file)
+
+    if not ine_file.is_file() or cat_df is None or cat_df.empty:
         logger.warning(
-            "Missing inputs for crosswalk (participation_ine: %s, features: %s). Writing empty outputs.",
+            "Missing inputs for crosswalk (participation_ine: %s, catalog: %s). Writing empty outputs.",
             ine_file.is_file(),
-            feat_file.is_file(),
+            cat_df is not None and not cat_df.empty,
         )
         write_parquet(empty_cw, cw_out)
         write_parquet(empty_part, part_out)
@@ -135,10 +210,8 @@ def process_crosswalk(
         return empty_cw, empty_part, empty_unm
 
     ine_df = read_parquet(ine_file)
-    feat_df = read_parquet(feat_file)
-
-    if ine_df.empty or feat_df.empty:
-        logger.warning("Empty participation_ine or features table. Writing empty outputs.")
+    if ine_df.empty:
+        logger.warning("Empty participation_ine table. Writing empty outputs.")
         write_parquet(empty_cw, cw_out)
         write_parquet(empty_part, part_out)
         unm_out.parent.mkdir(parents=True, exist_ok=True)
@@ -155,16 +228,21 @@ def process_crosswalk(
     else:
         ine_df["mun_name"] = ine_df["mun_name"].fillna("").astype(str).str.strip()
 
-    # Clean INEGI features catalog
-    feat_df["cvegeo"] = feat_df["cvegeo"].apply(lambda v: zpad(v, 5))
-    feat_df["cve_ent"] = feat_df["cvegeo"].str[:2]
-    feat_df["nom_mun"] = feat_df["nom_mun"].fillna("").astype(str).str.strip()
-    feat_df["mun_norm"] = feat_df["nom_mun"].apply(norm_name)
+    # Clean destination catalog
+    cat_df["cvegeo"] = cat_df["cvegeo"].apply(lambda v: zpad(v, 5))
+    cat_df["cve_ent"] = cat_df["cvegeo"].str[:2]
+    nom_mun_series = (
+        cat_df["name"] if "name" in cat_df.columns
+        else (cat_df["nom_mun"] if "nom_mun" in cat_df.columns else cat_df["cvegeo"])
+    )
+    cat_df["nom_mun"] = nom_mun_series.fillna("").astype(str).str.strip()
+    cat_df["mun_norm"] = cat_df["nom_mun"].apply(norm_name)
+    cat_df = cat_df.drop_duplicates(subset=["cvegeo"]).reset_index(drop=True)
 
     # Build reference mapping by state
-    # cve_ent -> list of (cvegeo, nom_mun, mun_norm, variant_norm)
+    # cve_ent -> list of candidate dicts
     inegi_by_ent: dict[str, list[dict]] = {}
-    for ent, grp in feat_df.groupby("cve_ent"):
+    for ent, grp in cat_df.groupby("cve_ent"):
         muns = []
         for _, row in grp.iterrows():
             muns.append({
@@ -172,11 +250,11 @@ def process_crosswalk(
                 "nom_mun": row["nom_mun"],
                 "mun_norm": row["mun_norm"],
                 "variant_norm": strip_variants(row["nom_mun"]),
+                "clean_norm": strip_connecting_words(strip_variants(row["nom_mun"])),
             })
         inegi_by_ent[ent] = muns
 
     # Map unique (cve_ent, mun_norm) pairs
-    # Group INE dataset by (cve_ent, mun_norm) to collect mun_name and years
     groups = ine_df.groupby(["cve_ent", "mun_norm"])
 
     cw_rows = []
@@ -185,7 +263,6 @@ def process_crosswalk(
     for (cve_ent, mun_norm), group in groups:
         years_list = sorted(group["year"].dropna().unique().tolist())
         years_str = ", ".join(str(y) for y in years_list)
-        # Choose most representative mun_name (longest non-empty)
         names = [n for n in group["mun_name"].unique() if n]
         mun_name = max(names, key=len) if names else mun_norm
 
@@ -240,7 +317,7 @@ def process_crosswalk(
             })
             continue
 
-        # 2. Exact match: mun_norm == cand["mun_norm"]
+        # 2. Exact match
         exact_match = next((c for c in cands if c["mun_norm"] == mun_norm), None)
         if exact_match:
             cw_rows.append({
@@ -252,9 +329,8 @@ def process_crosswalk(
             })
             continue
 
-        # 3. Exact variant match (honorifics stripped & token equivalences)
+        # 3. Exact variant match (honorifics, token abbreviations, numerals)
         input_variant = strip_variants(mun_norm)
-        # Check if matching variant exists and is unique in state
         variant_matches = [c for c in cands if c["variant_norm"] == input_variant]
         if len(variant_matches) == 1:
             cw_rows.append({
@@ -266,12 +342,23 @@ def process_crosswalk(
             })
             continue
 
+        # 3b. Connecting words stripped match
+        input_clean = strip_connecting_words(input_variant)
+        clean_matches = [c for c in cands if c["clean_norm"] == input_clean]
+        if len(clean_matches) == 1:
+            cw_rows.append({
+                "cve_ent": cve_ent,
+                "mun_norm": mun_norm,
+                "cvegeo": clean_matches[0]["cvegeo"],
+                "method": "exact",
+                "score": 0.92,
+            })
+            continue
+
         # 4. Fuzzy match
-        # Compare mun_norm against cands["mun_norm"]
         scored = []
         for c in cands:
             ratio = difflib.SequenceMatcher(None, mun_norm, c["mun_norm"]).ratio()
-            # Also test variant similarity
             ratio_var = difflib.SequenceMatcher(None, input_variant, c["variant_norm"]).ratio()
             effective_ratio = max(ratio, ratio_var)
             scored.append((effective_ratio, c))
@@ -301,7 +388,6 @@ def process_crosswalk(
         })
 
     cw_df = pd.DataFrame(cw_rows, columns=CROSSWALK_COLUMNS)
-    # Deduplicate crosswalk
     cw_df = cw_df.drop_duplicates(subset=["cve_ent", "mun_norm"]).reset_index(drop=True)
     write_parquet(cw_df, cw_out)
     logger.info("Saved crosswalk to %s (%d rows)", cw_out, len(cw_df))
@@ -319,18 +405,32 @@ def process_crosswalk(
         merged_part["lista_nominal"] = pd.to_numeric(merged_part["lista_nominal"], errors="coerce").fillna(0).astype("int64")
         merged_part["votos_totales"] = pd.to_numeric(merged_part["votos_totales"], errors="coerce").fillna(0).astype("int64")
 
+        has_nv = "nv" in merged_part.columns
+        has_ns = "ns" in merged_part.columns
+        if has_nv:
+            merged_part["nv"] = pd.to_numeric(merged_part["nv"], errors="coerce").fillna(0).astype("int64")
+        else:
+            merged_part["nv"] = 0
+        if has_ns:
+            merged_part["ns"] = pd.to_numeric(merged_part["ns"], errors="coerce").fillna(0).astype("int64")
+        else:
+            merged_part["ns"] = 0
+
         agg_df = (
-            merged_part.groupby(["cvegeo", "year", "election"], as_index=False)[["lista_nominal", "votos_totales"]]
+            merged_part.groupby(["cvegeo", "year", "election"], as_index=False)[["lista_nominal", "votos_totales", "nv", "ns"]]
             .sum()
         )
         agg_df["cve_ent"] = agg_df["cvegeo"].str[:2]
-        
-        # Calculate participacion <= 1.0
-        agg_df["participacion"] = np.where(
-            agg_df["lista_nominal"] > 0,
-            np.minimum(1.0, agg_df["votos_totales"] / agg_df["lista_nominal"]),
-            np.nan,
-        )
+
+        if has_nv and (agg_df["votos_totales"] + agg_df["nv"]).sum() > 0:
+            denom = agg_df["votos_totales"] + agg_df["nv"]
+            agg_df["participacion"] = np.where(denom > 0, np.minimum(1.0, agg_df["votos_totales"] / denom), np.nan)
+        else:
+            agg_df["participacion"] = np.where(
+                agg_df["lista_nominal"] > 0,
+                np.minimum(1.0, agg_df["votos_totales"] / agg_df["lista_nominal"]),
+                np.nan,
+            )
         part_df = agg_df[PARTICIPATION_COLUMNS].copy()
     else:
         part_df = pd.DataFrame(columns=PARTICIPATION_COLUMNS)
@@ -338,16 +438,47 @@ def process_crosswalk(
     write_parquet(part_df, part_out)
     logger.info("Saved canonical participation to %s (%d rows)", part_out, len(part_df))
 
+    # Map ccpc_profile if available
+    profile_file = Path(ccpc_profile_path) if ccpc_profile_path else BUILD_DIR / "ccpc_profile.parquet"
+    if profile_file.is_file():
+        prof_df = read_parquet(profile_file)
+        if not prof_df.empty:
+            prof_df["cve_ent"] = prof_df["cve_ent"].apply(lambda v: zpad(v, 2))
+            prof_df["mun_norm"] = prof_df["mun_norm"].fillna("").astype(str).str.strip()
+            merged_prof = pd.merge(prof_df, cw_df[["cve_ent", "mun_norm", "cvegeo"]], on=["cve_ent", "mun_norm"], how="inner")
+            if not merged_prof.empty:
+                for col in ["ln", "sv", "nv", "ns"]:
+                    if col in merged_prof.columns:
+                        merged_prof[col] = pd.to_numeric(merged_prof[col], errors="coerce").fillna(0).astype("int64")
+                    else:
+                        merged_prof[col] = 0
+                group_cols = [c for c in ["cvegeo", "cve_ent", "year", "election", "age_group", "sexo"] if c in merged_prof.columns]
+                agg_prof = merged_prof.groupby(group_cols, as_index=False)[["ln", "sv", "nv", "ns"]].sum()
+                write_parquet(agg_prof, profile_out)
+                logger.info("Saved ccpc_profile_mun to %s (%d rows)", profile_out, len(agg_prof))
+
+    # Map ccpc_seccion if available
+    seccion_file = Path(ccpc_seccion_path) if ccpc_seccion_path else BUILD_DIR / "ccpc_seccion.parquet"
+    if seccion_file.is_file():
+        sec_df = read_parquet(seccion_file)
+        if not sec_df.empty:
+            sec_df["cve_ent"] = sec_df["cve_ent"].apply(lambda v: zpad(v, 2))
+            sec_df["mun_norm"] = sec_df["mun_norm"].fillna("").astype(str).str.strip()
+            merged_sec = pd.merge(sec_df, cw_df[["cve_ent", "mun_norm", "cvegeo"]], on=["cve_ent", "mun_norm"], how="inner")
+            if not merged_sec.empty:
+                write_parquet(merged_sec, seccion_out)
+                logger.info("Saved ccpc_seccion_mun to %s (%d rows)", seccion_out, len(merged_sec))
+
     # Coverage metrics by year
     print("[crosswalk] Coverage report by election year:")
     years = sorted(ine_df["year"].dropna().unique().tolist())
     for yr in years:
         total_lista = ine_df.loc[ine_df["year"] == yr, "lista_nominal"]
         tot_sum = pd.to_numeric(total_lista, errors="coerce").fillna(0).sum()
-        
+
         matched_lista = merged_part.loc[merged_part["year"] == yr, "lista_nominal"]
         mat_sum = pd.to_numeric(matched_lista, errors="coerce").fillna(0).sum()
-        
+
         cov_pct = (mat_sum / tot_sum * 100) if tot_sum > 0 else 0.0
         print(f"  Year {yr}: {cov_pct:.2f}% coverage ({mat_sum:,} / {tot_sum:,} lista nominal)")
 
@@ -358,19 +489,29 @@ def main():
     parser = argparse.ArgumentParser(description="Build crosswalk and canonical participation.")
     parser.add_argument("--participation-ine", default=None, help="Path to participation_ine.parquet.")
     parser.add_argument("--features", default=None, help="Path to features.parquet.")
+    parser.add_argument("--geo-catalog", default=None, help="Path to geo_mun_catalog.csv.")
     parser.add_argument("--overrides", default=None, help="Path to seed/mun_crosswalk_overrides.csv.")
+    parser.add_argument("--profile", default=None, help="Path to ccpc_profile.parquet.")
+    parser.add_argument("--seccion", default=None, help="Path to ccpc_seccion.parquet.")
     parser.add_argument("--out-crosswalk", default=None, help="Path for crosswalk.parquet.")
     parser.add_argument("--out-participation", default=None, help="Path for participation.parquet.")
     parser.add_argument("--out-unmatched", default=None, help="Path for crosswalk_unmatched.csv.")
+    parser.add_argument("--out-profile", default=None, help="Path for ccpc_profile_mun.parquet.")
+    parser.add_argument("--out-seccion", default=None, help="Path for ccpc_seccion_mun.parquet.")
     args = parser.parse_args()
 
     process_crosswalk(
         participation_ine_path=args.participation_ine,
         features_path=args.features,
+        geo_catalog_path=args.geo_catalog,
         overrides_path=args.overrides,
+        ccpc_profile_path=args.profile,
+        ccpc_seccion_path=args.seccion,
         out_crosswalk=args.out_crosswalk,
         out_participation=args.out_participation,
         out_unmatched=args.out_unmatched,
+        out_profile_mun=args.out_profile,
+        out_seccion_mun=args.out_seccion,
     )
     return 0
 

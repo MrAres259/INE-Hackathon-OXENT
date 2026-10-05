@@ -15,12 +15,15 @@ from atalaya import config
 from atalaya.ingest.common import read_parquet, write_parquet, to_num, zpad
 from atalaya.model.panel import (
     load_inputs,
+    load_ccpc_features,
     participation_matrix,
     lista_nominal_matrix,
     unit_trend,
     training_rows,
     is_presidential,
     intermediate_turnout,
+    intermediate_ccpc_features,
+    CCPC_FEATURE_COLUMNS,
 )
 from atalaya.model.forecast import (
     fit_ridge,
@@ -30,6 +33,8 @@ from atalaya.model.forecast import (
     contributions_structural,
     backtest,
     select_lambda,
+    BASE_FEATURES,
+    CCPC_FEATURES,
     FEATURES,
     PREDICTORS,
     StructuralModel,
@@ -73,6 +78,12 @@ UNITS_COLUMNS = [
     "pct_po2sm",
     "im_2020",
     "gm_2020",
+    "part_pj_2025",
+    "part_18_34_last",
+    "gap_youth_pp_last",
+    "gap_sexo_pp_last",
+    "pct_ln_rural_last",
+    "imputed_census",
 ]
 
 DRIVERS_COLUMNS = [
@@ -120,6 +131,17 @@ def load_seed_maps(seed_dir: Path) -> tuple[dict[str, str], dict[str, str]]:
     label_map["lag2"] = "Participación t-6 (mismo tipo)"
     label_map["pres"] = "Ciclo presidencial"
 
+    ccpc_defaults = {
+        "pct_ln_18_34": "Peso de jóvenes 18–34 en la lista nominal",
+        "gap_youth_pp": "Brecha de participación juvenil",
+        "gap_sexo_pp": "Brecha de participación mujeres–hombres",
+        "pct_ln_rural": "Lista nominal en secciones rurales",
+        "ns_rate": "Registros no especificados",
+    }
+    for k, v in ccpc_defaults.items():
+        if k not in label_map:
+            label_map[k] = v
+
     return states_map, label_map
 
 
@@ -147,6 +169,7 @@ def build_fallback_artifacts(
             row_dict["cve_ent"] = ent
             row_dict["name"] = str(r.get("nom_mun", f"Municipio {cvegeo}"))
             row_dict["category"] = "sin_dato"
+            row_dict["imputed_census"] = False
             for col in [
                 "nom_ent", "nom_mun", "pob_tot", "pob_18ymas", "pct_18_24",
                 "pct_65ymas", "graproes", "pct_hli", "pct_sin_servsalud",
@@ -171,6 +194,7 @@ def build_fallback_artifacts(
             st_dict["cve_ent"] = ent
             st_dict["name"] = states_map.get(ent, f"Estado {ent}")
             st_dict["category"] = "sin_dato"
+            st_dict["imputed_census"] = False
             st_dict["pob_tot"] = pob_tot
             st_dict["pob_18ymas"] = pob_18
             state_rows.append(st_dict)
@@ -238,7 +262,7 @@ def build_model(
     b_dir.mkdir(parents=True, exist_ok=True)
     states_map, label_map = load_seed_maps(s_dir)
 
-    part, feats = load_inputs(b_dir)
+    part, feats, ccpc_feats = load_inputs(b_dir, include_ccpc=True)
 
     dip_part = part[part["election"] == "DIP_FED"] if ("election" in part.columns) else pd.DataFrame()
     distinct_years: list[int] = []
@@ -252,52 +276,120 @@ def build_model(
     Y = participation_matrix(part, election="DIP_FED", min_year=2009, value_col="participacion")
     L = lista_nominal_matrix(part, election="DIP_FED", min_year=2009)
 
-    # 2. Enrich features with log_pob_18ymas and coverage_ln
+    # 2. Enrich features with log_pob_18ymas and coverage_ln, and handle new_since_2020 imputation
     feats = feats.copy()
     if "cvegeo" in feats.columns:
         feats["cvegeo"] = feats["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(v, 5))
+    if "cve_ent" in feats.columns:
+        feats["cve_ent"] = feats["cve_ent"].astype(str).str.strip().apply(lambda v: zpad(v, 2))
+    elif "cvegeo" in feats.columns:
+        feats["cve_ent"] = feats["cvegeo"].str[:2]
+
+    is_new_mask = pd.Series(False, index=feats.index)
+    if "new_since_2020" in feats.columns:
+        is_new_mask = feats["new_since_2020"].fillna(False).astype(bool)
+
+    CENSUS_COLS = [
+        "pob_tot", "pob_18ymas", "pct_18_24", "pct_65ymas", "graproes",
+        "pct_hli", "pct_sin_servsalud", "pct_internet", "pct_rural",
+        "pct_analfabeta", "pct_po2sm", "im_2020",
+    ]
+
+    imputed_census_map: dict[str, bool] = {}
+    for idx, r in feats.iterrows():
+        cve = r["cvegeo"]
+        imputed_census_map[cve] = bool(is_new_mask.loc[idx])
+
+    if is_new_mask.any():
+        non_new = feats[~is_new_mask]
+        for col in CENSUS_COLS:
+            if col in feats.columns:
+                feats[col] = to_num(feats[col])
+                st_meds = non_new.groupby("cve_ent")[col].median()
+                nat_med = non_new[col].median()
+                for idx in feats[is_new_mask].index:
+                    ent = feats.loc[idx, "cve_ent"]
+                    st_val = st_meds.get(ent, np.nan)
+                    val = st_val if not np.isnan(st_val) else nat_med
+                    if np.isnan(feats.loc[idx, col]):
+                        feats.loc[idx, col] = val
+
     feats_idx = feats.set_index("cvegeo")
 
-    # Latest nominal list per municipality
+    # Latest nominal list per municipality from CCPC/L
     latest_ln = pd.Series(dtype=float)
     if not L.empty:
-        latest_ln = L.ffill(axis=1).iloc[:, -1]
+        if 2024 in L.columns:
+            latest_ln = to_num(L[2024])
+        else:
+            latest_ln = L.ffill(axis=1).iloc[:, -1]
 
     pob_18_num = to_num(feats_idx["pob_18ymas"]) if "pob_18ymas" in feats_idx.columns else pd.Series(np.nan, index=feats_idx.index)
-    coverage_ln_series = (latest_ln.reindex(feats_idx.index) / pob_18_num).clip(lower=0.0, upper=1.2)
+    coverage_ln_series = (latest_ln.reindex(feats_idx.index) / pob_18_num.replace(0, np.nan)).clip(lower=0.0, upper=1.2)
     feats["coverage_ln"] = feats["cvegeo"].map(coverage_ln_series)
 
     log_pob_18 = np.log1p(pob_18_num.fillna(0).clip(lower=0))
     feats["log_pob_18ymas"] = feats["cvegeo"].map(log_pob_18)
     feats_idx = feats.set_index("cvegeo")
 
+    # Check CCPC features availability
+    has_ccpc = (
+        ccpc_feats is not None
+        and not ccpc_feats.empty
+        and "year" in ccpc_feats.columns
+        and "cvegeo" in ccpc_feats.columns
+    )
+    available_ccpc: list[str] = []
+    ccpc_last_indexed = pd.DataFrame()
+    if has_ccpc:
+        available_ccpc = [c for c in CCPC_FEATURES if c in ccpc_feats.columns]
+        ccpc_copy = ccpc_feats.copy()
+        ccpc_copy["cvegeo"] = ccpc_copy["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(v, 5))
+        ccpc_copy["year"] = pd.to_numeric(ccpc_copy["year"], errors="coerce")
+        valid_yrs = ccpc_copy[ccpc_copy["year"] <= 2024]["year"]
+        last_ccpc_yr = int(valid_yrs.max()) if not valid_yrs.empty else None
+        if last_ccpc_yr is not None:
+            ccpc_last_indexed = ccpc_copy[ccpc_copy["year"] == last_ccpc_yr].drop_duplicates(subset=["cvegeo"]).set_index("cvegeo")
+
+    active_features = list(BASE_FEATURES) + available_ccpc
+    active_predictors = ["lag1", "lag2", "pres"] + active_features
+
     # 3. Model selection & backtest
-    lam = select_lambda(Y, feats)
-    backtests = backtest(Y, feats, lam)
+    lam = select_lambda(Y, feats, ccpc_feats=ccpc_feats, L=L)
+    backtests = backtest(Y, feats, lam, ccpc_feats=ccpc_feats, L=L)
 
     # Train final model with all available targets
     train_targets = [t for t in Y.columns if (t - 3 in Y.columns) and (t - 6 in Y.columns)]
-    train_df = training_rows(Y, feats, train_targets)
+    train_df = training_rows(Y, feats, train_targets, ccpc_feats=ccpc_feats, L=L)
     if len(train_df) < 5:
         return build_fallback_artifacts(part, feats, b_dir, s_dir, t_year)
 
-    pred_cols = [c for c in PREDICTORS if c in train_df.columns]
+    pred_cols = [c for c in active_predictors if c in train_df.columns]
     final_model = fit_ridge(train_df[pred_cols], train_df["y"], lam)
     final_model.train_years = sorted(list(train_targets))
     final_model.target_year = t_year
 
     # Fit structural model explaining intermediate DIP_FED turnout
     target_structural = intermediate_turnout(Y)
+    feats_structural = feats_idx.copy()
+    if has_ccpc and available_ccpc:
+        ccpc_inter = intermediate_ccpc_features(ccpc_feats, feature_cols=available_ccpc)
+        if not ccpc_inter.empty:
+            for c in available_ccpc:
+                if c in ccpc_inter.columns:
+                    feats_structural[c] = ccpc_inter[c].reindex(feats_structural.index)
+
     structural_model = fit_structural(
-        feats_idx,
+        feats_structural,
         target_structural,
-        folds_by=feats_idx.get("cve_ent"),
+        folds_by=feats_structural.get("cve_ent"),
+        features=active_features,
     )
 
     # Sigma pp estimation
     if backtests:
         last_test_year = backtests[-1]["test_year"]
-        test_df = training_rows(Y, feats, [last_test_year])
+        test_df = training_rows(Y, feats, [last_test_year], ccpc_feats=ccpc_feats, L=L)
         test_diff = predict(final_model, test_df[pred_cols]) - (test_df["y"].values.astype(float) * 100.0)
         sigma_pp = float(np.std(test_diff, ddof=1)) if len(test_df) > 1 else 5.0
     else:
@@ -330,8 +422,15 @@ def build_model(
     X_target["lag1"] = lag1.values
     X_target["lag2"] = lag2_effective.values
     X_target["pres"] = float(target_pres)
-    for col in FEATURES:
+    for col in BASE_FEATURES:
         X_target[col] = feats_idx[col].values if col in feats_idx.columns else np.nan
+
+    if has_ccpc and available_ccpc:
+        for col in available_ccpc:
+            if not ccpc_last_indexed.empty and col in ccpc_last_indexed.columns:
+                X_target[col] = to_num(ccpc_last_indexed[col]).reindex(mun_ids).values
+            else:
+                X_target[col] = np.nan
 
     can_predict = ~lag1.isna()
     pred_part_pp = predict(final_model, X_target)
@@ -363,6 +462,29 @@ def build_model(
             if len(s_l) > 0:
                 last_ln_map[mun] = float(s_l.loc[int(s_l.index.max())])
 
+    # Judicial election 2025 turnout
+    pjf_part_map: dict[str, float] = {}
+    st_pjf_part_map: dict[str, float] = {}
+    if not part.empty and "election" in part.columns:
+        pjf_rows = part[part["election"] == "PJF"].copy()
+        if not pjf_rows.empty:
+            if "participacion" in pjf_rows.columns:
+                pjf_rows["part_clean"] = to_num(pjf_rows["participacion"])
+                for _, r in pjf_rows.iterrows():
+                    cid = zpad(str(r.get("cvegeo", "")).strip(), 5)
+                    pval = r.get("part_clean")
+                    if pd.notna(pval):
+                        pjf_part_map[cid] = float(pval)
+            if "cve_ent" in pjf_rows.columns and "votos_totales" in pjf_rows.columns and "lista_nominal" in pjf_rows.columns:
+                pjf_rows["cve_ent"] = pjf_rows["cve_ent"].astype(str).str.strip().map(lambda v: zpad(v, 2))
+                pjf_rows["vt_clean"] = to_num(pjf_rows["votos_totales"])
+                pjf_rows["ln_clean"] = to_num(pjf_rows["lista_nominal"])
+                for ent, grp in pjf_rows.groupby("cve_ent"):
+                    vt = grp["vt_clean"].sum()
+                    ln_pjf = grp["ln_clean"].sum()
+                    if ln_pjf > 0:
+                        st_pjf_part_map[ent] = float(vt / ln_pjf)
+
     mun_df = pd.DataFrame(index=mun_ids)
     mun_df["id"] = mun_ids
     mun_df["level"] = "mun"
@@ -386,6 +508,20 @@ def build_model(
         "im_2020", "gm_2020",
     ]:
         mun_df[col] = feats_idx[col] if col in feats_idx.columns else np.nan
+
+    mun_df["part_pj_2025"] = [pjf_part_map.get(m, np.nan) for m in mun_ids]
+    if not ccpc_last_indexed.empty:
+        mun_df["part_18_34_last"] = to_num(ccpc_last_indexed["part_18_34"]).reindex(mun_ids).values if "part_18_34" in ccpc_last_indexed.columns else np.nan
+        mun_df["gap_youth_pp_last"] = to_num(ccpc_last_indexed["gap_youth_pp"]).reindex(mun_ids).values if "gap_youth_pp" in ccpc_last_indexed.columns else np.nan
+        mun_df["gap_sexo_pp_last"] = to_num(ccpc_last_indexed["gap_sexo_pp"]).reindex(mun_ids).values if "gap_sexo_pp" in ccpc_last_indexed.columns else np.nan
+        mun_df["pct_ln_rural_last"] = to_num(ccpc_last_indexed["pct_ln_rural"]).reindex(mun_ids).values if "pct_ln_rural" in ccpc_last_indexed.columns else np.nan
+    else:
+        mun_df["part_18_34_last"] = np.nan
+        mun_df["gap_youth_pp_last"] = np.nan
+        mun_df["gap_sexo_pp_last"] = np.nan
+        mun_df["pct_ln_rural_last"] = np.nan
+
+    mun_df["imputed_census"] = [imputed_census_map.get(m, False) for m in mun_ids]
 
     # 5. State aggregation
     state_rows = []
@@ -454,6 +590,17 @@ def build_model(
                 st_dict["last_year"] = ly
                 st_dict["last_participation"] = float(st_turnout.loc[ly])
 
+        # New state columns
+        st_dict["part_pj_2025"] = st_pjf_part_map.get(ent, np.nan)
+        for col in ["part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last"]:
+            vals = to_num(muns_ent[col])
+            valid = ~vals.isna() & (w_ln > 0)
+            if valid.any():
+                st_dict[col] = float((vals[valid] * w_ln[valid]).sum() / w_ln[valid].sum())
+            else:
+                st_dict[col] = np.nan
+        st_dict["imputed_census"] = False
+
         state_rows.append(st_dict)
 
     state_df = pd.DataFrame(state_rows, columns=UNITS_COLUMNS)
@@ -467,7 +614,7 @@ def build_model(
         units_df["category"] = "sin_dato"
 
     # 7. Feature contributions & drivers (structural model)
-    mun_contribs = contributions_structural(structural_model, feats_idx)
+    mun_contribs = contributions_structural(structural_model, feats_structural, features=structural_model.features)
     # Effect on abstention is negative of effect on participation
     mun_abst_effects = -mun_contribs
 
@@ -496,7 +643,7 @@ def build_model(
         if weights.sum() > 0:
             eff_subset = mun_abst_effects.loc[ent_ids].values
             weighted_eff = np.sum(eff_subset * weights[:, None], axis=0) / weights.sum()
-            state_eff_series = pd.Series(weighted_eff, index=FEATURES)
+            state_eff_series = pd.Series(weighted_eff, index=structural_model.features)
             top_keys = state_eff_series.abs().sort_values(ascending=False).head(5).index
             for rank, k in enumerate(top_keys, start=1):
                 val = float(state_eff_series[k])
@@ -518,21 +665,27 @@ def build_model(
 
     # Serialize metrics.json
     structural_coef_list = []
-    for k in FEATURES:
-        if k in structural_model.features:
-            structural_coef_list.append({
-                "key": k,
-                "label": label_map.get(k, k),
-                "coef_pp_per_sd": round(structural_model.coef.get(k, 0.0), 3),
-            })
+    for k in structural_model.features:
+        structural_coef_list.append({
+            "key": k,
+            "label": label_map.get(k, k),
+            "coef_pp_per_sd": round(structural_model.coef.get(k, 0.0), 3),
+        })
 
     forecast_coef_list = []
-    for k in PREDICTORS:
+    for k in pred_cols:
         forecast_coef_list.append({
             "key": k,
             "label": label_map.get(k, k),
             "coef_pp_per_sd": round(final_model.coef.get(k, 0.0), 3),
         })
+
+    data_sources_list = [
+        {"name": "participation", "file": "participation.parquet", "rows": len(part)},
+        {"name": "features", "file": "features.parquet", "rows": len(feats)},
+    ]
+    if has_ccpc:
+        data_sources_list.append({"name": "ccpc_features", "file": "ccpc_features.parquet", "rows": len(ccpc_feats)})
 
     metrics_data = {
         "target_year": t_year,
@@ -544,10 +697,7 @@ def build_model(
         "lambda": float(lam),
         "sigma_pp": round(sigma_pp, 2),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "data_sources": [
-            {"name": "participation", "file": "participation.parquet", "rows": len(part)},
-            {"name": "features", "file": "features.parquet", "rows": len(feats)},
-        ],
+        "data_sources": data_sources_list,
     }
     if len(backtests) == 1:
         metrics_data["lambda_selection_note"] = "lambda elegida y evaluada en el mismo fold"

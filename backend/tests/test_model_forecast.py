@@ -17,6 +17,7 @@ from atalaya.model.forecast import (
     backtest,
     select_lambda,
 )
+from atalaya.model.panel import training_rows
 
 
 def test_fit_ridge_recovers_linear_coefficients():
@@ -284,4 +285,96 @@ def test_contributions_structural():
     contrib = contributions_structural(model, X)
     assert contrib.loc[0, "pct_18_24"] == pytest.approx(-5.0)
     assert contrib.loc[0, "graproes"] == pytest.approx(1.5)
+
+
+def test_forecast_with_ccpc_feature_planted_sign():
+    """Verify that when gap_youth_pp in T-3 predicts y_T, Ridge recovers the correct coefficient sign."""
+    np.random.seed(42)
+    n_units = 60
+    mun_ids = [f"01{i:03d}" for i in range(1, n_units + 1)]
+    years = [2009, 2012, 2015, 2018, 2021, 2024]
+
+    # Persistent municipal youth gap
+    mun_gap = np.random.uniform(-15.0, 5.0, n_units)
+    ccpc_rows = []
+    for yr in years:
+        for i, m in enumerate(mun_ids):
+            ccpc_rows.append({
+                "cvegeo": m,
+                "year": yr,
+                "gap_youth_pp": mun_gap[i] + np.random.normal(0, 0.5),
+                "pct_ln_18_34": 0.30,
+                "gap_sexo_pp": 2.0,
+                "pct_ln_rural": 0.10,
+                "ns_rate": 0.01,
+            })
+    ccpc_feats = pd.DataFrame(ccpc_rows)
+
+    # Turnout at T is driven by gap_youth_pp at T-3 with positive sign (+0.008 per pp of gap)
+    Y_dict = {}
+    base_turnout = 0.50
+    for yr in years:
+        pres = 0.10 if yr in (2012, 2018, 2024) else 0.0
+        # For yr, if previous cycle exists, use it
+        prev_yr = yr - 3
+        if prev_yr >= 2009:
+            # Positive relation: higher youth gap -> higher participation
+            y = base_turnout + 0.008 * mun_gap + pres + np.random.normal(0, 0.01, n_units)
+        else:
+            y = base_turnout + pres + np.random.normal(0, 0.01, n_units)
+        Y_dict[yr] = np.clip(y, 0.20, 0.90)
+
+    Y = pd.DataFrame(Y_dict, index=mun_ids)
+    feats = pd.DataFrame({
+        "cvegeo": mun_ids,
+        "cve_ent": ["01"] * n_units,
+        "pob_18ymas": [10000] * n_units,
+        "pct_18_24": [0.20] * n_units,
+        "pct_65ymas": [0.10] * n_units,
+        "graproes": [10.0] * n_units,
+        "pct_hli": [0.02] * n_units,
+        "pct_sin_servsalud": [0.20] * n_units,
+        "pct_internet": [0.60] * n_units,
+        "pct_rural": [0.10] * n_units,
+        "pct_analfabeta": [0.03] * n_units,
+        "pct_po2sm": [0.35] * n_units,
+        "coverage_ln": [0.90] * n_units,
+    })
+
+    targets = [2018, 2021, 2024]
+    train_df = training_rows(Y, feats, targets, ccpc_feats=ccpc_feats)
+    assert "gap_youth_pp" in train_df.columns
+
+    pred_cols = ["lag1", "lag2", "pres", "gap_youth_pp"]
+    model = fit_ridge(train_df[pred_cols], train_df["y"], lam=1.0)
+
+    # Recovered coefficient must be positive (same sign as planted)
+    assert model.coef["gap_youth_pp"] > 0
+
+
+def test_structural_with_ccpc_features():
+    """Verify fit_structural includes CCPC features and estimates their effect."""
+    np.random.seed(42)
+    n_units = 50
+    mun_ids = [f"01{i:03d}" for i in range(1, n_units + 1)]
+
+    pct_ln_rural = np.random.uniform(0.05, 0.60, n_units)
+    z_rural = (pct_ln_rural - np.mean(pct_ln_rural)) / np.std(pct_ln_rural)
+
+    df_units = pd.DataFrame({
+        "cvegeo": mun_ids,
+        "cve_ent": ["01"] * n_units,
+        "pct_18_24": [0.20] * n_units,
+        "graproes": [9.0] * n_units,
+        "pct_ln_rural": pct_ln_rural,
+    }, index=mun_ids)
+
+    # Planted effect: pct_ln_rural reduces participation (-3.0 pp/sd)
+    target_pp = pd.Series(50.0 - 3.0 * z_rural + np.random.normal(0, 0.5, n_units), index=mun_ids)
+
+    model = fit_structural(df_units, target_pp, lam=1.0)
+    assert "pct_ln_rural" in model.features
+    assert model.coef["pct_ln_rural"] < 0
+    assert model.coef["pct_ln_rural"] == pytest.approx(-3.0, rel=0.35)
+
 

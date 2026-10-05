@@ -143,20 +143,25 @@ def process_conapo(
     # Format 5-digit cvegeo
     cvegeo_list: list[str] = []
     for _, row in df.iterrows():
-        val_mun = str(row[col_cve_mun]).strip()
-        if "." in val_mun:
-            try:
-                f = float(val_mun)
-                if f.is_integer():
-                    val_mun = str(int(f))
-            except ValueError:
-                pass
+        raw_mun = str(row[col_cve_mun]).strip()
+        try:
+            num_mun = float(raw_mun)
+        except (ValueError, TypeError):
+            num_mun = None
 
-        if len(val_mun) <= 3 and col_cve_ent and col_cve_ent in row:
-            val_ent = str(row[col_cve_ent]).strip()
-            cvegeo_list.append(f"{zpad(val_ent, 2)}{zpad(val_mun, 3)}")
+        if num_mun is not None and not np.isnan(num_mun):
+            if num_mun >= 1000:
+                cvegeo = zpad(int(num_mun), 5)
+            else:
+                val_ent = row[col_cve_ent] if (col_cve_ent and col_cve_ent in row) else ""
+                cvegeo = f"{zpad(val_ent, 2)}{zpad(int(num_mun), 3)}"
         else:
-            cvegeo_list.append(zpad(val_mun, 5))
+            if len(raw_mun) <= 3 and col_cve_ent and col_cve_ent in row:
+                val_ent = str(row[col_cve_ent]).strip()
+                cvegeo = f"{zpad(val_ent, 2)}{zpad(raw_mun, 3)}"
+            else:
+                cvegeo = zpad(raw_mun, 5)
+        cvegeo_list.append(cvegeo)
 
     # Metrics
     nom_mun_conapo = (

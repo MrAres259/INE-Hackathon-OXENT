@@ -79,3 +79,24 @@ def test_conapo_missing_file(tmp_path: Path):
     assert out_file.is_file()
     assert df.empty
     assert list(df.columns) == CONAPO_OUTPUT_COLUMNS
+
+
+def test_conapo_real_sample(tmp_path: Path):
+    fixture_file = FIXTURES_DIR / "imm_real_sample.csv"
+    assert fixture_file.is_file()
+
+    out_file = tmp_path / "conapo_mun.parquet"
+    df = process_conapo(raw_path=fixture_file, out_path=out_file)
+
+    assert out_file.is_file()
+    assert len(df) == 5
+    expected_cvegeos = ["01001", "01002", "01003", "01004", "01005"]
+    assert df["cvegeo"].tolist() == expected_cvegeos
+    # All prefixes match entity "01"
+    assert (df["cvegeo"].str[:2] == "01").all()
+    # Check values for 01001
+    row_01001 = df[df["cvegeo"] == "01001"].iloc[0]
+    assert row_01001["gm_2020"] == "Muy bajo"
+    assert row_01001["im_2020"] == pytest.approx(60.3188, rel=1e-3)
+    assert row_01001["pct_analfabeta"] == pytest.approx(1.6447 / 100.0, rel=1e-3)
+

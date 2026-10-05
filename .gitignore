@@ -22,3 +22,8 @@ frontend/out/
 # screenshot of the challenge
 Captura*.png
 *.tsbuildinfo
+# generated deliverables (built by atalaya.export)
+deliverables/
+# reference inputs (not versioned)
+Data INE/
+Convocatoria_Hackaton-1.pdf

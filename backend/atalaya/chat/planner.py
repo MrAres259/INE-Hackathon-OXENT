@@ -36,8 +36,18 @@ def _extract_metric_candidate(text: str, target_future: bool = False) -> str | N
     t = text.lower()
     if re.search(r"riesgo|sem[aá]foro", t):
         return "risk_score"
+    if re.search(r"brecha\s+(?:de\s+)?participaci[oó]n\s+juvenil", t):
+        return "gap_youth_pp"
+    if re.search(r"brecha\s+(?:de\s+)?g[eé]nero|mujeres\s+(?:vs\.?|contra|y|frente\s+a)\s+hombres|hombres\s+(?:vs\.?|contra|y|frente\s+a)\s+mujeres", t):
+        return "gap_sexo_pp"
+    if re.search(r"participaci[oó]n\s+(?:de\s+)?j[oó]venes|participaci[oó]n\s+juvenil|voto\s+juvenil", t):
+        return "part_18_34"
+    if re.search(r"elecci[oó]n\s+judicial|poder\s+judicial|judicial\s+2025", t):
+        return "part_pj_2025"
     if re.search(r"abstenci[oó]n", t):
         return "pred_abstention" if target_future else "abstencion"
+    if re.search(r"j[oó]venes\s+en\s+la\s+lista|lista\s+nominal\s+18|18\s+a\s+34", t):
+        return "pct_ln_18_34"
     if re.search(r"j[oó]venes|juventud|18\s+a\s+24|voto\s+joven", t):
         return "pct_18_24"
     if re.search(r"adultos\s+mayores|65\s+y\s+m[aá]s", t):
@@ -147,11 +157,12 @@ def _build_llm_system_prompt() -> str:
         "2. Usa ÚNICAMENTE claves de métricas válidas del catálogo: participacion, abstencion, lista_nominal, "
         "votos_totales, pred_abstention, risk_score, category, trend_pp, pob_tot, pob_18ymas, pct_18_24, "
         "pct_65ymas, graproes, pct_hli, pct_sin_servsalud, pct_internet, pct_rural, pct_analfabeta, "
-        "pct_po2sm, im_2020, gm_2020 (o columnas anchas part_dip_<año>/abst_dip_<año>).\n"
+        "pct_po2sm, im_2020, gm_2020, pct_ln_18_34, part_18_34, gap_youth_pp, gap_sexo_pp, pct_ln_rural, ns_rate, part_pj_2025 "
+        "(o columnas anchas part_dip_<año>/abst_dip_<año>).\n"
         "3. Claves de entidad (cve_ent):\n"
         f"{states_list}\n"
         "4. Intents permitidos: ranking, lookup, compare, correlation, trend, scenario, explain_unit, "
-        "catalog, help, out_of_scope.\n"
+        "catalog, help, out_of_scope, profile.\n"
         "5. Si la pregunta está fuera de los temas de participación electoral o sociodemografía de ATALAYA, "
         "asigna intent='out_of_scope'.\n"
         "6. La elección por defecto es DIP_FED. Si preguntan por 2027 o el futuro, usa pred_abstention o risk_score."
@@ -229,6 +240,9 @@ def _plan_rules(
     elif re.search(r"por\s+qu[eé]|factores|recomendaci[oó]n|recomendaciones|qu[eé]\s+recomiendas?", text_lower):
         intent = "explain_unit"
         explicit_intent_found = True
+    elif re.search(r"por\s+edad|grupos?\s+de\s+edad|rangos?\s+de\s+edad|desglose\s+por\s+edad", text_lower):
+        intent = "profile"
+        explicit_intent_found = True
     elif re.search(r"relaci[oó]n|correlaci[oó]n|se\s+relaciona|influye|asociaci[oó]n|v[ií]nculo", text_lower):
         intent = "correlation"
         explicit_intent_found = True
@@ -255,7 +269,19 @@ def _plan_rules(
     explicit_metric_found = False
     x_metric: str | None = None
 
-    if re.search(r"riesgo|sem[aá]foro", text_lower):
+    if re.search(r"brecha\s+(?:de\s+)?participaci[oó]n\s+juvenil", text_lower):
+        metric = "gap_youth_pp"
+        explicit_metric_found = True
+    elif re.search(r"brecha\s+(?:de\s+)?g[eé]nero|mujeres\s+(?:vs\.?|contra|y|frente\s+a)\s+hombres|hombres\s+(?:vs\.?|contra|y|frente\s+a)\s+mujeres", text_lower):
+        metric = "gap_sexo_pp"
+        explicit_metric_found = True
+    elif re.search(r"participaci[oó]n\s+(?:de\s+)?j[oó]venes|participaci[oó]n\s+juvenil|voto\s+juvenil", text_lower):
+        metric = "part_18_34"
+        explicit_metric_found = True
+    elif re.search(r"elecci[oó]n\s+judicial|poder\s+judicial|judicial\s+2025", text_lower):
+        metric = "part_pj_2025"
+        explicit_metric_found = True
+    elif re.search(r"riesgo|sem[aá]foro", text_lower):
         metric = "risk_score"
         explicit_metric_found = True
     elif re.search(r"abstenci[oó]n", text_lower):
@@ -374,7 +400,7 @@ def _plan_rules(
             filters["cve_ent"] = states[0]
         else:
             level = "mun"
-    elif intent in ("explain_unit", "lookup", "trend"):
+    elif intent in ("explain_unit", "lookup", "trend", "profile"):
         use_region = (
             region_id is not None
             and (

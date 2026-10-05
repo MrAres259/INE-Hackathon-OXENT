@@ -76,3 +76,22 @@ def test_inegi_iter_missing_file(tmp_path: Path):
     assert out_file.is_file()
     assert df.empty
     assert list(df.columns) == ITER_OUTPUT_COLUMNS
+
+
+def test_inegi_iter_zip_and_usecols(tmp_path: Path):
+    import zipfile
+    zip_path = tmp_path / "iter_00_cpv2020_csv.zip"
+    mini_csv = FIXTURES_DIR / "iter_mini.csv"
+    with open(mini_csv, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("iter_00_cpv2020/catalogos/tam_loc.csv", "col1,col2\n1,2\n")
+        zf.writestr("iter_00_cpv2020/conjunto_de_datos/iter_00CSV20.csv", content)
+
+    out_file = tmp_path / "inegi_mun.parquet"
+    df = process_inegi_iter(raw_path=zip_path, out_path=out_file)
+    assert out_file.is_file()
+    assert len(df) == 3
+    assert "01001" in df["cvegeo"].values
+

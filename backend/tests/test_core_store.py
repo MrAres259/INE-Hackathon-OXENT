@@ -272,3 +272,116 @@ def test_reload(store_env: PandasStore):
     store.reload()
     assert store._units_df is None
 
+
+def test_store_profile_mun_and_state(tmp_path: Path):
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    # Empty store profile returns empty list
+    empty_store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    assert empty_store.profile("07101") == []
+
+    # Create synthetic ccpc_profile_mun.parquet
+    prof_records = [
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2009, "age_group": "18-24", "sexo": "H", "ln": 100, "sv": 40, "nv": 60, "ns": 2},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2009, "age_group": "18-24", "sexo": "M", "ln": 100, "sv": 50, "nv": 50, "ns": 1},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "H", "ln": 120, "sv": 60, "nv": 60, "ns": 3},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "M", "ln": 130, "sv": 78, "nv": 52, "ns": 2},
+        # Second municipality in 07
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "H", "ln": 80, "sv": 40, "nv": 40, "ns": 1},
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "M", "ln": 90, "sv": 54, "nv": 36, "ns": 1},
+    ]
+    pd.DataFrame(prof_records).to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+
+    # 1. Municipal profile for all years
+    p_mun_all = store.profile("07101")
+    assert len(p_mun_all) == 4
+    years = {p["year"] for p in p_mun_all}
+    assert years == {2009, 2024}
+
+    # 2. Municipal profile filtered by year
+    p_mun_2024 = store.profile("07101", year=2024)
+    assert len(p_mun_2024) == 2
+    for r in p_mun_2024:
+        assert r["year"] == 2024
+        assert r["participacion"] is not None
+        assert 0.0 <= r["participacion"] <= 1.0
+
+    # 3. State level profile (aggregates 07101 and 07102)
+    p_state_2024 = store.profile("07", year=2024)
+    assert len(p_state_2024) == 2  # 18-24 H and 18-24 M
+    h_doc = next(d for d in p_state_2024 if d["sexo"] == "H")
+    # ln: 120 + 80 = 200, sv: 60 + 40 = 100, nv: 60 + 40 = 100, ns: 3 + 1 = 4
+    assert h_doc["ln"] == 200
+    assert h_doc["sv"] == 100
+    assert h_doc["nv"] == 100
+    assert h_doc["ns"] == 4
+    assert pytest.approx(h_doc["participacion"], 0.001) == 0.50
+
+    # 4. Unknown unit
+    assert store.profile("99999") == []
+
+
+def test_store_ccpc_features_resolution(tmp_path: Path):
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    # Units
+    units_df = pd.DataFrame([
+        {"id": "07101", "level": "mun", "cve_ent": "07", "cvegeo": "07101", "name": "Tuxtla", "pob_tot": 500000, "pob_18ymas": 350000, "part_pj_2025": 0.22, "imputed_census": False},
+        {"id": "07102", "level": "mun", "cve_ent": "07", "cvegeo": "07102", "name": "San Cristobal", "pob_tot": 200000, "pob_18ymas": 150000, "part_pj_2025": 0.18, "imputed_census": False},
+        {"id": "09001", "level": "mun", "cve_ent": "09", "cvegeo": "09001", "name": "Cuauhtemoc", "pob_tot": 400000, "pob_18ymas": 300000, "part_pj_2025": 0.30, "imputed_census": False},
+    ])
+    units_df.to_parquet(build_dir / "units.parquet", index=False)
+
+    # Participation
+    part_df = pd.DataFrame([
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "election": "DIP_FED", "lista_nominal": 300000, "votos_totales": 150000, "participacion": 0.50},
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "election": "DIP_FED", "lista_nominal": 100000, "votos_totales": 60000, "participacion": 0.60},
+        {"cvegeo": "09001", "cve_ent": "09", "year": 2024, "election": "DIP_FED", "lista_nominal": 250000, "votos_totales": 175000, "participacion": 0.70},
+    ])
+    part_df.to_parquet(build_dir / "participation.parquet", index=False)
+
+    # CCPC Features
+    features_df = pd.DataFrame([
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "pct_ln_18_34": 0.35, "part_18_34": 0.42, "part_total": 0.50, "gap_youth_pp": -8.0, "gap_sexo_pp": 4.5, "pct_ln_rural": 0.10, "pct_ln_urbana": 0.90, "ns_rate": 0.01},
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "pct_ln_18_34": 0.40, "part_18_34": 0.55, "part_total": 0.60, "gap_youth_pp": -5.0, "gap_sexo_pp": 3.0, "pct_ln_rural": 0.40, "pct_ln_urbana": 0.60, "ns_rate": 0.02},
+        {"cvegeo": "09001", "cve_ent": "09", "year": 2024, "pct_ln_18_34": 0.28, "part_18_34": 0.65, "part_total": 0.70, "gap_youth_pp": -5.0, "gap_sexo_pp": 2.0, "pct_ln_rural": 0.00, "pct_ln_urbana": 1.00, "ns_rate": 0.005},
+    ])
+    features_df.to_parquet(build_dir / "ccpc_features.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+
+    # Top CCPC feature: part_18_34
+    top_items = store.top("part_18_34", level="mun", filters={"year": 2024}, limit=2)
+    assert len(top_items) == 2
+    assert top_items[0]["id"] == "09001"
+    assert top_items[0]["value"] == 0.65
+    assert top_items[1]["id"] == "07102"
+    assert top_items[1]["value"] == 0.55
+
+    # Aggregate gap_youth_pp by state
+    agg = store.aggregate("gap_youth_pp", level="mun", group_by="cve_ent", filters={"year": 2024}, stat="mean")
+    agg_map = {item["key"]: item["value"] for item in agg}
+    assert pytest.approx(agg_map["07"], 0.01) == -6.5
+    assert pytest.approx(agg_map["09"], 0.01) == -5.0
+
+    # Correlation between CCPC features
+    corr = store.correlation(["part_18_34", "gap_youth_pp"], level="mun", filters={"year": 2024})
+    assert corr["n"] == 3
+    assert "part_18_34" in corr["matrix"]
+    assert "gap_youth_pp" in corr["matrix"]["part_18_34"]
+
+    # Verify units expose part_pj_2025 and imputed_census
+    mun_units = store.units(level="mun")
+    assert "part_pj_2025" in mun_units.columns
+    assert "imputed_census" in mun_units.columns
+    assert mun_units[mun_units["id"] == "07101"].iloc[0]["part_pj_2025"] == 0.22
+
+

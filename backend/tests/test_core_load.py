@@ -106,3 +106,52 @@ def test_prepare_docs_with_drivers_and_wide_columns(tmp_path: Path):
     assert p_mun["name"] == "Tuxtla Gutiérrez"
     assert p_mun["unit_id"] == "07101"
 
+
+def test_prepare_profile_docs(tmp_path: Path):
+    from atalaya.load import prepare_profile_docs, validate_docs
+    import pandas as pd
+
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    # Empty store returns []
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    assert prepare_profile_docs(store) == []
+
+    # Write synthetic ccpc_profile_mun.parquet
+    prof_df = pd.DataFrame([
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "H", "ln": 500, "sv": 250, "nv": 250, "ns": 5},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "M", "ln": 520, "sv": 312, "nv": 208, "ns": 5},
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "H", "ln": 300, "sv": 150, "nv": 150, "ns": 2},
+    ])
+    prof_df.to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+
+    docs = prepare_profile_docs(store)
+    # 3 mun docs + 2 state docs (07_2024_18-24_H, 07_2024_18-24_M)
+    assert len(docs) == 5
+
+    # Check ID format: {unit_id}_{year}_{age_group}_{sexo}
+    mun_doc = next(d for d in docs if d["id"] == "07101_2024_18-24_H")
+    assert mun_doc["level"] == "mun"
+    assert mun_doc["unit_id"] == "07101"
+    assert mun_doc["cve_ent"] == "07"
+    assert mun_doc["year"] == 2024
+    assert mun_doc["age_group"] == "18-24"
+    assert mun_doc["sexo"] == "H"
+    assert mun_doc["participacion"] == 0.50
+
+    state_doc = next(d for d in docs if d["id"] == "07_2024_18-24_H")
+    assert state_doc["level"] == "state"
+    assert state_doc["unit_id"] == "07"
+    assert state_doc["ln"] == 800  # 500 + 300
+    assert state_doc["sv"] == 400  # 250 + 150
+    assert state_doc["nv"] == 400  # 250 + 150
+    assert state_doc["participacion"] == 0.50
+
+    # Validate docs
+    errs = validate_docs("profile", docs)
+    assert errs == []
+
+

@@ -45,6 +45,7 @@ def fallback_text(spec: QuerySpec, data: DataResult) -> str:
         "scenario": f"Simulación de escenario '{spec.scenario or 'intervención'}':",
         "explain_unit": "Factores determinantes y recomendaciones:",
         "catalog": "Catálogo de variables disponibles:",
+        "profile": "Perfil demográfico y de participación ciudadana:",
     }
 
     title = intent_titles.get(spec.intent, "Resultados analíticos:")

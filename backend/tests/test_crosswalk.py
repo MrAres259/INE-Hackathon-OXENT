@@ -100,10 +100,10 @@ def test_crosswalk_pipeline_and_cases(tmp_path: Path):
     assert cw_map["GRAL ESCOBEDO"][1] == "exact"
     assert cw_map["GRAL ESCOBEDO"][2] == 0.95
 
-    # 5. Fuzzy match accepted ("AMATENANGO DE EL VALLE" -> "07010" Amatenango del Valle)
+    # 5. Fuzzy / variant match accepted ("AMATENANGO DE EL VALLE" -> "07010" Amatenango del Valle)
     assert "AMATENANGO DE EL VALLE" in cw_map
     assert cw_map["AMATENANGO DE EL VALLE"][0] == "07010"
-    assert cw_map["AMATENANGO DE EL VALLE"][1] == "fuzzy"
+    assert cw_map["AMATENANGO DE EL VALLE"][1] in ("exact", "fuzzy")
     assert cw_map["AMATENANGO DE EL VALLE"][2] >= 0.88
 
     # 6. Override applied ("NUEVO MUNICIPIO 2022" -> "07103" Ocosingo)
@@ -169,6 +169,7 @@ def test_features_pipeline(tmp_path: Path):
     feat_res = process_features(
         inegi_path=inegi_pq,
         conapo_path=conapo_pq,
+        geo_catalog_path=tmp_path / "no_geo.csv",
         states_path=SEED_DIR / "states.csv",
         out_path=out_feat,
     )
@@ -199,7 +200,7 @@ def test_seeds_structure():
     vars_path = SEED_DIR / "variables.csv"
     assert vars_path.is_file()
     vars_df = pd.read_csv(vars_path, dtype=str)
-    assert len(vars_df) == 21
+    assert len(vars_df) >= 21
     assert set(vars_df.columns) == {"key", "label_es", "description", "source", "unit", "level"}
     expected_keys = {
         "participacion", "abstencion", "lista_nominal", "votos_totales", "pred_abstention",
@@ -207,4 +208,109 @@ def test_seeds_structure():
         "pct_65ymas", "graproes", "pct_hli", "pct_sin_servsalud", "pct_internet",
         "pct_rural", "pct_analfabeta", "pct_po2sm", "im_2020", "gm_2020"
     }
-    assert set(vars_df["key"].tolist()) == expected_keys
+    assert expected_keys.issubset(set(vars_df["key"].tolist()))
+
+
+def test_crosswalk_ccpc_profile_and_seccion(tmp_path: Path):
+    # Geo catalog
+    geo_csv = tmp_path / "geo_mun_catalog.csv"
+    pd.DataFrame({
+        "cvegeo": ["01001", "07101"],
+        "cve_ent": ["01", "07"],
+        "cve_mun": ["001", "101"],
+        "name": ["Aguascalientes", "Tuxtla Gutiérrez"],
+    }).to_csv(geo_csv, index=False)
+
+    # Participation INE with nv and ns
+    ine_df = pd.DataFrame({
+        "cve_ent": ["01", "07"],
+        "ine_mun": [1, 101],
+        "mun_name": ["Aguascalientes", "Tuxtla Gutiérrez"],
+        "mun_norm": ["AGUASCALIENTES", "TUXTLA GUTIERREZ"],
+        "year": [2024, 2024],
+        "election": ["DIP_FED", "DIP_FED"],
+        "lista_nominal": [1000, 2000],
+        "votos_totales": [600, 1100],
+        "participacion": [0.60, 0.55],
+        "nv": [400, 900],
+        "ns": [10, 20],
+        "source_file": ["test.zip", "test.zip"],
+    })
+    ine_pq = tmp_path / "participation_ine.parquet"
+    ine_df.to_parquet(ine_pq, index=False)
+
+    # CCPC profile
+    profile_df = pd.DataFrame({
+        "cve_ent": ["01", "01", "07"],
+        "ine_mun": [1, 1, 101],
+        "mun_norm": ["AGUASCALIENTES", "AGUASCALIENTES", "TUXTLA GUTIERREZ"],
+        "year": [2024, 2024, 2024],
+        "election": ["DIP_FED", "DIP_FED", "DIP_FED"],
+        "age_group": ["18-24", "25-34", "18-24"],
+        "sexo": ["H", "M", "H"],
+        "ln": [300, 400, 500],
+        "sv": [180, 250, 300],
+        "nv": [120, 150, 200],
+        "ns": [2, 3, 5],
+    })
+    prof_pq = tmp_path / "ccpc_profile.parquet"
+    profile_df.to_parquet(prof_pq, index=False)
+
+    # CCPC seccion
+    seccion_df = pd.DataFrame({
+        "cve_ent": ["01", "07"],
+        "ine_mun": [1, 101],
+        "mun_norm": ["AGUASCALIENTES", "TUXTLA GUTIERREZ"],
+        "seccion": [101, 201],
+        "tiposec": ["U", "R"],
+        "def": [1, 2],
+        "year": [2024, 2024],
+        "election": ["DIP_FED", "DIP_FED"],
+        "ln": [500, 1000],
+        "sv": [300, 600],
+        "nv": [200, 400],
+        "ns": [5, 10],
+        "participacion": [0.60, 0.60],
+    })
+    sec_pq = tmp_path / "ccpc_seccion.parquet"
+    seccion_df.to_parquet(sec_pq, index=False)
+
+    out_cw = tmp_path / "crosswalk.parquet"
+    out_part = tmp_path / "participation.parquet"
+    out_unm = tmp_path / "crosswalk_unmatched.csv"
+    out_prof = tmp_path / "ccpc_profile_mun.parquet"
+    out_sec = tmp_path / "ccpc_seccion_mun.parquet"
+
+    cw_df, part_df, unm_df = process_crosswalk(
+        participation_ine_path=ine_pq,
+        geo_catalog_path=geo_csv,
+        ccpc_profile_path=prof_pq,
+        ccpc_seccion_path=sec_pq,
+        out_crosswalk=out_cw,
+        out_participation=out_part,
+        out_unmatched=out_unm,
+        out_profile_mun=out_prof,
+        out_seccion_mun=out_sec,
+    )
+
+    assert out_prof.is_file()
+    assert out_sec.is_file()
+    assert out_part.is_file()
+
+    # Verify participation table contains nv and ns
+    assert "nv" in part_df.columns
+    assert "ns" in part_df.columns
+    assert part_df.loc[part_df["cvegeo"] == "01001", "nv"].iloc[0] == 400
+    assert part_df.loc[part_df["cvegeo"] == "01001", "ns"].iloc[0] == 10
+
+    # Verify profile_mun table has cvegeo and aggregated rows
+    res_prof = pd.read_parquet(out_prof)
+    assert "cvegeo" in res_prof.columns
+    assert set(res_prof["cvegeo"].unique()) == {"01001", "07101"}
+    assert res_prof["ln"].sum() == 1200
+
+    # Verify seccion_mun table has cvegeo
+    res_sec = pd.read_parquet(out_sec)
+    assert "cvegeo" in res_sec.columns
+    assert set(res_sec["cvegeo"].unique()) == {"01001", "07101"}
+

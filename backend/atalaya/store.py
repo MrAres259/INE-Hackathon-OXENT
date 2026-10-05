@@ -95,6 +95,9 @@ class DataStore(Protocol):
     def drivers(self, unit_id: str) -> list[dict]:
         ...
 
+    def profile(self, unit_id: str, year: int | None = None) -> list[dict]:
+        ...
+
     def metrics(self) -> dict:
         ...
 
@@ -119,6 +122,8 @@ class PandasStore:
         self._states_df: pd.DataFrame | None = None
         self._drivers_df: pd.DataFrame | None = None
         self._metrics_dict: dict | None = None
+        self._profile_df: pd.DataFrame | None = None
+        self._ccpc_features_df: pd.DataFrame | None = None
 
     def reload(self) -> None:
         """Clear all cached DataFrames and dictionaries."""
@@ -128,6 +133,8 @@ class PandasStore:
         self._states_df = None
         self._drivers_df = None
         self._metrics_dict = None
+        self._profile_df = None
+        self._ccpc_features_df = None
 
     def healthy(self) -> bool:
         """Returns True since local PandasStore is always available."""
@@ -222,7 +229,8 @@ class PandasStore:
                     "pct_18_24", "pct_65ymas", "graproes", "pct_hli", "pct_sin_servsalud",
                     "pct_internet", "pct_rural", "pct_analfabeta", "pct_po2sm", "im_2020",
                     "last_participation", "pred_participation", "pred_abstention",
-                    "pred_low", "pred_high", "trend_pp", "volatility_pp", "risk_score"
+                    "pred_low", "pred_high", "trend_pp", "volatility_pp", "risk_score",
+                    "part_pj_2025", "part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last"
                 ]
                 for c in prop_cols:
                     if c in group.columns:
@@ -234,6 +242,11 @@ class PandasStore:
                             row[c] = float(vals.mean())
                         else:
                             row[c] = np.nan
+
+                if "imputed_census" in group.columns:
+                    row["imputed_census"] = bool(group["imputed_census"].any())
+                else:
+                    row["imputed_census"] = False
 
                 if "category" in group.columns and pd.notna(row.get("risk_score")):
                     rs = row["risk_score"]
@@ -251,8 +264,9 @@ class PandasStore:
         if "coverage_ln" not in df.columns and "lista_nominal" in df.columns and "pob_18ymas" in df.columns:
             ln = pd.to_numeric(df["lista_nominal"], errors="coerce")
             p18 = pd.to_numeric(df["pob_18ymas"], errors="coerce")
+            cond = (p18 > 0).fillna(False).to_numpy(dtype=bool)
             with np.errstate(divide="ignore", invalid="ignore"):
-                df["coverage_ln"] = np.where(p18 > 0, np.clip(ln / p18, 0.0, 1.2), np.nan)
+                df["coverage_ln"] = np.where(cond, np.clip((ln / p18).astype(float), 0.0, 1.2), np.nan)
 
         # Pivot participation (DIP_FED) to part_dip_<year> and abst_dip_<year> for mun and state
         part_df = self._get_participation()
@@ -269,6 +283,36 @@ class PandasStore:
                         abst_map = dict(zip(yr_dip["unit_id"].astype(str), yr_dip["abstencion"]))
                         df[part_col] = df["id"].astype(str).map(part_map).astype(float)
                         df[abst_col] = df["id"].astype(str).map(abst_map).astype(float)
+
+            # Check part_pj_2025 from participation if not in df
+            if "part_pj_2025" not in df.columns:
+                pjf = part_df[(part_df["election"] == "PJF") | (part_df["year"] == 2025)]
+                if not pjf.empty and "participacion" in pjf.columns:
+                    pj_map = dict(zip(pjf["unit_id"].astype(str), pjf["participacion"]))
+                    df["part_pj_2025"] = df["id"].astype(str).map(pj_map).astype(float)
+
+        # Check ccpc_features.parquet for part_18_34_last, gap_youth_pp_last, etc. if missing
+        ccpc_last_cols = ["part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last"]
+        missing_last = [c for c in ccpc_last_cols if c not in df.columns]
+        if missing_last:
+            feat_df = self._get_ccpc_features()
+            if not feat_df.empty and "year" in feat_df.columns:
+                latest_yr = int(feat_df["year"].max())
+                latest_feat = feat_df[feat_df["year"] == latest_yr]
+                c_map = {
+                    "part_18_34_last": "part_18_34",
+                    "gap_youth_pp_last": "gap_youth_pp",
+                    "gap_sexo_pp_last": "gap_sexo_pp",
+                    "pct_ln_rural_last": "pct_ln_rural",
+                }
+                for dst_col, src_col in c_map.items():
+                    if dst_col in missing_last and src_col in latest_feat.columns:
+                        id_col = "cvegeo" if "cvegeo" in latest_feat.columns else "id"
+                        v_map = dict(zip(latest_feat[id_col].astype(str), latest_feat[src_col]))
+                        df[dst_col] = df["id"].astype(str).map(v_map).astype(float)
+
+        if "imputed_census" not in df.columns:
+            df["imputed_census"] = False
 
         return df
 
@@ -305,9 +349,10 @@ class PandasStore:
             grouped["unit_id"] = grouped["cve_ent"]
             grouped["cvegeo"] = grouped["cve_ent"]
             grouped["level"] = "state"
+            cond_ln = (grouped["lista_nominal"] > 0).fillna(False).to_numpy(dtype=bool)
             with np.errstate(divide="ignore", invalid="ignore"):
                 grouped["participacion"] = np.where(
-                    grouped["lista_nominal"] > 0,
+                    cond_ln,
                     np.clip(grouped["votos_totales"] / grouped["lista_nominal"], 0.0, 1.0),
                     np.nan,
                 )
@@ -510,6 +555,38 @@ class PandasStore:
             for orig_m, wide_c in alias_map.items():
                 if wide_c in df.columns:
                     df[orig_m] = df[wide_c]
+
+        # Resolve CCPC metrics from ccpc_features.parquet if requested
+        ccpc_keys = {
+            "pct_ln_18_34", "part_18_34", "gap_youth_pp", "gap_sexo_pp",
+            "pct_ln_rural", "pct_ln_urbana", "ns_rate", "part_pj_2025"
+        }
+        ccpc_requested = [m for m in metrics if m in ccpc_keys]
+        if ccpc_requested:
+            feat_df = self._get_ccpc_features()
+            if not feat_df.empty and "year" in feat_df.columns:
+                target_yr = filters.get("year")
+                if target_yr is None:
+                    target_yr = int(feat_df["year"].max())
+                yr_feat = feat_df[feat_df["year"] == int(target_yr)]
+                if not yr_feat.empty:
+                    if level == "mun":
+                        join_col = "cvegeo" if "cvegeo" in yr_feat.columns else "id"
+                        for m in ccpc_requested:
+                            if m in yr_feat.columns and (m not in df.columns or df[m].isna().all()):
+                                v_map = dict(zip(yr_feat[join_col].astype(str), yr_feat[m]))
+                                id_col = "cvegeo" if "cvegeo" in df.columns else ("unit_id" if "unit_id" in df.columns else "id")
+                                df[m] = df[id_col].astype(str).map(v_map).astype(float)
+                    elif level == "state":
+                        for m in ccpc_requested:
+                            if m in yr_feat.columns and (m not in df.columns or df[m].isna().all()):
+                                if "cve_ent" in yr_feat.columns:
+                                    st_map = yr_feat.groupby("cve_ent")[m].mean().to_dict()
+                                    df[m] = df["cve_ent"].astype(str).map(st_map).astype(float)
+            # Fallback to _last columns if present
+            for m in ccpc_requested:
+                if (m not in df.columns or df[m].isna().all()) and f"{m}_last" in df.columns:
+                    df[m] = df[f"{m}_last"]
 
         # Apply common filters
         if "cve_ent" in filters:
@@ -720,6 +797,113 @@ class PandasStore:
                 logger.warning("Could not read metrics.json: %s", exc)
                 return {}
         return {}
+
+    def _load_profile(self) -> pd.DataFrame:
+        prof_path = self.build_dir / "ccpc_profile_mun.parquet"
+        if not prof_path.is_file():
+            return pd.DataFrame()
+        try:
+            df = pd.read_parquet(prof_path)
+            if "cve_ent" in df.columns:
+                df["cve_ent"] = df["cve_ent"].apply(lambda v: zpad(v, 2))
+            return df
+        except Exception as exc:
+            logger.warning("Error reading ccpc_profile_mun.parquet: %s", exc)
+            return pd.DataFrame()
+
+    def _get_profile(self) -> pd.DataFrame:
+        if self._profile_df is None:
+            self._profile_df = self._load_profile()
+        return self._profile_df
+
+    def _load_ccpc_features(self) -> pd.DataFrame:
+        feat_path = self.build_dir / "ccpc_features.parquet"
+        if not feat_path.is_file():
+            return pd.DataFrame()
+        try:
+            df = pd.read_parquet(feat_path)
+            if "cve_ent" in df.columns:
+                df["cve_ent"] = df["cve_ent"].apply(lambda v: zpad(v, 2))
+            return df
+        except Exception as exc:
+            logger.warning("Error reading ccpc_features.parquet: %s", exc)
+            return pd.DataFrame()
+
+    def _get_ccpc_features(self) -> pd.DataFrame:
+        if self._ccpc_features_df is None:
+            self._ccpc_features_df = self._load_ccpc_features()
+        return self._ccpc_features_df
+
+    def profile(self, unit_id: str, year: int | None = None) -> list[dict]:
+        df = self._get_profile()
+        if df.empty:
+            return []
+
+        uid_str = str(unit_id).strip()
+        is_state = len(uid_str) == 2 or uid_str in [f"{i:02d}" for i in range(1, 33)]
+
+        if is_state:
+            ent = zpad(uid_str, 2)
+            sub = df[df["cve_ent"] == ent]
+            if sub.empty:
+                return []
+            if year is not None:
+                sub = sub[sub["year"] == int(year)]
+            if sub.empty:
+                return []
+
+            sum_cols = [c for c in ["ln", "sv", "nv", "ns"] if c in sub.columns]
+            grouped = sub.groupby(["year", "age_group", "sexo"], as_index=False)[sum_cols].sum()
+            sv_col = grouped["sv"] if "sv" in grouped.columns else 0
+            nv_col = grouped["nv"] if "nv" in grouped.columns else 0
+            denom = sv_col + nv_col
+            with np.errstate(divide="ignore", invalid="ignore"):
+                grouped["participacion"] = np.where(denom > 0, np.clip(sv_col / denom, 0.0, 1.0), np.nan)
+
+            grouped = grouped.sort_values(by=["year", "age_group", "sexo"], ascending=True)
+            results = []
+            for _, r in grouped.iterrows():
+                p = r.get("participacion")
+                results.append({
+                    "year": int(r["year"]),
+                    "age_group": str(r["age_group"]),
+                    "sexo": str(r["sexo"]),
+                    "ln": int(r.get("ln", 0)),
+                    "sv": int(r.get("sv", 0)),
+                    "nv": int(r.get("nv", 0)),
+                    "ns": int(r.get("ns", 0)),
+                    "participacion": round(float(p), 6) if pd.notna(p) else None,
+                })
+            return results
+        else:
+            id_col = "cvegeo" if "cvegeo" in df.columns else ("unit_id" if "unit_id" in df.columns else "id")
+            sub = df[df[id_col].astype(str) == uid_str]
+            if sub.empty and "id" in df.columns and id_col != "id":
+                sub = df[df["id"].astype(str) == uid_str]
+            if sub.empty:
+                return []
+            if year is not None:
+                sub = sub[sub["year"] == int(year)]
+            if sub.empty:
+                return []
+
+            sub = sub.sort_values(by=["year", "age_group", "sexo"], ascending=True)
+            results = []
+            for _, r in sub.iterrows():
+                sv = float(r.get("sv", 0))
+                nv = float(r.get("nv", 0))
+                part = sv / (sv + nv) if (sv + nv) > 0 else (r.get("participacion") if "participacion" in r else None)
+                results.append({
+                    "year": int(r["year"]),
+                    "age_group": str(r["age_group"]),
+                    "sexo": str(r["sexo"]),
+                    "ln": int(r.get("ln", 0)),
+                    "sv": int(sv),
+                    "nv": int(nv),
+                    "ns": int(r.get("ns", 0)),
+                    "participacion": round(float(part), 6) if (part is not None and pd.notna(part)) else None,
+                })
+            return results
 
 
 class EsStore:
@@ -934,6 +1118,40 @@ class EsStore:
                 logger.warning("Could not read metrics.json: %s", exc)
                 return {}
         return {}
+
+    def profile(self, unit_id: str, year: int | None = None) -> list[dict]:
+        es = self._client()
+        idx = index_name("profile")
+        filters: list[dict] = [{"term": {"unit_id": str(unit_id)}}]
+        if year is not None:
+            filters.append({"term": {"year": int(year)}})
+
+        body = {
+            "size": 1000,
+            "query": {"bool": {"filter": filters}},
+            "sort": [{"year": "asc"}, {"age_group": "asc"}, {"sexo": "asc"}],
+        }
+        try:
+            resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            hits = resp.get("hits", {}).get("hits", [])
+            results = []
+            for h in hits:
+                src = h["_source"]
+                p = src.get("participacion")
+                results.append({
+                    "year": int(src.get("year", 0)),
+                    "age_group": str(src.get("age_group", "")),
+                    "sexo": str(src.get("sexo", "")),
+                    "ln": int(src.get("ln", 0)),
+                    "sv": int(src.get("sv", 0)),
+                    "nv": int(src.get("nv", 0)),
+                    "ns": int(src.get("ns", 0)),
+                    "participacion": round(float(p), 6) if p is not None else None,
+                })
+            return results
+        except Exception as e:
+            logger.warning("Error fetching profile from ES: %s", e)
+            return []
 
     def top(
         self,

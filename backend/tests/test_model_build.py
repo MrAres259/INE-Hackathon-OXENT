@@ -234,3 +234,140 @@ def test_build_model_no_data_fallback(tmp_path):
     model_dict = json.loads(model_path.read_text(encoding="utf-8"))
     assert "structural" in model_dict
 
+
+def test_build_model_with_ccpc_features(tmp_path):
+    """Verify build_model with ccpc_features.parquet integrates CCPC variables into units, metrics, and drivers."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    create_minimal_seeds(seed_dir)
+    create_synthetic_data(build_dir)
+
+    # Create synthetic ccpc_features.parquet
+    muns = []
+    for ent in ["01", "02"]:
+        for i in range(1, 21):
+            muns.append(f"{ent}{i:03d}")
+
+    years = [2009, 2012, 2015, 2018, 2021, 2024]
+    ccpc_rows = []
+    for m in muns:
+        for yr in years:
+            ccpc_rows.append({
+                "cvegeo": m,
+                "cve_ent": m[:2],
+                "year": yr,
+                "pct_ln_18_34": 0.32,
+                "part_18_34": 0.45,
+                "part_total": 0.52,
+                "gap_youth_pp": -7.0,
+                "gap_sexo_pp": 3.5,
+                "pct_ln_rural": 0.15,
+                "pct_ln_urbana": 0.85,
+                "ns_rate": 0.005,
+            })
+    write_parquet(pd.DataFrame(ccpc_rows), build_dir / "ccpc_features.parquet")
+
+    exit_code = build_model(build_dir=build_dir, seed_dir=seed_dir, target_year=2027)
+    assert exit_code == 0
+
+    units_df = read_parquet(build_dir / "units.parquet")
+    mun_rows = units_df[units_df["level"] == "mun"]
+    assert len(mun_rows) == 40
+
+    # New columns check
+    for col in ["part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last", "imputed_census"]:
+        assert col in units_df.columns
+        assert not mun_rows[col].isna().all()
+
+    assert mun_rows["gap_youth_pp_last"].iloc[0] == pytest.approx(-7.0)
+    assert mun_rows["gap_sexo_pp_last"].iloc[0] == pytest.approx(3.5)
+    assert (mun_rows["imputed_census"] == False).all()
+
+    # Check metrics.json includes ccpc_features
+    metrics = json.loads((build_dir / "metrics.json").read_text(encoding="utf-8"))
+    source_names = [s["name"] for s in metrics["data_sources"]]
+    assert "ccpc_features" in source_names
+
+    coef_keys = [c["key"] for c in metrics["coefficients"]]
+    assert "gap_youth_pp" in coef_keys
+    assert "pct_ln_rural" in coef_keys
+
+    forecast_keys = [c["key"] for c in metrics["forecast_coefficients"]]
+    assert "gap_youth_pp" in forecast_keys
+
+
+def test_build_model_new_since_2020_state_median_imputation(tmp_path):
+    """Verify new_since_2020=True municipalities are imputed by state median (not national)."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    create_minimal_seeds(seed_dir)
+    create_synthetic_data(build_dir)
+
+    # Modify features.parquet so that state 01 has pct_18_24 = 0.15, state 02 has 0.28
+    # and municipality 01020 has new_since_2020 = True and pct_18_24 = NaN
+    feats_df = read_parquet(build_dir / "features.parquet")
+    feats_df["new_since_2020"] = False
+
+    # Set distinct state values for graproes: state 01 around 8.0, state 02 around 12.0
+    for idx, r in feats_df.iterrows():
+        if r["cve_ent"] == "01":
+            feats_df.loc[idx, "graproes"] = 8.0
+        else:
+            feats_df.loc[idx, "graproes"] = 12.0
+
+    # Mun 01020 is new
+    target_idx = feats_df[feats_df["cvegeo"] == "01020"].index[0]
+    feats_df.loc[target_idx, "new_since_2020"] = True
+    feats_df.loc[target_idx, "graproes"] = np.nan
+    write_parquet(feats_df, build_dir / "features.parquet")
+
+    exit_code = build_model(build_dir=build_dir, seed_dir=seed_dir, target_year=2027)
+    assert exit_code == 0
+
+    units_df = read_parquet(build_dir / "units.parquet")
+    row_01020 = units_df[units_df["id"] == "01020"].iloc[0]
+    assert row_01020["imputed_census"] == True
+
+    # Other mun in 01 must be False
+    row_01001 = units_df[units_df["id"] == "01001"].iloc[0]
+    assert row_01001["imputed_census"] == False
+
+    # Imputed value must match state 01 median (8.0), not state 02 (12.0) or national average (~10.0)
+    assert row_01020["graproes"] == pytest.approx(8.0)
+
+
+def test_build_model_with_pjf_election(tmp_path):
+    """Verify PJF 2025 election turnout is populated in part_pj_2025 column."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    create_minimal_seeds(seed_dir)
+    create_synthetic_data(build_dir)
+
+    part_df = read_parquet(build_dir / "participation.parquet")
+    # Add PJF rows
+    pjf_rows = []
+    for m in ["01001", "01002"]:
+        pjf_rows.append({
+            "cvegeo": m,
+            "cve_ent": "01",
+            "year": 2025,
+            "election": "PJF",
+            "lista_nominal": 20000,
+            "votos_totales": 3600,
+            "participacion": 0.18,
+        })
+    part_df = pd.concat([part_df, pd.DataFrame(pjf_rows)], ignore_index=True)
+    write_parquet(part_df, build_dir / "participation.parquet")
+
+    exit_code = build_model(build_dir=build_dir, seed_dir=seed_dir, target_year=2027)
+    assert exit_code == 0
+
+    units_df = read_parquet(build_dir / "units.parquet")
+    row_01001 = units_df[units_df["id"] == "01001"].iloc[0]
+    assert row_01001["part_pj_2025"] == pytest.approx(0.18)
+
+    # State 01 should also have part_pj_2025
+    st_01 = units_df[units_df["id"] == "01"].iloc[0]
+    assert st_01["part_pj_2025"] == pytest.approx(0.18)
+
+

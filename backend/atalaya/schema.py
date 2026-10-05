@@ -124,4 +124,21 @@ TEMPLATES: dict[str, dict] = {
             "level": {"type": "keyword"},
         },
     },
+    "profile": {
+        "dynamic": "false",
+        "properties": {
+            "id": {"type": "keyword"},
+            "unit_id": {"type": "keyword"},
+            "level": {"type": "keyword"},
+            "cve_ent": {"type": "keyword"},
+            "year": {"type": "integer"},
+            "age_group": {"type": "keyword"},
+            "sexo": {"type": "keyword"},
+            "ln": {"type": "long"},
+            "sv": {"type": "long"},
+            "nv": {"type": "long"},
+            "ns": {"type": "long"},
+            "participacion": {"type": "float"},
+        },
+    },
 }

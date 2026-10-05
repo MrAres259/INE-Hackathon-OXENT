@@ -160,6 +160,13 @@ def test_meta(client: TestClient):
     assert len(meta["states"]) == 2
     assert meta["states"][0]["id"] == "07"
 
+    assert "data_sources" in meta
+    src_names = [s["name"] for s in meta["data_sources"]]
+    assert "CCPC" in src_names
+    assert "INEGI ITER 2020" in src_names
+    assert "CONAPO IMM 2020" in src_names
+    assert "INEGI MG 2024" in src_names
+
 
 def test_risk_base_mun_and_state(client: TestClient):
     # Municipal risk
@@ -266,6 +273,44 @@ def test_region_detail_mun(client: TestClient):
     # Recommendations
     assert isinstance(data["recommendations"], list)
 
+    # CCPC and profile fields (tolerated when empty)
+    assert "profile" in data
+    assert isinstance(data["profile"], list)
+    assert "pj_2025" in data
+    assert "participation" in data["pj_2025"]
+    assert "ccpc" in data
+    assert set(data["ccpc"].keys()) == {"pct_ln_18_34", "part_18_34", "gap_youth_pp", "gap_sexo_pp", "pct_ln_rural"}
+    assert "imputed_census" in data
+    assert isinstance(data["imputed_census"], bool)
+
+
+def test_region_detail_with_profile_and_pj2025(client: TestClient, api_test_env):
+    store = api_test_env
+    # Add profile parquet to build dir
+    prof_df = pd.DataFrame([
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2009, "age_group": "18-24", "sexo": "H", "ln": 500, "sv": 250, "nv": 250, "ns": 0},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "H", "ln": 600, "sv": 360, "nv": 240, "ns": 0},
+    ])
+    prof_df.to_parquet(store.build_dir / "ccpc_profile_mun.parquet", index=False)
+
+    # Add PJF 2025 row to participation parquet
+    part_df = pd.read_parquet(store.build_dir / "participation.parquet")
+    pjf_row = pd.DataFrame([{
+        "cvegeo": "07101", "cve_ent": "07", "year": 2025, "election": "PJF",
+        "lista_nominal": 280000, "votos_totales": 70000, "participacion": 0.25
+    }])
+    pd.concat([part_df, pjf_row], ignore_index=True).to_parquet(store.build_dir / "participation.parquet", index=False)
+    reload_all()
+
+    resp = client.get("/api/region/07101?scenario=base")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert len(data["profile"]) == 2
+    assert {p["year"] for p in data["profile"]} == {2009, 2024}
+    assert data["pj_2025"]["participation"] == 0.25
+    assert any(s["year"] == 2025 and s["election"] == "PJF" for s in data["series"])
+
 
 def test_region_detail_state(client: TestClient):
     resp = client.get("/api/region/07?scenario=base")
@@ -340,3 +385,15 @@ def test_empty_build_starts_cleanly(tmp_path: Path, monkeypatch):
         resp_metrics = tc.get("/api/metrics")
         assert resp_metrics.status_code == 200
         assert resp_metrics.json()["train_years"] == []
+
+        resp_meta = tc.get("/api/meta")
+        assert resp_meta.status_code == 200
+        assert "data_sources" in resp_meta.json()
+
+        resp_ranking = tc.get("/api/ranking?level=mun")
+        assert resp_ranking.status_code == 200
+        assert resp_ranking.json()["items"] == []
+
+        resp_region = tc.get("/api/region/07")
+        assert resp_region.status_code == 404
+

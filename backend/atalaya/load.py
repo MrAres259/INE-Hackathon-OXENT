@@ -152,6 +152,102 @@ def prepare_catalog_docs(store: PandasStore) -> list[dict[str, Any]]:
     return docs
 
 
+def prepare_profile_docs(store: PandasStore) -> list[dict[str, Any]]:
+    """Prepare profile documents for municipal and state levels."""
+    profile_path = store.build_dir / "ccpc_profile_mun.parquet"
+    if not profile_path.is_file():
+        return []
+
+    try:
+        df = pd.read_parquet(profile_path)
+    except Exception:
+        return []
+
+    if df.empty:
+        return []
+
+    docs: list[dict[str, Any]] = []
+    seen_ids = set()
+
+    for _, row in df.iterrows():
+        d = _clean_doc(row.to_dict())
+        u_id = str(d.get("cvegeo") or d.get("unit_id", "")).strip()
+        year = d.get("year")
+        age_group = str(d.get("age_group", "")).strip()
+        sexo = str(d.get("sexo", "")).strip()
+        if not u_id or year is None or not age_group or not sexo:
+            continue
+
+        doc_id = f"{u_id}_{int(year)}_{age_group}_{sexo}"
+        if doc_id in seen_ids:
+            continue
+        seen_ids.add(doc_id)
+
+        sv = float(d.get("sv") or 0)
+        nv = float(d.get("nv") or 0)
+        part = sv / (sv + nv) if (sv + nv) > 0 else None
+        cve_ent = zpad(d.get("cve_ent", ""), 2) if d.get("cve_ent") else u_id[:2]
+
+        doc = {
+            "id": doc_id,
+            "unit_id": u_id,
+            "level": "mun",
+            "cve_ent": cve_ent,
+            "year": int(year),
+            "age_group": age_group,
+            "sexo": sexo,
+            "ln": int(d.get("ln") or 0),
+            "sv": int(sv),
+            "nv": int(nv),
+            "ns": int(d.get("ns") or 0),
+            "participacion": round(part, 6) if part is not None else None,
+        }
+        docs.append(doc)
+
+    # State docs
+    if "cve_ent" in df.columns:
+        sum_cols = [c for c in ["ln", "sv", "nv", "ns"] if c in df.columns]
+        df_ent = df.copy()
+        df_ent["cve_ent"] = df_ent["cve_ent"].apply(lambda v: zpad(v, 2))
+        grouped = df_ent.groupby(["cve_ent", "year", "age_group", "sexo"], as_index=False)[sum_cols].sum()
+
+        for _, row in grouped.iterrows():
+            d = _clean_doc(row.to_dict())
+            cve_ent = str(d.get("cve_ent", "")).strip()
+            year = d.get("year")
+            age_group = str(d.get("age_group", "")).strip()
+            sexo = str(d.get("sexo", "")).strip()
+            if not cve_ent or year is None or not age_group or not sexo:
+                continue
+
+            doc_id = f"{cve_ent}_{int(year)}_{age_group}_{sexo}"
+            if doc_id in seen_ids:
+                continue
+            seen_ids.add(doc_id)
+
+            sv = float(d.get("sv") or 0)
+            nv = float(d.get("nv") or 0)
+            part = sv / (sv + nv) if (sv + nv) > 0 else None
+
+            doc = {
+                "id": doc_id,
+                "unit_id": cve_ent,
+                "level": "state",
+                "cve_ent": cve_ent,
+                "year": int(year),
+                "age_group": age_group,
+                "sexo": sexo,
+                "ln": int(d.get("ln") or 0),
+                "sv": int(sv),
+                "nv": int(nv),
+                "ns": int(d.get("ns") or 0),
+                "participacion": round(part, 6) if part is not None else None,
+            }
+            docs.append(doc)
+
+    return docs
+
+
 def validate_docs(
     name: str,
     docs: list[dict[str, Any]],
@@ -187,7 +283,7 @@ def validate_docs(
 def main() -> None:
     parser = argparse.ArgumentParser(description="ATALAYA Elasticsearch Loader")
     parser.add_argument("--dry-run", action="store_true", help="Validate documents and print counts without connecting to ES")
-    parser.add_argument("--only", type=str, default="units,participation,catalog", help="Comma-separated list of indices to load")
+    parser.add_argument("--only", type=str, default="units,participation,catalog,profile", help="Comma-separated list of indices to load")
     args = parser.parse_args()
 
     targets = [t.strip() for t in args.only.split(",") if t.strip()]
@@ -201,6 +297,8 @@ def main() -> None:
         all_docs["participation"] = prepare_participation_docs(store)
     if "catalog" in targets:
         all_docs["catalog"] = prepare_catalog_docs(store)
+    if "profile" in targets:
+        all_docs["profile"] = prepare_profile_docs(store)
 
     validation_errors = []
     for kind, docs in all_docs.items():
@@ -216,7 +314,7 @@ def main() -> None:
             sys.exit(1)
 
     print("Index document counts:")
-    for kind in ["units", "participation", "catalog"]:
+    for kind in ["units", "participation", "catalog", "profile"]:
         if kind in targets:
             count = len(all_docs.get(kind, []))
             print(f"  {kind}: {count}")

@@ -88,21 +88,75 @@ def find_iter_file(raw_dir: Path | str) -> Path | None:
     return None
 
 
-def _read_iter_table(path: Path) -> pd.DataFrame:
-    """Read ITER dataset, handling large files efficiently if needed."""
-    file_size = path.stat().st_size
-    # For smaller files or fixtures (< 50MB), use read_table directly
-    if file_size < 50 * 1024 * 1024:
-        return read_table(
-            path,
-            expect_any=["ENTIDAD", "MUN", "LOC", "POBTOT", "NOM_MUN"],
-        )
+def _detect_csv_header_and_cols(
+    sample_text: str,
+) -> tuple[int, str, list[str]]:
+    """Detect header line index, delimiter, and needed columns from sample text."""
+    lines = sample_text.splitlines()
+    if not lines:
+        raise ValueError("Empty CSV content")
 
-    # Large file optimization
-    # CONTRACT-NOTE: File is large (>50MB). Reading with pd.read_csv(usecols=...) to conserve memory.
-    logger.info("Reading large ITER file (%0.1f MB) with selected columns", file_size / (1024 * 1024))
-    
-    # Check if zip or csv
+    sample_block = "\n".join(lines[:10])
+    counts = {
+        ",": sample_block.count(","),
+        "\t": sample_block.count("\t"),
+        ";": sample_block.count(";"),
+        "|": sample_block.count("|"),
+    }
+    delimiter = max(counts, key=counts.get)
+    if counts[delimiter] == 0:
+        delimiter = ","
+
+    header_idx = -1
+    raw_header_cols: list[str] = []
+    expected_core = {"ENTIDAD", "MUN", "LOC", "POBTOT", "NOM_MUN"}
+
+    for idx, line in enumerate(lines[:30]):
+        tokens = [c.strip().strip('"').strip("'") for c in line.split(delimiter)]
+        norm_tokens = {norm_col(t) for t in tokens if t}
+        if len(norm_tokens.intersection(expected_core)) >= 2:
+            header_idx = idx
+            raw_header_cols = tokens
+            break
+
+    if header_idx == -1:
+        all_aliases = {norm_col(a) for aliases in COLUMN_ALIASES.values() for a in aliases}
+        for idx, line in enumerate(lines[:30]):
+            tokens = [c.strip().strip('"').strip("'") for c in line.split(delimiter)]
+            norm_tokens = {norm_col(t) for t in tokens if t}
+            if len(norm_tokens.intersection(all_aliases)) >= 3:
+                header_idx = idx
+                raw_header_cols = tokens
+                break
+
+    if header_idx == -1:
+        header_idx = 0
+        raw_header_cols = [c.strip().strip('"').strip("'") for c in lines[0].split(delimiter)]
+
+    norm_to_orig = {norm_col(c): c for c in raw_header_cols if c}
+    needed_cols = []
+    for canonical, aliases in COLUMN_ALIASES.items():
+        for alias in aliases:
+            n_alias = norm_col(alias)
+            if n_alias in norm_to_orig:
+                needed_cols.append(norm_to_orig[n_alias])
+                break
+
+    return header_idx, delimiter, needed_cols
+
+
+def _read_iter_table(path: Path) -> pd.DataFrame:
+    """Read ITER dataset with usecols to conserve memory, for both zip and csv.
+
+    CONTRACT-NOTE: Always read with usecols from COLUMN_ALIASES to avoid loading
+    unneeded columns into memory, regardless of file size.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    logger.info("Reading ITER file %s using usecols", path)
+
     if path.suffix.lower() == ".zip":
         with zipfile.ZipFile(path, "r") as zf:
             candidates = [
@@ -110,62 +164,65 @@ def _read_iter_table(path: Path) -> pd.DataFrame:
                 if not m.filename.startswith("__MACOSX")
                 and not m.filename.endswith("/")
                 and m.filename.lower().endswith(".csv")
+                and "catalogos" not in m.filename.lower()
             ]
             if not candidates:
-                raise ValueError(f"No CSV found in zip: {path}")
-            largest = max(candidates, key=lambda m: m.file_size)
-            with zf.open(largest) as f:
-                header_line = f.readline().decode("utf-8-sig", errors="ignore")
-                delimiter = "," if header_line.count(",") >= header_line.count("\t") else "\t"
-                raw_cols = [c.strip().strip('"').strip("'") for c in header_line.split(delimiter)]
-                norm_to_orig = {norm_col(c): c for c in raw_cols}
-                
-                needed_cols = []
-                for aliases in COLUMN_ALIASES.values():
-                    for alias in aliases:
-                        if norm_col(alias) in norm_to_orig:
-                            needed_cols.append(norm_to_orig[norm_col(alias)])
-                            break
-                            
-            with zf.open(largest) as f:
+                raise ValueError(f"No valid CSV found in zip: {path}")
+
+            # In zip, pick CSV inside conjunto_de_datos/ (or the largest), never catalogos/
+            conjunto_candidates = [m for m in candidates if "conjunto_de_datos" in m.filename.lower()]
+            if conjunto_candidates:
+                chosen = max(conjunto_candidates, key=lambda m: m.file_size)
+            else:
+                chosen = max(candidates, key=lambda m: m.file_size)
+
+            with zf.open(chosen) as f:
+                sample_bytes = f.read(200000)
+
+            enc = "utf-8-sig"
+            try:
+                sample_text = sample_bytes.decode(enc)
+            except UnicodeDecodeError:
+                enc = "latin-1"
+                sample_text = sample_bytes.decode(enc, errors="ignore")
+
+            header_idx, delimiter, needed_cols = _detect_csv_header_and_cols(sample_text)
+
+            with zf.open(chosen) as f:
                 df = pd.read_csv(
                     f,
                     sep=delimiter,
+                    skiprows=header_idx if header_idx > 0 else None,
                     usecols=needed_cols if needed_cols else None,
                     dtype=str,
                     low_memory=False,
-                    encoding="utf-8-sig",
+                    encoding=enc,
                 )
-                df.columns = [norm_col(c) for c in df.columns]
-                return df
     else:
-        # Direct CSV
         with open(path, "rb") as f:
             sample_bytes = f.read(200000)
-            sample_text = sample_bytes.decode("utf-8-sig", errors="ignore")
-            lines = sample_text.splitlines()[:5]
-            header_line = lines[0] if lines else ""
-            delimiter = "," if header_line.count(",") >= header_line.count("\t") else "\t"
-            raw_cols = [c.strip().strip('"').strip("'") for c in header_line.split(delimiter)]
-            norm_to_orig = {norm_col(c): c for c in raw_cols}
 
-            needed_cols = []
-            for aliases in COLUMN_ALIASES.values():
-                for alias in aliases:
-                    if norm_col(alias) in norm_to_orig:
-                        needed_cols.append(norm_to_orig[norm_col(alias)])
-                        break
+        enc = "utf-8-sig"
+        try:
+            sample_text = sample_bytes.decode(enc)
+        except UnicodeDecodeError:
+            enc = "latin-1"
+            sample_text = sample_bytes.decode(enc, errors="ignore")
+
+        header_idx, delimiter, needed_cols = _detect_csv_header_and_cols(sample_text)
 
         df = pd.read_csv(
             path,
             sep=delimiter,
+            skiprows=header_idx if header_idx > 0 else None,
             usecols=needed_cols if needed_cols else None,
             dtype=str,
             low_memory=False,
-            encoding="utf-8-sig",
+            encoding=enc,
         )
-        df.columns = [norm_col(c) for c in df.columns]
-        return df
+
+    df.columns = [norm_col(c) for c in df.columns]
+    return df
 
 
 def process_inegi_iter(

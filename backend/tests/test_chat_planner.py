@@ -197,3 +197,46 @@ def test_planner_multipart_question():
     from atalaya.chat.executor import execute
     data = execute(spec)
     assert any("Puedo responder la otra parte si la preguntas por separado." in f for f in data.facts)
+
+
+def test_planner_ccpc_four_questions():
+    """Verify rule-based planner parses the 4 new CCPC questions from W3-E."""
+    # 1. Youth participation -> part_18_34
+    spec1, method1 = plan("¿Cuál es la participación de jóvenes en Jalisco?")
+    assert method1 == "rules"
+    assert spec1.metric == "part_18_34"
+    assert "14" in spec1.unit_ids or spec1.filters.get("cve_ent") == "14"
+
+    spec1b, _ = plan("¿Cuál fue la participación juvenil en 2024?")
+    assert spec1b.metric == "part_18_34"
+    assert spec1b.year == 2024
+
+    # 2. Gender gap -> gap_sexo_pp
+    spec2, method2 = plan("¿Cuál es la brecha de género en Chiapas?")
+    assert method2 == "rules"
+    assert spec2.metric == "gap_sexo_pp"
+    assert "07" in spec2.unit_ids or spec2.filters.get("cve_ent") == "07"
+
+    spec2b, _ = plan("Diferencia de participación de mujeres vs hombres en Puebla")
+    assert spec2b.metric == "gap_sexo_pp"
+    assert "21" in spec2b.unit_ids or spec2b.filters.get("cve_ent") == "21"
+
+    # 3. Judicial election -> part_pj_2025
+    spec3, method3 = plan("¿Cuál fue la participación en la elección judicial en Sonora?")
+    assert method3 == "rules"
+    assert spec3.metric == "part_pj_2025"
+    assert "26" in spec3.unit_ids or spec3.filters.get("cve_ent") == "26"
+
+    spec3b, _ = plan("¿Cómo estuvo la participación en el poder judicial?")
+    assert spec3b.metric == "part_pj_2025"
+
+    # 4. Demographic profile -> intent profile
+    spec4, method4 = plan("¿Cuál es la participación por grupos de edad en Chiapas?")
+    assert method4 == "rules"
+    assert spec4.intent == "profile"
+    assert "07" in spec4.unit_ids or spec4.filters.get("cve_ent") == "07"
+
+    spec4b, _ = plan("Dame el desglose por edad de la participación en Oaxaca")
+    assert spec4b.intent == "profile"
+    assert "20" in spec4b.unit_ids or spec4b.filters.get("cve_ent") == "20"
+

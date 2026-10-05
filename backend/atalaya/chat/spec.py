@@ -39,6 +39,13 @@ CORE_CATALOG_KEYS: set[str] = {
     "pct_po2sm",
     "im_2020",
     "gm_2020",
+    "pct_ln_18_34",
+    "part_18_34",
+    "gap_youth_pp",
+    "gap_sexo_pp",
+    "pct_ln_rural",
+    "ns_rate",
+    "part_pj_2025",
 }
 
 
@@ -80,6 +87,7 @@ class QuerySpec(BaseModel):
         "catalog",
         "help",
         "out_of_scope",
+        "profile",
     ]
     level: Literal["state", "mun"] = "mun"
     metric: str = "risk_score"

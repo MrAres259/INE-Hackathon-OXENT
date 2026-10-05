@@ -15,6 +15,7 @@ export function parseArgs(rawArgs = process.argv.slice(2)) {
   let ent = path.resolve(__dirname, '../../data/raw/geo/00ent.shp');
   let mun = path.resolve(__dirname, '../../data/raw/geo/00mun.shp');
   let out = path.resolve(__dirname, '../../frontend/public/geo');
+  let catalogDir = path.resolve(__dirname, '../../data/build');
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
@@ -24,10 +25,12 @@ export function parseArgs(rawArgs = process.argv.slice(2)) {
       mun = path.resolve(process.cwd(), rawArgs[++i]);
     } else if (arg === '--out' && rawArgs[i + 1]) {
       out = path.resolve(process.cwd(), rawArgs[++i]);
+    } else if (arg === '--catalog-dir' && rawArgs[i + 1]) {
+      catalogDir = path.resolve(process.cwd(), rawArgs[++i]);
     }
   }
 
-  return { ent, mun, out };
+  return { ent, mun, out, catalogDir };
 }
 
 function getCoordinates(geometry) {
@@ -124,8 +127,20 @@ function getInputConfig(filePath) {
 
   if (isShp) {
     const cpgPath = filePath.replace(/\.shp$/i, '.cpg');
-    if (!fs.existsSync(cpgPath)) {
+    let cpgContent = '';
+    if (fs.existsSync(cpgPath)) {
+      try {
+        cpgContent = fs.readFileSync(cpgPath, 'utf8').trim().toLowerCase();
+      } catch {}
+    }
+    // INEGI Marco Geoestadistico uses 88591 (ISO-8859-1 / latin1).
+    // iconv-lite does not recognize raw string '88591', so map it to latin1.
+    if (!cpgContent || cpgContent === '88591' || cpgContent === 'iso-8859-1' || cpgContent === 'latin1') {
       encodingOpt = ' encoding=latin1';
+    } else if (cpgContent === 'utf-8' || cpgContent === 'utf8') {
+      encodingOpt = ' encoding=utf8';
+    } else {
+      encodingOpt = ` encoding=${cpgContent}`;
     }
   } else {
     encodingOpt = ' encoding=utf8';
@@ -134,11 +149,104 @@ function getInputConfig(filePath) {
   return { isShp, encodingOpt };
 }
 
+export async function generateCatalogs(options = {}) {
+  const {
+    ent = path.resolve(__dirname, '../../data/raw/geo/00ent.shp'),
+    mun = path.resolve(__dirname, '../../data/raw/geo/00mun.shp'),
+    catalogDir = path.resolve(__dirname, '../../data/build')
+  } = options;
+
+  if (!fs.existsSync(ent) || !fs.existsSync(mun)) {
+    return { status: 'skipped', reason: 'missing_inputs' };
+  }
+
+  fs.mkdirSync(catalogDir, { recursive: true });
+
+  const entCfg = getInputConfig(ent);
+  const munCfg = getInputConfig(mun);
+
+  const escapeCsv = val => {
+    const s = String(val ?? '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+
+  // 1. Entities catalog (geo_ent_catalog.csv: cve_ent,name)
+  const tempEntJson = path.join(catalogDir, '_temp_ent_catalog.json');
+  await mapshaper.runCommands(`-i "${ent}"${entCfg.encodingOpt} -drop geometry -o "${tempEntJson}" format=json`);
+  const rawEntRecords = JSON.parse(fs.readFileSync(tempEntJson, 'utf8'));
+  try { fs.unlinkSync(tempEntJson); } catch {}
+
+  const entCatalog = rawEntRecords.map(p => {
+    const cve_ent = String(p.CVE_ENT || p.cve_ent || p.id || '').padStart(2, '0');
+    const name = String(p.NOMGEO || p.nomgeo || p.name || '').trim();
+    return { cve_ent, name };
+  }).sort((a, b) => a.cve_ent.localeCompare(b.cve_ent));
+
+  const entCsvLines = ['cve_ent,name'];
+  for (const row of entCatalog) {
+    entCsvLines.push(`${escapeCsv(row.cve_ent)},${escapeCsv(row.name)}`);
+  }
+  const entCatalogPath = path.join(catalogDir, 'geo_ent_catalog.csv');
+  fs.writeFileSync(entCatalogPath, entCsvLines.join('\n') + '\n', 'utf8');
+
+  // 2. Municipalities catalog (geo_mun_catalog.csv: cvegeo,cve_ent,cve_mun,name)
+  const tempMunJson = path.join(catalogDir, '_temp_mun_catalog.json');
+  await mapshaper.runCommands(`-i "${mun}"${munCfg.encodingOpt} -drop geometry -o "${tempMunJson}" format=json`);
+  const rawMunRecords = JSON.parse(fs.readFileSync(tempMunJson, 'utf8'));
+  try { fs.unlinkSync(tempMunJson); } catch {}
+
+  const munCatalog = rawMunRecords.map(p => {
+    let cve_ent = String(p.CVE_ENT || p.cve_ent || p.ent || '').padStart(2, '0');
+    let rawMun = String(p.CVE_MUN || p.cve_mun || '');
+    let rawGeo = String(p.CVEGEO || p.cvegeo || p.id || '');
+
+    if (!cve_ent && rawGeo.length >= 2) {
+      cve_ent = rawGeo.slice(0, 2);
+    }
+    if (!rawMun && rawGeo.length >= 5) {
+      rawMun = rawGeo.slice(2, 5);
+    }
+    const cve_mun = rawMun.padStart(3, '0');
+
+    let cvegeo = rawGeo;
+    if (cvegeo.length < 5 && cve_ent) {
+      cvegeo = cve_ent + cve_mun;
+    }
+    cvegeo = cvegeo.padStart(5, '0');
+
+    const name = String(p.NOMGEO || p.nomgeo || p.name || '').trim();
+    return { cvegeo, cve_ent, cve_mun, name };
+  }).sort((a, b) => a.cvegeo.localeCompare(b.cvegeo));
+
+  const munCsvLines = ['cvegeo,cve_ent,cve_mun,name'];
+  for (const row of munCatalog) {
+    munCsvLines.push(`${escapeCsv(row.cvegeo)},${escapeCsv(row.cve_ent)},${escapeCsv(row.cve_mun)},${escapeCsv(row.name)}`);
+  }
+  const munCatalogPath = path.join(catalogDir, 'geo_mun_catalog.csv');
+  fs.writeFileSync(munCatalogPath, munCsvLines.join('\n') + '\n', 'utf8');
+
+  console.log(`[build_geo] Wrote catalogs:`);
+  console.log(`  geo_ent_catalog.csv: ${entCatalog.length} entities -> ${entCatalogPath}`);
+  console.log(`  geo_mun_catalog.csv: ${munCatalog.length} municipalities -> ${munCatalogPath}`);
+
+  return {
+    status: 'ok',
+    entCatalogPath,
+    munCatalogPath,
+    entCount: entCatalog.length,
+    munCount: munCatalog.length
+  };
+}
+
 export async function buildGeo(options = {}) {
   const {
     ent = path.resolve(__dirname, '../../data/raw/geo/00ent.shp'),
     mun = path.resolve(__dirname, '../../data/raw/geo/00mun.shp'),
-    out = path.resolve(__dirname, '../../frontend/public/geo')
+    out = path.resolve(__dirname, '../../frontend/public/geo'),
+    catalogDir = path.resolve(__dirname, '../../data/build')
   } = options;
 
   let statePercentage = options.statePercentage || '2%';
@@ -153,6 +261,9 @@ export async function buildGeo(options = {}) {
     console.log('[build_geo] Exiting cleanly with code 0 without modifying output directory.');
     return { status: 'skipped', reason: 'missing_inputs' };
   }
+
+  // 2. Generate CSV catalogs from original attributes (unsimplified)
+  const catalogResult = await generateCatalogs({ ent, mun, catalogDir });
 
   const munDir = path.join(out, 'mun');
   fs.mkdirSync(munDir, { recursive: true });
@@ -169,11 +280,11 @@ export async function buildGeo(options = {}) {
     const stateCmd = [
       `-i "${ent}"${entCfg.encodingOpt}`,
       entCfg.isShp ? '-proj wgs84' : '',
-      `-simplify visvalingam weighted keep-shapes ${statePercentage}`,
       '-clean',
+      `-simplify visvalingam weighted keep-shapes ${statePercentage}`,
       `-each "id = String(this.properties.CVE_ENT || this.properties.cve_ent || this.properties.id || '').padStart(2, '0'); name = String(this.properties.NOMGEO || this.properties.nomgeo || this.properties.name || '').trim()"`,
       '-filter-fields id,name',
-      `-o "${statesOutPath}" format=geojson precision=0.00001`
+      `-o force "${statesOutPath}" format=geojson precision=0.00001`
     ].filter(Boolean).join(' ');
 
     await mapshaper.runCommands(stateCmd);
@@ -192,12 +303,12 @@ export async function buildGeo(options = {}) {
     const munCmd = [
       `-i "${mun}"${munCfg.encodingOpt}`,
       munCfg.isShp ? '-proj wgs84' : '',
-      `-simplify visvalingam weighted keep-shapes ${munPercentage}`,
       '-clean',
+      `-simplify visvalingam weighted keep-shapes ${munPercentage}`,
       `-each "var e = String(this.properties.CVE_ENT || this.properties.cve_ent || this.properties.ent || '').padStart(2, '0'); var rawId = String(this.properties.CVEGEO || this.properties.cvegeo || this.properties.id || ''); if (rawId.length < 5 && e) rawId = e + rawId.padStart(3, '0'); id = rawId.padStart(5, '0'); ent = e || id.slice(0, 2); name = String(this.properties.NOMGEO || this.properties.nomgeo || this.properties.name || '').trim()"`,
       '-filter-fields id,ent,name',
       '-split ent',
-      `-o "${munDir}/" format=geojson precision=0.00001`
+      `-o force "${munDir}/" format=geojson precision=0.00001`
     ].filter(Boolean).join(' ');
 
     await mapshaper.runCommands(munCmd);
@@ -211,7 +322,23 @@ export async function buildGeo(options = {}) {
 
     for (const f of munFiles) {
       const filePath = path.join(munDir, f);
-      const stat = fs.statSync(filePath);
+      let stat = fs.statSync(filePath);
+
+      // If a specific state exceeds 800 KB (e.g. Oaxaca 20 with 570 municipalities),
+      // re-simplify ONLY that state to satisfy the 800 KB limit without degrading other states.
+      if (stat.size > MAX_MUN_FILE_BYTES) {
+        console.warn(`[build_geo WARN] Mun file ${f} size ${(stat.size / 1024).toFixed(1)} KB exceeds 800 KB limit. Re-simplifying state ${f}...`);
+        // State-specific simplification: reduce detail only for this state to stay <= 800 KB (e.g. 70% retention)
+        await mapshaper.runCommands(`-i "${filePath}" -simplify visvalingam weighted keep-shapes 70% -o force "${filePath}" format=geojson precision=0.00001`);
+        stat = fs.statSync(filePath);
+        if (stat.size > MAX_MUN_FILE_BYTES) {
+          // If still over 800 KB, reduce to 50%
+          await mapshaper.runCommands(`-i "${filePath}" -simplify visvalingam weighted keep-shapes 50% -o force "${filePath}" format=geojson precision=0.00001`);
+          stat = fs.statSync(filePath);
+        }
+        console.log(`[build_geo] Re-simplified ${f} to ${(stat.size / 1024).toFixed(1)} KB`);
+      }
+
       totalMunSize += stat.size;
       if (stat.size > maxSingleMunSize) {
         maxSingleMunSize = stat.size;
@@ -300,7 +427,8 @@ export async function buildGeo(options = {}) {
       totalMunCount: Object.keys(indexMun).length,
       statesSize,
       totalMunSize,
-      indexSize
+      indexSize,
+      catalogs: catalogResult
     };
   }
 }

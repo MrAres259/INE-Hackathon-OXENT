@@ -360,7 +360,7 @@ def test_executor_scenario_simulate_failure_returns_empty_without_figures(mock_s
 
 def test_executor_source_deduplicated_with_year(mock_store):
     """Verify source is deduplicated and includes effective year in lookup, compare, correlation."""
-    # 1. Lookup with explicit year: should be 'INE · Diputaciones federales 2021', not duplicated
+    # 1. Lookup with explicit year: should be 'INE · Conteos Censales de Participación Ciudadana 2021', not duplicated
     spec_lookup = QuerySpec(
         intent="lookup",
         level="state",
@@ -369,7 +369,7 @@ def test_executor_source_deduplicated_with_year(mock_store):
         year=2021,
     )
     res_lookup = execute(spec_lookup)
-    assert res_lookup.source == "INE · Diputaciones federales 2021"
+    assert res_lookup.source == "INE · Conteos Censales de Participación Ciudadana 2021"
 
     # 2. Compare without explicit year: should include year (2024 from stats)
     spec_compare = QuerySpec(
@@ -379,7 +379,7 @@ def test_executor_source_deduplicated_with_year(mock_store):
         metric="abstencion",
     )
     res_compare = execute(spec_compare)
-    assert res_compare.source == "INE · Diputaciones federales 2024"
+    assert res_compare.source == "INE · Conteos Censales de Participación Ciudadana 2024"
 
     # 3. Correlation with INE and INEGI variables: should include year for both
     spec_corr = QuerySpec(
@@ -390,7 +390,47 @@ def test_executor_source_deduplicated_with_year(mock_store):
         x_metric="graproes",
     )
     res_corr = execute(spec_corr)
-    assert res_corr.source == "INE · Diputaciones federales 2024; INEGI · Censo 2020"
+    assert res_corr.source == "INE · Conteos Censales de Participación Ciudadana 2024; INEGI · Censo 2020"
+
+
+def test_executor_census_year_bug_fixed(mock_store):
+    """Verify that when querying an INEGI/CONAPO metric with a non-2020 year (e.g. 2009),
+    the year is fixed to 2020 in facts and table, and a note is added stating it corresponds to 2020."""
+    spec = QuerySpec(
+        intent="lookup",
+        level="mun",
+        unit_ids=["07101"],
+        metric="pct_18_24",
+        year=2009,
+    )
+    res = execute(spec)
+    assert not res.empty
+    assert res.columns == ["Zona", "Nivel", "Estado", "Año", "Jóvenes de 18 a 24 años"]
+    assert res.rows[0][3] == 2020
+    assert any("El dato censal corresponde a 2020." in f for f in res.facts)
+    assert any("2020" in f for f in res.facts)
+    assert not any("en 2009" in f for f in res.facts)
+
+
+def test_executor_profile(mock_store):
+    """Verify profile intent returns demographic breakdown by age group and sex from profile data."""
+    build_dir = mock_store.build_dir
+    prof_data = [
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2024, "age_group": "18-24", "sexo": "H", "ln": 1000, "sv": 550, "nv": 450, "ns": 10},
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2024, "age_group": "18-24", "sexo": "M", "ln": 1050, "sv": 650, "nv": 400, "ns": 10},
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2024, "age_group": "65+", "sexo": "H", "ln": 800, "sv": 600, "nv": 200, "ns": 5},
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2024, "age_group": "65+", "sexo": "M", "ln": 850, "sv": 680, "nv": 170, "ns": 5},
+    ]
+    pd.DataFrame(prof_data).to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+    mock_store.reload()
+
+    spec = QuerySpec(intent="profile", level="mun", unit_ids=["14001"], year=2024)
+    res = execute(spec)
+    assert not res.empty
+    assert res.columns == ["Grupo de edad", "Sexo", "Lista Nominal", "Votaron (SV)", "No Votaron (NV)", "Participación"]
+    assert len(res.rows) == 4
+    assert any("Mayor participación" in f for f in res.facts)
+    assert "INE · Conteos Censales de Participación Ciudadana 2024" in res.source
 
 
 def test_no_digits_produced_when_store_empty(tmp_path: Path, monkeypatch):

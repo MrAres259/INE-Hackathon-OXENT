@@ -1,13 +1,41 @@
-# ATALAYA - Stop Demo Server Processes
+﻿# ATALAYA - Stop Demo Server Processes
 # Compatible with PowerShell 5.1
 
 $ErrorActionPreference = "Stop"
+
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $repoRootNorm = $repoRoot.TrimEnd('\', '/')
 $cacheDir = Join-Path $repoRoot "data\cache"
 $apiPidFile = Join-Path $cacheDir "api.pid"
 $webPidFile = Join-Path $cacheDir "web.pid"
+
+function Stop-ProcessSafely {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 4) { return }
+
+    # 1. Verify PID exists before attempting kill
+    $proc = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        return
+    }
+
+    # 2. Wrap native call with temporary ErrorActionPreference = Continue
+    $prevEAP = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & taskkill /T /F /PID $ProcessId 2>&1 | Out-Null
+        # 3. Ignore taskkill exit code if process already terminated
+        $global:LASTEXITCODE = 0
+    } catch {
+        # Process already terminated
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+}
 
 function Get-ProcessInfo {
     param([int]$ProcessId)
@@ -71,7 +99,7 @@ function Stop-PidFile {
             $pName = ($info.Name -as [string]).ToLower()
             if ($pName -like "*python*" -or $pName -like "*node*" -or $pName -like "*cmd*") {
                 Write-Host "Stopping $Description (PID: $targetPid, Name: $pName) and child processes..." -ForegroundColor Yellow
-                & taskkill /T /F /PID $targetPid 2>&1 | Out-Null
+                Stop-ProcessSafely -ProcessId $targetPid
                 Start-Sleep -Milliseconds 500
                 Write-Host "$Description (PID: $targetPid) stopped." -ForegroundColor Green
                 $stopped = $true
@@ -166,7 +194,7 @@ function Stop-RepoProcessOnPort {
 
             if ($isRepo) {
                 Write-Host "Stopping repo process on port $($Port) (PID: $($procId), Name: $($name))..." -ForegroundColor Yellow
-                & taskkill /T /F /PID $procId 2>&1 | Out-Null
+                Stop-ProcessSafely -ProcessId $procId
                 Start-Sleep -Milliseconds 500
                 Write-Host "Process $($procId) on port $($Port) stopped." -ForegroundColor Green
                 $stopped = $true
