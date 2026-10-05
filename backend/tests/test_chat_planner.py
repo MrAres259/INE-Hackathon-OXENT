@@ -240,3 +240,24 @@ def test_planner_ccpc_four_questions():
     assert spec4b.intent == "profile"
     assert "20" in spec4b.unit_ids or spec4b.filters.get("cve_ent") == "20"
 
+
+def test_planner_judicial_question_sets_pjf():
+    """Verify judicial election queries set election='PJF', year=2025, metric='part_pj_2025'."""
+    spec1, method1 = plan("¿Cuál fue la participación en la elección judicial?")
+    assert method1 == "rules"
+    assert spec1.election == "PJF"
+    assert spec1.year == 2025
+    assert spec1.metric == "part_pj_2025"
+
+    spec2, _ = plan("¿Cómo estuvo la votación en el poder judicial?")
+    assert spec2.election == "PJF"
+    assert spec2.year == 2025
+
+    spec3, _ = plan("participación en 2025")
+    assert spec3.election == "PJF"
+    assert spec3.year == 2025
+
+    spec_fed, _ = plan("participación en 2024")
+    assert spec_fed.election == "DIP_FED"
+    assert spec_fed.year == 2024
+

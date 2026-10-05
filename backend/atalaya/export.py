@@ -37,6 +37,30 @@ def round_val(v: float | int | None, decimals: int = 4) -> float | int | None:
         return None
 
 
+def get_gov_2027_entities(seed_dir: Path | None = None) -> set[str]:
+    """Return set of 2-digit cve_ent that have gubernatorial elections in 2027."""
+    default_gov_2027 = {
+        "01", "02", "03", "04", "06", "08", "12", "16",
+        "18", "19", "22", "23", "24", "25", "26", "29", "32",
+    }
+    s_dir = Path(seed_dir) if seed_dir is not None else config.SEED_DIR
+    p = s_dir / "concurrencia_gubernatura.csv"
+    if not p.is_file():
+        alt_p = Path(__file__).resolve().parent.parent.parent / "data/seed/concurrencia_gubernatura.csv"
+        if alt_p.is_file():
+            p = alt_p
+    if p.is_file():
+        try:
+            df_gov = pd.read_csv(p, dtype={"cve_ent": str, "year": int})
+            df_2027 = df_gov[df_gov["year"] == 2027]
+            ents = set(df_2027["cve_ent"].astype(str).str.strip().apply(lambda x: zpad(str(x), 2)))
+            if ents:
+                return ents
+        except Exception:
+            pass
+    return default_gov_2027
+
+
 def format_excel_sheet(ws: openpyxl.worksheet.worksheet.Worksheet, df: pd.DataFrame | None = None) -> None:
     """Apply styling: bold header, header fill, freeze panes, and sampled column auto-widths."""
     header_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
@@ -66,9 +90,14 @@ def format_excel_sheet(ws: openpyxl.worksheet.worksheet.Worksheet, df: pd.DataFr
             ws.column_dimensions[col_letter].width = min(max(len(str(cell_val or "")) + 4, 12), 50)
 
 
-def create_leeme_dataframe() -> pd.DataFrame:
+def create_leeme_dataframe(metrics_data: dict | None = None) -> pd.DataFrame:
     """Create descriptive content for LEEME sheet and CSV."""
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    m = metrics_data or {}
+    sel_model = m.get("selected_model", "persist_l1 (fallback)")
+    nat_level = m.get("national_level_assumption", 51.84)
+    offset = m.get("offset_pp", m.get("offset", "N/D"))
+
     lines = [
         ("PROYECTO", "ATALAYA — Predicción y Escenarios de Riesgo de Abstención Electoral en México"),
         ("CONVOCATORIA", "Hackathon INE — Reto 2: Predicción y escenarios de riesgo de abstención"),
@@ -81,6 +110,50 @@ def create_leeme_dataframe() -> pd.DataFrame:
         (
             "DESCRIPCIÓN GENERAL",
             "Base de datos analítica con proyecciones de participación, índice de riesgo de abstención, descomposición de factores explicativos (drivers), recomendaciones preventivas estructuradas y simulación de escenarios de intervención.",
+        ),
+        ("REGLA DE CONFIABILIDAD HISTÓRICA (CCPC §11.1)", ""),
+        (
+            "Criterio de confiabilidad",
+            "Un municipio-año se considera 'confiable' (reliable = True) si la tasa de condición no especificada ns_rate <= 0.50 y la participación observada >= 0.02 (participacion >= 0.02, 2.0%). Registros con 0.30 < ns_rate <= 0.50 se catalogan de baja confianza (low_confidence = True).",
+        ),
+        (
+            "Tratamiento de registros no confiables",
+            "Los registros no confiables (ns_rate > 0.50 o participacion < 0.02) se excluyen de la calibración y rezagos del modelo econométrico, y se exportan con participación vacía (nunca como 0%) para evitar sesgos por cuadernillos no disponibles.",
+        ),
+        ("MODELO PREDICTIVO SELECCIONADO Y DESEMPEÑO (§11.3)", ""),
+        (
+            "Modelo seleccionado",
+            f"Modelo ganador del torneo de candidatos: '{sel_model}'. Seleccionado por menor MAE promedio en backtests honestos (folds 2021 y 2024).",
+        ),
+    ]
+
+    candidates = m.get("candidates", [])
+    if candidates:
+        cand_str = " | ".join(
+            f"{c.get('name')}: MAE={c.get('mean_mae_pp', c.get('mae_avg', c.get('mae_pp')))} pp"
+            + (f", Spearman={c.get('spearman_avg', c.get('spearman'))}" if (c.get('spearman_avg') or c.get('spearman')) else "")
+            + (f", top20_hit={c.get('top20_hit_avg', c.get('top20_hit'))}" if (c.get('top20_hit_avg') or c.get('top20_hit')) else "")
+            for c in candidates
+        )
+        lines.append(("Evaluación de candidatos en competencia", cand_str))
+
+    backtests = m.get("backtests", [])
+    if backtests:
+        bt_str = " | ".join(
+            f"Fold {b.get('test_year')}: MAE={b.get('mae_pp')} pp (vs naive {b.get('baseline_mae_pp')} pp), RMSE={b.get('rmse_pp')} pp, Spearman={b.get('spearman')}, top20_hit={b.get('top20_hit')}"
+            for b in backtests
+        )
+        lines.append(("Desempeño en backtest out-of-sample", bt_str))
+
+    lines.extend([
+        ("SUPUESTO DE NIVEL NACIONAL 2027", ""),
+        (
+            "Supuesto nacional",
+            f"Nivel nacional supuesto para la intermedia 2027: {nat_level}% (basado en la última intermedia federal comparable de 2021 = 51.84%). Offset histórico de intermedias: {offset} pp.",
+        ),
+        (
+            "ADVERTENCIA METODOLÓGICA",
+            "El semáforo compara zonas entre sí; las cifras absolutas dependen del supuesto nacional.",
         ),
         ("FUENTES OFICIALES", ""),
         (
@@ -108,7 +181,7 @@ def create_leeme_dataframe() -> pd.DataFrame:
         ("ESCENARIOS SIMULADOS", ""),
         (
             "Base (Sin intervención)",
-            "Pronóstico inercial que combina tendencias históricas (CCPC) con perfil sociodemográfico municipal.",
+            "Pronóstico inercial de desviaciones relativas respecto a la media nacional con concurrencia de gubernatura 2027.",
         ),
         (
             "Intervención (Hipotética focalizada)",
@@ -118,7 +191,7 @@ def create_leeme_dataframe() -> pd.DataFrame:
             "Pesimista",
             "Escenario adverso con choque general a la baja (-2.0 pp de participación) y acentuación del 50% en tendencias negativas.",
         ),
-    ]
+    ])
     return pd.DataFrame(lines, columns=["seccion", "contenido"])
 
 
@@ -131,12 +204,16 @@ def create_dictionary_dataframe() -> pd.DataFrame:
         ("municipios", "name", "Nombre oficial del municipio", "texto", "INEGI 2024"),
         ("municipios", "lista_nominal", "Número de ciudadanos en lista nominal de electores (última elección)", "personas", "INE CCPC"),
         ("municipios", "last_year", "Año de la última elección federal de diputaciones registrada", "año", "INE CCPC"),
+        ("municipios", "last_reliable_year", "Último año con datos de participación confiables (ns_rate <= 0.5)", "año", "ATALAYA"),
         ("municipios", "last_participation", "Participación observada en la última elección federal", "proporción (0-1)", "INE CCPC"),
         ("municipios", "pred_participation_base", "Participación estimada para 2027 en escenario base", "proporción (0-1)", "ATALAYA Modelo"),
         ("municipios", "pred_abstention_base", "Abstención pronosticada para 2027 en escenario base (1 - participación)", "proporción (0-1)", "ATALAYA Modelo"),
+        ("municipios", "pred_dev_pp", "Desviación pronosticada de participación respecto a la media nacional", "puntos porcentuales", "ATALAYA Modelo"),
+        ("municipios", "fallback_model", "Modelo econométrico alternativo utilizado por rezagos incompletos", "texto", "ATALAYA Modelo"),
+        ("municipios", "gov_2027", "Indicador si la entidad tiene elección de gubernatura en 2027 (1=Sí, 0=No)", "binario", "INE Calendario"),
         ("municipios", "pred_low_base", "Límite inferior del intervalo de confianza al 90% para abstención 2027", "proporción (0-1)", "ATALAYA Modelo"),
         ("municipios", "pred_high_base", "Límite superior del intervalo de confianza al 90% para abstención 2027", "proporción (0-1)", "ATALAYA Modelo"),
-        ("municipios", "trend_pp", "Tendencia histórica de participación por elección federal", "puntos porcentuales", "ATALAYA Modelo"),
+        ("municipios", "trend_pp", "Tendencia histórica relativa de participación por elección federal", "puntos porcentuales", "ATALAYA Modelo"),
         ("municipios", "volatility_pp", "Volatilidad cíclica histórica de la participación", "puntos porcentuales", "ATALAYA Modelo"),
         ("municipios", "risk_score_base", "Índice sintético de riesgo de abstención (0-100)", "índice", "ATALAYA Modelo"),
         ("municipios", "category_base", "Categoría del semáforo de riesgo en escenario base", "categoría", "ATALAYA Modelo"),
@@ -163,10 +240,11 @@ def create_dictionary_dataframe() -> pd.DataFrame:
         ("municipios", "im_2020", "Índice de marginación municipal CONAPO 2020", "índice", "CONAPO 2020"),
         ("municipios", "gm_2020", "Grado de marginación municipal CONAPO 2020", "categoría", "CONAPO 2020"),
         ("municipios", "part_pj_2025", "Participación en elección judicial federal extraordinaria 2025", "proporción (0-1)", "INE 2025"),
-        ("municipios", "part_18_34_last", "Participación de jóvenes 18-34 años en la última elección federal", "proporción (0-1)", "INE CCPC 2024"),
-        ("municipios", "gap_youth_pp_last", "Brecha de participación juvenil vs promedio municipal", "puntos porcentuales", "INE CCPC 2024"),
-        ("municipios", "gap_sexo_pp_last", "Brecha de participación mujeres vs hombres (part_M - part_H)", "puntos porcentuales", "INE CCPC 2024"),
-        ("municipios", "pct_ln_rural_last", "Proporción de lista nominal en secciones rurales", "proporción (0-1)", "INE CCPC 2024"),
+        ("municipios", "pct_ln_18_34", "Proporción de lista nominal entre 18 y 34 años en última DIP_FED", "proporción (0-1)", "INE CCPC"),
+        ("municipios", "part_18_34", "Participación de electores 18-34 años en última elección federal", "proporción (0-1)", "INE CCPC"),
+        ("municipios", "gap_youth_pp", "Brecha de participación juvenil vs promedio municipal en pp", "puntos porcentuales", "INE CCPC"),
+        ("municipios", "gap_sexo_pp", "Brecha de participación mujeres vs hombres (part_M - part_H) en pp", "puntos porcentuales", "INE CCPC"),
+        ("municipios", "pct_ln_rural", "Proporción de lista nominal en secciones rurales", "proporción (0-1)", "INE CCPC"),
         ("municipios", "imputed_census", "Indicador si los datos de censo fueron imputados por creación municipal post-2020", "booleano", "ATALAYA"),
 
         # estados
@@ -192,6 +270,14 @@ def create_dictionary_dataframe() -> pd.DataFrame:
         ("estados", "top_driver", "Principal factor de abstención estatal", "texto", "ATALAYA Modelo"),
         ("estados", "top_recommendation", "Recomendación institucional prioritaria estatal", "texto", "ATALAYA Reglas"),
 
+        # semaforo_ponderado
+        ("semaforo_ponderado", "scenario", "Escenario simulado ('base', 'intervencion', 'pesimista')", "texto", "ATALAYA"),
+        ("semaforo_ponderado", "category", "Categoría del semáforo de riesgo", "categoría", "ATALAYA"),
+        ("semaforo_ponderado", "n_municipios", "Número de municipios clasificados en la categoría", "entero", "ATALAYA"),
+        ("semaforo_ponderado", "pct_municipios", "Porcentaje sobre el total de municipios", "porcentaje", "ATALAYA"),
+        ("semaforo_ponderado", "lista_nominal", "Electores acumulados en lista nominal de esa categoría", "personas", "ATALAYA / CCPC"),
+        ("semaforo_ponderado", "pct_lista_nominal", "Porcentaje sobre la lista nominal nacional", "porcentaje", "ATALAYA"),
+
         # participacion_historica
         ("participacion_historica", "id", "Clave geográfica (CVEGEO 5 dígitos para municipio, 2 para estado)", "clave", "INE CCPC"),
         ("participacion_historica", "level", "Nivel geográfico ('mun' o 'state')", "texto", "ATALAYA"),
@@ -203,7 +289,10 @@ def create_dictionary_dataframe() -> pd.DataFrame:
         ("participacion_historica", "votos_totales", "Votos emitidos con marca de voto (SV)", "votos", "INE CCPC"),
         ("participacion_historica", "nv", "Ciudadanos sin marca de voto (NV)", "personas", "INE CCPC"),
         ("participacion_historica", "ns", "Registros con condición no especificada (NS)", "personas", "INE CCPC"),
-        ("participacion_historica", "participacion", "Participación oficial calculada como SV / (SV + NV)", "proporción (0-1)", "INE CCPC"),
+        ("participacion_historica", "ns_rate", "Tasa de registros no especificados (NS / LN)", "proporción (0-1)", "INE CCPC"),
+        ("participacion_historica", "reliable", "Indicador de confiabilidad (ns_rate <= 0.50 y participacion >= 0.02)", "booleano", "ATALAYA"),
+        ("participacion_historica", "low_confidence", "Indicador de baja confianza (0.30 < ns_rate <= 0.50)", "booleano", "ATALAYA"),
+        ("participacion_historica", "participacion", "Participación oficial calculada como SV / (SV + NV). Vacía si no es confiable.", "proporción (0-1)", "INE CCPC"),
 
         # perfil_edad_sexo
         ("perfil_edad_sexo", "cvegeo", "Clave geográfica municipal (5 dígitos)", "clave", "INE CCPC"),
@@ -240,7 +329,7 @@ def create_dictionary_dataframe() -> pd.DataFrame:
         ("recomendaciones", "source", "Origen de la formulación ('rules' o 'llm')", "texto", "ATALAYA Reglas"),
 
         # metricas_modelo
-        ("metricas_modelo", "seccion", "Sección de métricas ('backtest', 'coeficiente_estructural', 'parametro')", "texto", "ATALAYA"),
+        ("metricas_modelo", "seccion", "Sección de métricas ('backtest', 'coeficiente_estructural', 'parametro', 'candidato')", "texto", "ATALAYA"),
         ("metricas_modelo", "campo", "Identificador del parámetro o variable", "texto", "ATALAYA"),
         ("metricas_modelo", "valor", "Valor numérico o descripción de la métrica", "texto", "ATALAYA"),
         ("metricas_modelo", "detalle", "Información complementaria y notas metodológicas", "texto", "ATALAYA"),
@@ -252,6 +341,7 @@ def export_deliverables(
     build_dir: Path | str | None = None,
     geo_dir: Path | str | None = None,
     out_dir: Path | str | None = None,
+    min_profile_rows: int = 50000,
 ) -> int:
     """Generate all official project deliverables."""
     b_dir = Path(build_dir) if build_dir is not None else config.BUILD_DIR
@@ -264,18 +354,41 @@ def export_deliverables(
 
     print(f"ATALAYA Export — Generando entregables oficiales en '{o_dir}'...")
 
-    # 1. Load inputs
+    # 1. Load inputs and pre-validations
+    part_path = b_dir / "participation.parquet"
+    if not part_path.is_file():
+        print(f"[-] Error: No se encontró '{part_path}'. Ejecuta el pipeline primero.")
+        return 1
+
+    part_df = read_parquet(part_path)
+    if "reliable" not in part_df.columns:
+        print(
+            "[-] Error de validación previa: 'participation.parquet' no contiene la columna obligatoria 'reliable'. "
+            "Abortando export para evitar entregables defectuosos (código 2)."
+        )
+        return 2
+
+    profile_path = b_dir / "ccpc_profile_mun.parquet"
+    if not profile_path.is_file():
+        profile_path = b_dir / "ccpc_profile.parquet"
+    profile_df = read_parquet(profile_path) if profile_path.is_file() else pd.DataFrame()
+
+    if len(profile_df) < min_profile_rows:
+        print(
+            f"[-] Error de validación previa: '{profile_path.name}' tiene {len(profile_df)} filas "
+            f"(mínimo requerido: {min_profile_rows}). Posible archivo incompleto o sobreescrito por tests. "
+            f"Abortando export para evitar entregables defectuosos (código 2)."
+        )
+        return 2
+
     units_path = b_dir / "units.parquet"
     if not units_path.is_file():
-        print(f"Error: No se encontró '{units_path}'. Ejecuta 'python -m atalaya.model.build' primero.")
+        print(f"[-] Error: No se encontró '{units_path}'. Ejecuta 'python -m atalaya.model.build' primero.")
         return 1
 
     units_df = read_parquet(units_path)
     drivers_path = b_dir / "drivers.parquet"
     drivers_df = read_parquet(drivers_path) if drivers_path.is_file() else pd.DataFrame()
-
-    part_path = b_dir / "participation.parquet"
-    part_df = read_parquet(part_path) if part_path.is_file() else pd.DataFrame()
 
     metrics_path = b_dir / "metrics.json"
     metrics_data = {}
@@ -285,11 +398,28 @@ def export_deliverables(
         except Exception:
             metrics_data = {}
 
-    # Check ccpc_profile_mun or ccpc_profile
-    profile_path = b_dir / "ccpc_profile_mun.parquet"
-    if not profile_path.is_file():
-        profile_path = b_dir / "ccpc_profile.parquet"
-    profile_df = read_parquet(profile_path) if profile_path.is_file() else pd.DataFrame()
+    # Read CCPC features for last DIP_FED election metrics per municipality
+    ccpc_features_path = b_dir / "ccpc_features.parquet"
+    ccpc_metrics_map: dict[str, dict] = {}
+    if ccpc_features_path.is_file():
+        try:
+            df_cf = read_parquet(ccpc_features_path)
+            if not df_cf.empty:
+                if "level" in df_cf.columns:
+                    df_cf = df_cf[df_cf["level"] == "mun"]
+                if "election" in df_cf.columns:
+                    df_cf = df_cf[df_cf["election"] == "DIP_FED"]
+                elif "year" in df_cf.columns:
+                    df_cf = df_cf[df_cf["year"] <= 2024]
+                if "year" in df_cf.columns and "cvegeo" in df_cf.columns:
+                    df_cf = df_cf.sort_values(["cvegeo", "year"]).groupby("cvegeo").last().reset_index()
+                    df_cf["id"] = df_cf["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(str(v), 5))
+                    ccpc_metrics_map = df_cf.set_index("id").to_dict(orient="index")
+        except Exception as e:
+            print(f"Aviso leyendo ccpc_features.parquet: {e}")
+
+    # Seed 2027 gubernatorial concurrence
+    gov_2027_ents = get_gov_2027_entities()
 
     # 2. Simulate scenarios
     print("Simulando escenarios base, intervencion y pesimista...")
@@ -381,6 +511,7 @@ def export_deliverables(
     # 3. GeoJSON Export (if geo files exist)
     mun_geo_dir = g_dir / "mun"
     states_geo_file = g_dir / "states.json"
+    mun_u_idx = mun_units_df.set_index("id")
 
     if mun_geo_dir.is_dir() and any(mun_geo_dir.glob("*.json")):
         print("Generando deliverables/mapa_escenarios_municipal.geojson...")
@@ -400,17 +531,30 @@ def export_deliverables(
                 b_row = mb_idx.loc[mun_id] if mun_id in mb_idx.index else None
                 i_row = mi_idx.loc[mun_id] if mun_id in mi_idx.index else None
                 p_row = mp_idx.loc[mun_id] if mun_id in mp_idx.index else None
+                u_row = mun_u_idx.loc[mun_id] if mun_id in mun_u_idx.index else None
 
                 name = str(p.get("name", "")).strip()
                 if not name and b_row is not None and "name" in b_row:
                     name = str(b_row["name"])
+
+                cf_row = ccpc_metrics_map.get(mun_id, {})
+                pct_ln_18_34 = cf_row.get("pct_ln_18_34") if "pct_ln_18_34" in cf_row else (u_row.get("pct_ln_18_34") if u_row is not None else None)
+                part_18_34 = cf_row.get("part_18_34") if "part_18_34" in cf_row else (u_row.get("part_18_34_last", u_row.get("part_18_34")) if u_row is not None else None)
+                gap_youth_pp = cf_row.get("gap_youth_pp") if "gap_youth_pp" in cf_row else (u_row.get("gap_youth_pp_last", u_row.get("gap_youth_pp")) if u_row is not None else None)
+                gap_sexo_pp = cf_row.get("gap_sexo_pp") if "gap_sexo_pp" in cf_row else (u_row.get("gap_sexo_pp_last", u_row.get("gap_sexo_pp")) if u_row is not None else None)
+                pct_ln_rural = cf_row.get("pct_ln_rural") if "pct_ln_rural" in cf_row else (u_row.get("pct_ln_rural_last", u_row.get("pct_ln_rural")) if u_row is not None else None)
 
                 feat["properties"] = {
                     "id": mun_id,
                     "ent": ent,
                     "name": name,
                     "lista_nominal": round_val(b_row["lista_nominal"], 0) if b_row is not None else None,
+                    "last_year": round_val(b_row["last_year"], 0) if b_row is not None else None,
+                    "last_reliable_year": round_val(u_row.get("last_reliable_year"), 0) if u_row is not None else None,
                     "last_participation": round_val(b_row["last_participation"], 4) if b_row is not None else None,
+                    "pred_dev_pp": round_val(u_row.get("pred_dev_pp"), 4) if u_row is not None else None,
+                    "fallback_model": str(u_row.get("fallback_model")) if u_row is not None and pd.notna(u_row.get("fallback_model")) and u_row.get("fallback_model") else None,
+                    "gov_2027": 1 if ent in gov_2027_ents else 0,
                     "pred_abstention_base": round_val(b_row["pred_abstention"], 4) if b_row is not None else None,
                     "category_base": str(b_row["category"]) if b_row is not None and pd.notna(b_row["category"]) else "sin_dato",
                     "pred_abstention_intervencion": round_val(i_row["pred_abstention"], 4) if i_row is not None else None,
@@ -422,6 +566,13 @@ def export_deliverables(
                     "trend_pp": round_val(b_row["trend_pp"], 4) if b_row is not None else None,
                     "top_driver": top_driver_map.get(mun_id, ""),
                     "top_recommendation": top_reco_map.get(mun_id, ""),
+                    "imputed_census": bool(u_row.get("imputed_census", False)) if u_row is not None else False,
+                    "part_pj_2025": round_val(u_row.get("part_pj_2025"), 4) if u_row is not None else None,
+                    "pct_ln_18_34": round_val(pct_ln_18_34, 4),
+                    "part_18_34": round_val(part_18_34, 4),
+                    "gap_youth_pp": round_val(gap_youth_pp, 2),
+                    "gap_sexo_pp": round_val(gap_sexo_pp, 2),
+                    "pct_ln_rural": round_val(pct_ln_rural, 4),
                 }
                 all_mun_features.append(feat)
 
@@ -480,19 +631,33 @@ def export_deliverables(
     mun_table_rows = []
     for _, u in mun_units_df.iterrows():
         mid = str(u["id"])
+        ent = zpad(str(u.get("cve_ent", mid[:2])), 2)
         b_r = mb_idx.loc[mid] if mid in mb_idx.index else None
         i_r = mi_idx.loc[mid] if mid in mi_idx.index else None
         p_r = mp_idx.loc[mid] if mid in mp_idx.index else None
 
+        cf_row = ccpc_metrics_map.get(mid, {})
+        pct_ln_18_34 = cf_row.get("pct_ln_18_34") if "pct_ln_18_34" in cf_row else u.get("pct_ln_18_34")
+        part_18_34 = cf_row.get("part_18_34") if "part_18_34" in cf_row else u.get("part_18_34_last", u.get("part_18_34"))
+        gap_youth_pp = cf_row.get("gap_youth_pp") if "gap_youth_pp" in cf_row else u.get("gap_youth_pp_last", u.get("gap_youth_pp"))
+        gap_sexo_pp = cf_row.get("gap_sexo_pp") if "gap_sexo_pp" in cf_row else u.get("gap_sexo_pp_last", u.get("gap_sexo_pp"))
+        pct_ln_rural = cf_row.get("pct_ln_rural") if "pct_ln_rural" in cf_row else u.get("pct_ln_rural_last", u.get("pct_ln_rural"))
+
+        gov_2027 = 1 if ent in gov_2027_ents else 0
+
         row = {
             "id": mid,
-            "cve_ent": zpad(str(u.get("cve_ent", mid[:2])), 2),
+            "cve_ent": ent,
             "name": u.get("name", ""),
             "lista_nominal": round_val(b_r["lista_nominal"], 0) if b_r is not None else None,
             "last_year": round_val(b_r["last_year"], 0) if b_r is not None else None,
+            "last_reliable_year": round_val(u.get("last_reliable_year"), 0),
             "last_participation": round_val(b_r["last_participation"], 4) if b_r is not None else None,
             "pred_participation_base": round_val(b_r["pred_participation"], 4) if b_r is not None else None,
             "pred_abstention_base": round_val(b_r["pred_abstention"], 4) if b_r is not None else None,
+            "pred_dev_pp": round_val(u.get("pred_dev_pp"), 4),
+            "fallback_model": str(u.get("fallback_model")) if pd.notna(u.get("fallback_model")) and u.get("fallback_model") else None,
+            "gov_2027": gov_2027,
             "pred_low_base": round_val(b_r["pred_low"], 4) if b_r is not None else None,
             "pred_high_base": round_val(b_r["pred_high"], 4) if b_r is not None else None,
             "trend_pp": round_val(b_r["trend_pp"], 4) if b_r is not None else None,
@@ -522,10 +687,15 @@ def export_deliverables(
             "im_2020": round_val(u.get("im_2020"), 4),
             "gm_2020": str(u.get("gm_2020")) if pd.notna(u.get("gm_2020")) else "",
             "part_pj_2025": round_val(u.get("part_pj_2025"), 4),
-            "part_18_34_last": round_val(u.get("part_18_34_last"), 4),
-            "gap_youth_pp_last": round_val(u.get("gap_youth_pp_last"), 2),
-            "gap_sexo_pp_last": round_val(u.get("gap_sexo_pp_last"), 2),
-            "pct_ln_rural_last": round_val(u.get("pct_ln_rural_last"), 4),
+            "pct_ln_18_34": round_val(pct_ln_18_34, 4),
+            "part_18_34": round_val(part_18_34, 4),
+            "gap_youth_pp": round_val(gap_youth_pp, 2),
+            "gap_sexo_pp": round_val(gap_sexo_pp, 2),
+            "pct_ln_rural": round_val(pct_ln_rural, 4),
+            "part_18_34_last": round_val(part_18_34, 4),
+            "gap_youth_pp_last": round_val(gap_youth_pp, 2),
+            "gap_sexo_pp_last": round_val(gap_sexo_pp, 2),
+            "pct_ln_rural_last": round_val(pct_ln_rural, 4),
             "imputed_census": bool(u.get("imputed_census", False)),
         }
         mun_table_rows.append(row)
@@ -588,30 +758,72 @@ def export_deliverables(
     if not part_df.empty:
         df_part_hist = part_df.copy()
         if "cvegeo" in df_part_hist.columns and "id" not in df_part_hist.columns:
-            df_part_hist["id"] = df_part_hist["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(v, 5))
+            df_part_hist["id"] = df_part_hist["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(str(v), 5))
         if "level" not in df_part_hist.columns:
             df_part_hist["level"] = "mun"
+
+        name_map = (
+            mun_units_df.set_index("id")["name"].to_dict()
+            if not mun_units_df.empty and "id" in mun_units_df.columns and "name" in mun_units_df.columns
+            else {}
+        )
+        if "name" not in df_part_hist.columns and "id" in df_part_hist.columns:
+            df_part_hist["name"] = df_part_hist["id"].map(name_map).fillna("")
+
         for col_n in ["lista_nominal", "votos_totales", "nv", "ns"]:
             if col_n in df_part_hist.columns:
                 df_part_hist[col_n] = pd.to_numeric(df_part_hist[col_n], errors="coerce").fillna(0).astype(int)
+
+        if "ns_rate" in df_part_hist.columns:
+            df_part_hist["ns_rate"] = df_part_hist["ns_rate"].apply(lambda v: round_val(v, 4))
+        if "reliable" in df_part_hist.columns:
+            df_part_hist["reliable"] = df_part_hist["reliable"].astype(bool)
+        if "low_confidence" in df_part_hist.columns:
+            df_part_hist["low_confidence"] = df_part_hist["low_confidence"].astype(bool)
+
         if "participacion" in df_part_hist.columns:
             df_part_hist["participacion"] = df_part_hist["participacion"].apply(lambda v: round_val(v, 4))
+            # Participación no confiable se exporta vacía, nunca 0
+            if "reliable" in df_part_hist.columns:
+                unrel_mask = ~df_part_hist["reliable"].fillna(False).astype(bool)
+                df_part_hist.loc[unrel_mask, "participacion"] = None
+
+        desired_order = [
+            "id", "level", "cve_ent", "name", "year", "election",
+            "lista_nominal", "votos_totales", "nv", "ns",
+            "ns_rate", "reliable", "low_confidence", "participacion",
+        ]
+        present_cols = [c for c in desired_order if c in df_part_hist.columns]
+        extra_cols = [c for c in df_part_hist.columns if c not in desired_order]
+        df_part_hist = df_part_hist[present_cols + extra_cols]
     else:
         df_part_hist = pd.DataFrame(columns=[
-            "id", "level", "cve_ent", "year", "election",
-            "lista_nominal", "votos_totales", "nv", "ns", "participacion",
+            "id", "level", "cve_ent", "name", "year", "election",
+            "lista_nominal", "votos_totales", "nv", "ns",
+            "ns_rate", "reliable", "low_confidence", "participacion",
         ])
 
     # D. Perfil edad sexo
     if not profile_df.empty:
         df_perfil = profile_df.copy()
         if "cvegeo" in df_perfil.columns:
-            df_perfil["cvegeo"] = df_perfil["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(v, 5))
-        if "participacion" in df_perfil.columns:
-            df_perfil["participacion"] = df_perfil["participacion"].apply(lambda v: round_val(v, 4))
+            df_perfil["cvegeo"] = df_perfil["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(str(v), 5))
+
+        group_cols = [c for c in ["cvegeo", "cve_ent", "year", "election", "age_group", "sexo"] if c in df_perfil.columns]
+        sum_cols = [c for c in ["ln", "sv", "nv", "ns"] if c in df_perfil.columns]
+        if group_cols and sum_cols:
+            df_perfil = df_perfil.groupby(group_cols, as_index=False)[sum_cols].sum()
+
         for col_n in ["ln", "sv", "nv", "ns"]:
             if col_n in df_perfil.columns:
                 df_perfil[col_n] = pd.to_numeric(df_perfil[col_n], errors="coerce").fillna(0).astype(int)
+
+        if "sv" in df_perfil.columns and "nv" in df_perfil.columns:
+            denom = df_perfil["sv"] + df_perfil["nv"]
+            df_perfil["participacion"] = np.where(denom > 0, df_perfil["sv"] / denom, np.nan)
+            df_perfil["participacion"] = df_perfil["participacion"].apply(lambda v: round_val(v, 4))
+        elif "participacion" in df_perfil.columns:
+            df_perfil["participacion"] = df_perfil["participacion"].apply(lambda v: round_val(v, 4))
     else:
         df_perfil = pd.DataFrame(columns=[
             "cvegeo", "cve_ent", "year", "election", "age_group", "sexo",
@@ -628,10 +840,27 @@ def export_deliverables(
     if metrics_data:
         # General parameters
         metrics_records.append({"seccion": "parametro", "campo": "target_year", "valor": metrics_data.get("target_year"), "detalle": "Año federal objetivo"})
+        if "selected_model" in metrics_data:
+            metrics_records.append({"seccion": "modelo_seleccionado", "campo": "selected_model", "valor": metrics_data.get("selected_model"), "detalle": "Modelo ganador del torneo de candidatos"})
+        if "national_level_assumption" in metrics_data:
+            metrics_records.append({"seccion": "parametro", "campo": "national_level_assumption", "valor": metrics_data.get("national_level_assumption"), "detalle": "Nivel nacional supuesto para intermedia 2027 (%)"})
+        if "offset_pp" in metrics_data:
+            metrics_records.append({"seccion": "parametro", "campo": "offset_pp", "valor": metrics_data.get("offset_pp"), "detalle": "Offset histórico de intermedias respecto a la media nacional (pp)"})
         metrics_records.append({"seccion": "parametro", "campo": "lambda", "valor": metrics_data.get("lambda"), "detalle": "Penalización ridge seleccionada"})
         metrics_records.append({"seccion": "parametro", "campo": "sigma_pp", "valor": metrics_data.get("sigma_pp"), "detalle": "Desviación estándar de residuales (pp)"})
         metrics_records.append({"seccion": "parametro", "campo": "structural_r2", "valor": metrics_data.get("structural_r2"), "detalle": "R² en validación cruzada 5-fold"})
         metrics_records.append({"seccion": "parametro", "campo": "generated_at", "valor": metrics_data.get("generated_at"), "detalle": "Fecha de calibración"})
+
+        # Candidates tournament
+        for c in metrics_data.get("candidates", []):
+            c_name = c.get("name")
+            mae_avg = c.get("mean_mae_pp", c.get("mae_avg", c.get("mae_pp")))
+            metrics_records.append({
+                "seccion": "candidato",
+                "campo": c_name,
+                "valor": mae_avg,
+                "detalle": f"MAE promedio={mae_avg} pp | Spearman={c.get('spearman_avg', c.get('spearman'))} | top20_hit={c.get('top20_hit_avg', c.get('top20_hit'))}",
+            })
 
         # Backtests
         for b in metrics_data.get("backtests", []):
@@ -658,49 +887,8 @@ def export_deliverables(
 
     df_metricas = pd.DataFrame(metrics_records) if metrics_records else pd.DataFrame(columns=["seccion", "campo", "valor", "detalle"])
 
-    # G. LEEME & Diccionario
-    df_leeme = create_leeme_dataframe()
-    df_diccionario = create_dictionary_dataframe()
-
-    # 5. Write Excel Workbook (openpyxl)
-    xlsx_path = o_dir / "base_datos_atalaya.xlsx"
-    print(f"Escribiendo '{xlsx_path}'...")
-    wb = openpyxl.Workbook()
-    # Remove default sheet
-    wb.remove(wb.active)
-
-    sheets_to_write = [
-        ("LEEME", df_leeme),
-        ("diccionario", df_diccionario),
-        ("municipios", df_municipios),
-        ("estados", df_estados),
-        ("participacion_historica", df_part_hist),
-        ("perfil_edad_sexo", df_perfil),
-        ("drivers", df_drivers),
-        ("recomendaciones", reco_df),
-        ("metricas_modelo", df_metricas),
-    ]
-
-    for sheet_name, df_content in sheets_to_write:
-        ws = wb.create_sheet(title=sheet_name)
-        # Write headers
-        headers = list(df_content.columns)
-        ws.append(headers)
-        # Write rows
-        for r in df_content.itertuples(index=False, name=None):
-            ws.append(list(r))
-        format_excel_sheet(ws, df_content)
-
-    wb.save(xlsx_path)
-
-    # 6. Write CSV files in deliverables/csv/ (UTF-8 with BOM)
-    print(f"Exportando CSVs con BOM en '{csv_dir}'...")
-    for sheet_name, df_content in sheets_to_write:
-        csv_file = csv_dir / f"{sheet_name}.csv"
-        df_content.to_csv(csv_file, index=False, encoding="utf-8-sig")
-
-    # 7. Write semaforo_resumen.csv
-    print("Generando deliverables/semaforo_resumen.csv...")
+    # G. Semaforo ponderado
+    print("Calculando resumen ponderado de semáforo...")
     summary_rows = []
     scenarios_list = [
         ("base", df_municipios["category_base"] if "category_base" in df_municipios.columns else pd.Series()),
@@ -726,8 +914,49 @@ def export_deliverables(
                 "pct_lista_nominal": pct_ln,
             })
 
-    df_semaforo_resumen = pd.DataFrame(summary_rows)
-    df_semaforo_resumen.to_csv(o_dir / "semaforo_resumen.csv", index=False, encoding="utf-8-sig")
+    df_semaforo_ponderado = pd.DataFrame(summary_rows)
+
+    # H. LEEME & Diccionario
+    df_leeme = create_leeme_dataframe(metrics_data)
+    df_diccionario = create_dictionary_dataframe()
+
+    # 5. Write Excel Workbook (openpyxl)
+    xlsx_path = o_dir / "base_datos_atalaya.xlsx"
+    print(f"Escribiendo '{xlsx_path}'...")
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    sheets_to_write = [
+        ("LEEME", df_leeme),
+        ("diccionario", df_diccionario),
+        ("semaforo_ponderado", df_semaforo_ponderado),
+        ("municipios", df_municipios),
+        ("estados", df_estados),
+        ("participacion_historica", df_part_hist),
+        ("perfil_edad_sexo", df_perfil),
+        ("drivers", df_drivers),
+        ("recomendaciones", reco_df),
+        ("metricas_modelo", df_metricas),
+    ]
+
+    for sheet_name, df_content in sheets_to_write:
+        ws = wb.create_sheet(title=sheet_name)
+        headers = list(df_content.columns)
+        ws.append(headers)
+        for r in df_content.itertuples(index=False, name=None):
+            ws.append(list(r))
+        format_excel_sheet(ws, df_content)
+
+    wb.save(xlsx_path)
+
+    # 6. Write CSV files in deliverables/csv/ (UTF-8 with BOM)
+    print(f"Exportando CSVs con BOM en '{csv_dir}'...")
+    for sheet_name, df_content in sheets_to_write:
+        csv_file = csv_dir / f"{sheet_name}.csv"
+        df_content.to_csv(csv_file, index=False, encoding="utf-8-sig")
+
+    # 7. Write semaforo_resumen.csv (backward compatibility)
+    df_semaforo_ponderado.to_csv(o_dir / "semaforo_resumen.csv", index=False, encoding="utf-8-sig")
 
     # 8. Print file sizes summary
     print("\n" + "=" * 60)
@@ -771,9 +1000,22 @@ def main() -> None:
         default=config.DATA_DIR.parent / "deliverables",
         help="Path to output deliverables directory",
     )
+    parser.add_argument(
+        "--min-profile-rows",
+        type=int,
+        default=50000,
+        help="Minimum required rows in ccpc_profile_mun to avoid exporting defective datasets",
+    )
     args = parser.parse_args()
 
-    sys.exit(export_deliverables(build_dir=args.build_dir, geo_dir=args.geo_dir, out_dir=args.out))
+    sys.exit(
+        export_deliverables(
+            build_dir=args.build_dir,
+            geo_dir=args.geo_dir,
+            out_dir=args.out,
+            min_profile_rows=args.min_profile_rows,
+        )
+    )
 
 
 if __name__ == "__main__":

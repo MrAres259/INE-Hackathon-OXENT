@@ -148,12 +148,18 @@ def _resolve_sources(keys: list[str], spec: QuerySpec | None = None, store: Any 
     if spec and spec.year:
         eff_year = spec.year
     else:
-        if store is not None:
+        if spec and (spec.election == "PJF" or spec.metric == "part_pj_2025"):
+            eff_year = 2025
+        elif store is not None:
             try:
-                st = store.stats()
-                years = st.get("years")
-                if years:
-                    eff_year = max(years)
+                part_df = store.participation(level="mun", election="DIP_FED")
+                if not part_df.empty and "year" in part_df.columns:
+                    eff_year = int(part_df["year"].max())
+                else:
+                    st = store.stats()
+                    years = [y for y in st.get("years", []) if y <= 2024]
+                    if years:
+                        eff_year = max(years)
             except Exception:
                 pass
         if not eff_year:
@@ -297,8 +303,28 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
                 nivel = "Estado" if u.get("level") == "state" else "Municipio"
                 estado = get_state_name(u.get("cve_ent"))
 
+                # Check CCPC metrics from ccpc_features
+                if spec.metric in (
+                    "pct_ln_18_34", "part_18_34", "gap_youth_pp", "gap_sexo_pp",
+                    "pct_ln_rural", "pct_ln_urbana", "ns_rate", "part_pj_2025"
+                ):
+                    eff_yr = spec.year or (2025 if spec.metric == "part_pj_2025" else 2024)
+                    ccpc_data = None
+                    if hasattr(store, "ccpc_features"):
+                        try:
+                            ccpc_data = store.ccpc_features(uid, year=spec.year)
+                        except Exception:
+                            pass
+                    if ccpc_data and spec.metric in ccpc_data and ccpc_data[spec.metric] is not None:
+                        val = ccpc_data[spec.metric]
+                        eff_yr = ccpc_data.get("year", eff_yr)
+                    elif u:
+                        val = u.get(spec.metric)
+                        if val is None or pd.isna(val):
+                            val = u.get(f"{spec.metric}_last")
+                    sources.append(f"part_dip_{eff_yr}")
                 # Check participation or wide columns
-                if not is_census and spec.year and spec.metric in ("participacion", "abstencion", "lista_nominal", "votos_totales"):
+                elif not is_census and spec.year and spec.metric in ("participacion", "abstencion", "lista_nominal", "votos_totales"):
                     wide_col = f"part_dip_{spec.year}" if spec.metric == "participacion" else (
                         f"abst_dip_{spec.year}" if spec.metric == "abstencion" else None
                     )
@@ -329,6 +355,15 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
                         )
                         if spec.year and spec.year != 2020:
                             facts.append("El dato censal corresponde a 2020.")
+                    elif spec.metric in (
+                        "pct_ln_18_34", "part_18_34", "gap_youth_pp", "gap_sexo_pp",
+                        "pct_ln_rural", "pct_ln_urbana", "ns_rate", "part_pj_2025"
+                    ):
+                        rows.append([zona, nivel, estado, val_str])
+                        eff_yr_val = spec.year or (2025 if spec.metric == "part_pj_2025" else 2024)
+                        facts.append(
+                            f"La {label.lower()} en {zona} ({estado}) en {eff_yr_val} fue de {val_str}."
+                        )
                     else:
                         rows.append([zona, nivel, estado, val_str])
                         yr_text = f" en {spec.year}" if spec.year else ""
@@ -348,6 +383,13 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
                 facts.append(f"El promedio de {label.lower()} para {zona} ({nivel.lower()}) en 2020 es de {val_str}.")
                 if spec.year and spec.year != 2020:
                     facts.append("El dato censal corresponde a 2020.")
+            elif spec.metric in (
+                "pct_ln_18_34", "part_18_34", "gap_youth_pp", "gap_sexo_pp",
+                "pct_ln_rural", "pct_ln_urbana", "ns_rate", "part_pj_2025"
+            ):
+                rows.append([zona, nivel, zona, val_str])
+                eff_yr_val = spec.year or (2025 if spec.metric == "part_pj_2025" else 2024)
+                facts.append(f"El promedio de {label.lower()} para {zona} ({nivel.lower()}) en {eff_yr_val} es de {val_str}.")
             else:
                 rows.append([zona, nivel, zona, val_str])
                 facts.append(f"El promedio de {label.lower()} para {zona} ({nivel.lower()}) es de {val_str}.")
@@ -390,7 +432,11 @@ def _execute_profile(spec: QuerySpec, store: Any, region_id: str | None = None) 
     if raw_profile:
         eff_year = spec.year
         if eff_year is None:
-            eff_year = max(int(r["year"]) for r in raw_profile if "year" in r and r["year"] is not None)
+            if spec.election == "PJF" or spec.metric == "part_pj_2025":
+                eff_year = 2025
+            else:
+                dip_years = [int(r["year"]) for r in raw_profile if "year" in r and r["year"] is not None and int(r["year"]) <= 2024]
+                eff_year = max(dip_years) if dip_years else 2024
         filtered = [r for r in raw_profile if int(r.get("year", 0)) == int(eff_year)]
         filtered.sort(key=lambda r: (str(r.get("age_group", "")), str(r.get("sexo", ""))))
 
@@ -418,7 +464,7 @@ def _execute_profile(spec: QuerySpec, store: Any, region_id: str | None = None) 
                 f"Menor participación: {bot_g.get('age_group')} ({bot_g.get('sexo')}) con {format_value('participacion', bot_g.get('participacion'))}."
             )
     else:
-        eff_year = spec.year or 2024
+        eff_year = spec.year or (2025 if (spec and (spec.election == "PJF" or spec.metric == "part_pj_2025")) else 2024)
         facts.append("No se encontró información de perfil demográfico (CCPC) para la zona solicitada.")
 
     source = f"INE · Conteos Censales de Participación Ciudadana {eff_year}"
@@ -912,5 +958,33 @@ def execute(
     hint = followup_hint or getattr(spec, "followup_hint", None)
     if hint and hint not in res.facts:
         res.facts.append(hint)
+
+    # 2027 forecast assumption fact
+    if not res.empty:
+        is_forecast_2027 = (
+            spec.year == 2027
+            or spec.metric in ("risk_score", "pred_abstention", "pred_participation", "pred_low", "pred_high")
+            or spec.intent in ("scenario", "explain_unit")
+            or (spec.scenario is not None)
+        )
+        if is_forecast_2027:
+            m_info = {}
+            if hasattr(store, "metrics"):
+                try:
+                    m_info = store.metrics() or {}
+                except Exception:
+                    pass
+            val = m_info.get("national_level_assumption")
+            if val is not None:
+                n_val = float(val) * 100 if float(val) <= 1.0 else float(val)
+                x_str = f"{n_val:.2f}".rstrip("0").rstrip(".")
+            else:
+                x_str = "51.84"
+            fact_2027 = (
+                f"El nivel nacional de 2027 es un supuesto (último nivel de elección intermedia: {x_str} %); "
+                f"el semáforo compara zonas entre sí."
+            )
+            if fact_2027 not in res.facts:
+                res.facts.append(fact_2027)
 
     return res

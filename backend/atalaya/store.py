@@ -98,6 +98,9 @@ class DataStore(Protocol):
     def profile(self, unit_id: str, year: int | None = None) -> list[dict]:
         ...
 
+    def ccpc_features(self, unit_id: str, year: int | None = None) -> dict | None:
+        ...
+
     def metrics(self) -> dict:
         ...
 
@@ -205,7 +208,10 @@ class PandasStore:
             for ent, group in mun_df.groupby("cve_ent"):
                 ent_str = zpad(ent, 2)
                 st_name = name_map.get(ent_str, f"Estado {ent_str}")
-                w = pd.to_numeric(group.get("pob_18ymas"), errors="coerce").fillna(0)
+                if "pob_18ymas" in group.columns:
+                    w = pd.to_numeric(group["pob_18ymas"], errors="coerce").fillna(0)
+                else:
+                    w = pd.Series(0.0, index=group.index)
 
                 row: dict[str, Any] = {
                     "id": ent_str,
@@ -292,14 +298,16 @@ class PandasStore:
                     df["part_pj_2025"] = df["id"].astype(str).map(pj_map).astype(float)
 
         # Check ccpc_features.parquet for part_18_34_last, gap_youth_pp_last, etc. if missing
-        ccpc_last_cols = ["part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last"]
+        ccpc_last_cols = ["pct_ln_18_34_last", "part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last"]
         missing_last = [c for c in ccpc_last_cols if c not in df.columns]
         if missing_last:
             feat_df = self._get_ccpc_features()
             if not feat_df.empty and "year" in feat_df.columns:
-                latest_yr = int(feat_df["year"].max())
+                dip_years = sorted([int(y) for y in feat_df["year"].dropna().unique() if int(y) <= 2024])
+                latest_yr = dip_years[-1] if dip_years else 2024
                 latest_feat = feat_df[feat_df["year"] == latest_yr]
                 c_map = {
+                    "pct_ln_18_34_last": "pct_ln_18_34",
                     "part_18_34_last": "part_18_34",
                     "gap_youth_pp_last": "gap_youth_pp",
                     "gap_sexo_pp_last": "gap_sexo_pp",
@@ -342,8 +350,12 @@ class PandasStore:
         # Check if state rows already present
         if not (df["level"] == "state").any():
             mun_part = df[df["level"] == "mun"]
+            sum_cols = ["lista_nominal", "votos_totales"]
+            for extra in ["nv", "ns"]:
+                if extra in mun_part.columns:
+                    sum_cols.append(extra)
             grouped = mun_part.groupby(["cve_ent", "year", "election"], as_index=False)[
-                ["lista_nominal", "votos_totales"]
+                sum_cols
             ].sum()
 
             grouped["unit_id"] = grouped["cve_ent"]
@@ -356,7 +368,27 @@ class PandasStore:
                     np.clip(grouped["votos_totales"] / grouped["lista_nominal"], 0.0, 1.0),
                     np.nan,
                 )
+            if "ns" in grouped.columns:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    grouped["ns_rate"] = np.where(cond_ln, grouped["ns"] / grouped["lista_nominal"], np.nan)
+                    grouped["reliable"] = (grouped["ns_rate"] <= 0.5) & (grouped["participacion"] >= 0.02)
+                    grouped["low_confidence"] = (grouped["ns_rate"] > 0.3) & (grouped["ns_rate"] <= 0.5)
             df = pd.concat([df, grouped], ignore_index=True)
+
+        if "ns_rate" not in df.columns and "ns" in df.columns and "lista_nominal" in df.columns:
+            cond_ln = (df["lista_nominal"] > 0).fillna(False).to_numpy(dtype=bool)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                df["ns_rate"] = np.where(cond_ln, df["ns"] / df["lista_nominal"], np.nan)
+        if "reliable" not in df.columns and "participacion" in df.columns:
+            if "ns_rate" in df.columns:
+                df["reliable"] = (df["ns_rate"].fillna(0) <= 0.5) & (df["participacion"].fillna(0) >= 0.02) & df["participacion"].notna()
+            else:
+                df["reliable"] = (df["participacion"].fillna(0) >= 0.02) & df["participacion"].notna()
+        if "low_confidence" not in df.columns:
+            if "ns_rate" in df.columns:
+                df["low_confidence"] = (df["ns_rate"].fillna(0) > 0.3) & (df["ns_rate"].fillna(0) <= 0.5)
+            else:
+                df["low_confidence"] = False
 
         if "abstencion" not in df.columns:
             df["abstencion"] = 1.0 - df["participacion"]
@@ -567,22 +599,34 @@ class PandasStore:
             if not feat_df.empty and "year" in feat_df.columns:
                 target_yr = filters.get("year")
                 if target_yr is None:
-                    target_yr = int(feat_df["year"].max())
+                    if "part_pj_2025" in ccpc_requested:
+                        target_yr = 2025
+                    else:
+                        dip_years = sorted([int(y) for y in feat_df["year"].dropna().unique() if int(y) <= 2024])
+                        target_yr = dip_years[-1] if dip_years else 2024
                 yr_feat = feat_df[feat_df["year"] == int(target_yr)]
                 if not yr_feat.empty:
                     if level == "mun":
-                        join_col = "cvegeo" if "cvegeo" in yr_feat.columns else "id"
+                        mun_feat = yr_feat[yr_feat["level"] == "mun"] if "level" in yr_feat.columns else yr_feat
+                        join_col = "cvegeo" if "cvegeo" in mun_feat.columns else "id"
                         for m in ccpc_requested:
-                            if m in yr_feat.columns and (m not in df.columns or df[m].isna().all()):
-                                v_map = dict(zip(yr_feat[join_col].astype(str), yr_feat[m]))
+                            if m in mun_feat.columns and (m not in df.columns or df[m].isna().all()):
+                                v_map = dict(zip(mun_feat[join_col].astype(str), mun_feat[m]))
                                 id_col = "cvegeo" if "cvegeo" in df.columns else ("unit_id" if "unit_id" in df.columns else "id")
                                 df[m] = df[id_col].astype(str).map(v_map).astype(float)
                     elif level == "state":
+                        st_feat = yr_feat[yr_feat["level"] == "state"] if "level" in yr_feat.columns else pd.DataFrame()
                         for m in ccpc_requested:
-                            if m in yr_feat.columns and (m not in df.columns or df[m].isna().all()):
+                            if not st_feat.empty and m in st_feat.columns:
+                                join_col = "cvegeo" if "cvegeo" in st_feat.columns else ("cve_ent" if "cve_ent" in st_feat.columns else "id")
+                                st_map = dict(zip(st_feat[join_col].astype(str).apply(lambda v: zpad(v, 2)), st_feat[m]))
+                                id_col = "cve_ent" if "cve_ent" in df.columns else ("cvegeo" if "cvegeo" in df.columns else "id")
+                                df[m] = df[id_col].astype(str).apply(lambda v: zpad(v, 2)).map(st_map).astype(float)
+                            elif m in yr_feat.columns and (m not in df.columns or df[m].isna().all()):
                                 if "cve_ent" in yr_feat.columns:
                                     st_map = yr_feat.groupby("cve_ent")[m].mean().to_dict()
-                                    df[m] = df["cve_ent"].astype(str).map(st_map).astype(float)
+                                    id_col = "cve_ent" if "cve_ent" in df.columns else ("cvegeo" if "cvegeo" in df.columns else "id")
+                                    df[m] = df[id_col].astype(str).apply(lambda v: zpad(v, 2)).map(st_map).astype(float)
             # Fallback to _last columns if present
             for m in ccpc_requested:
                 if (m not in df.columns or df[m].isna().all()) and f"{m}_last" in df.columns:
@@ -905,6 +949,58 @@ class PandasStore:
                 })
             return results
 
+    def ccpc_features(self, unit_id: str, year: int | None = None) -> dict | None:
+        df = self._get_ccpc_features()
+        if df.empty:
+            return None
+        uid_str = str(unit_id).strip()
+        is_state = len(uid_str) == 2 or uid_str in [f"{i:02d}" for i in range(1, 33)]
+
+        if year is not None:
+            target_yr = int(year)
+        else:
+            dip_years = sorted([int(y) for y in df["year"].dropna().unique() if int(y) <= 2024])
+            target_yr = dip_years[-1] if dip_years else 2024
+
+        yr_feat = df[df["year"] == target_yr]
+        if yr_feat.empty:
+            return None
+
+        if is_state:
+            ent = zpad(uid_str, 2)
+            if "level" in yr_feat.columns:
+                st_match = yr_feat[(yr_feat["level"] == "state") & ((yr_feat["cvegeo"] == ent) | (yr_feat["cve_ent"] == ent))]
+                if not st_match.empty:
+                    row = st_match.iloc[0].to_dict()
+                    return {k: (None if pd.isna(v) else v) for k, v in row.items()}
+            elif "cvegeo" in yr_feat.columns:
+                st_match = yr_feat[yr_feat["cvegeo"] == ent]
+                if not st_match.empty:
+                    row = st_match.iloc[0].to_dict()
+                    return {k: (None if pd.isna(v) else v) for k, v in row.items()}
+
+            if "cve_ent" in yr_feat.columns:
+                mun_sub = yr_feat[yr_feat["cve_ent"] == ent]
+                if not mun_sub.empty:
+                    mean_dict: dict[str, Any] = {"cve_ent": ent, "cvegeo": ent, "level": "state", "year": target_yr}
+                    for col in ["pct_ln_18_34", "part_18_34", "gap_youth_pp", "gap_sexo_pp", "pct_ln_rural", "pct_ln_urbana", "ns_rate", "part_pj_2025"]:
+                        if col in mun_sub.columns:
+                            val = pd.to_numeric(mun_sub[col], errors="coerce").mean()
+                            mean_dict[col] = float(val) if pd.notna(val) else None
+                    return mean_dict
+            return None
+        else:
+            id_col = "cvegeo" if "cvegeo" in yr_feat.columns else ("id" if "id" in yr_feat.columns else None)
+            if not id_col:
+                return None
+            matches = yr_feat[yr_feat[id_col].astype(str) == uid_str]
+            if matches.empty and "cvegeo" in yr_feat.columns and id_col != "cvegeo":
+                matches = yr_feat[yr_feat["cvegeo"].astype(str) == uid_str]
+            if matches.empty:
+                return None
+            row = matches.iloc[0].to_dict()
+            return {k: (None if pd.isna(v) else v) for k, v in row.items()}
+
 
 class EsStore:
     """DataStore backed by Elasticsearch (Huawei CSS)."""
@@ -1152,6 +1248,65 @@ class EsStore:
         except Exception as e:
             logger.warning("Error fetching profile from ES: %s", e)
             return []
+
+    def ccpc_features(self, unit_id: str, year: int | None = None) -> dict | None:
+        feat_path = BUILD_DIR / "ccpc_features.parquet"
+        if feat_path.is_file():
+            try:
+                df = pd.read_parquet(feat_path)
+                if "cve_ent" in df.columns:
+                    df["cve_ent"] = df["cve_ent"].apply(lambda v: zpad(v, 2))
+                uid_str = str(unit_id).strip()
+                is_state = len(uid_str) == 2 or uid_str in [f"{i:02d}" for i in range(1, 33)]
+
+                if year is not None:
+                    target_yr = int(year)
+                else:
+                    dip_years = sorted([int(y) for y in df["year"].dropna().unique() if int(y) <= 2024])
+                    target_yr = dip_years[-1] if dip_years else 2024
+
+                yr_feat = df[df["year"] == target_yr]
+                if yr_feat.empty:
+                    return None
+
+                if is_state:
+                    ent = zpad(uid_str, 2)
+                    if "level" in yr_feat.columns:
+                        st_match = yr_feat[(yr_feat["level"] == "state") & ((yr_feat["cvegeo"] == ent) | (yr_feat["cve_ent"] == ent))]
+                        if not st_match.empty:
+                            row = st_match.iloc[0].to_dict()
+                            return {k: (None if pd.isna(v) else v) for k, v in row.items()}
+                    elif "cvegeo" in yr_feat.columns:
+                        st_match = yr_feat[yr_feat["cvegeo"] == ent]
+                        if not st_match.empty:
+                            row = st_match.iloc[0].to_dict()
+                            return {k: (None if pd.isna(v) else v) for k, v in row.items()}
+
+                    if "cve_ent" in yr_feat.columns:
+                        mun_sub = yr_feat[yr_feat["cve_ent"] == ent]
+                        if not mun_sub.empty:
+                            mean_dict: dict[str, Any] = {"cve_ent": ent, "cvegeo": ent, "level": "state", "year": target_yr}
+                            for col in ["pct_ln_18_34", "part_18_34", "gap_youth_pp", "gap_sexo_pp", "pct_ln_rural", "pct_ln_urbana", "ns_rate", "part_pj_2025"]:
+                                if col in mun_sub.columns:
+                                    val = pd.to_numeric(mun_sub[col], errors="coerce").mean()
+                                    mean_dict[col] = float(val) if pd.notna(val) else None
+                            return mean_dict
+                    return None
+                else:
+                    id_col = "cvegeo" if "cvegeo" in yr_feat.columns else ("id" if "id" in yr_feat.columns else None)
+                    if not id_col:
+                        return None
+                    matches = yr_feat[yr_feat[id_col].astype(str) == uid_str]
+                    if matches.empty and "cvegeo" in yr_feat.columns and id_col != "cvegeo":
+                        matches = yr_feat[yr_feat["cvegeo"].astype(str) == uid_str]
+                    if matches.empty:
+                        return None
+                    row = matches.iloc[0].to_dict()
+                    return {k: (None if pd.isna(v) else v) for k, v in row.items()}
+            except Exception as e:
+                logger.warning("Error reading ccpc_features in EsStore: %s", e)
+                return None
+        return None
 
     def top(
         self,

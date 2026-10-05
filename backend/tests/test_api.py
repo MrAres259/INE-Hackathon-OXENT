@@ -397,3 +397,167 @@ def test_empty_build_starts_cleanly(tmp_path: Path, monkeypatch):
         resp_region = tc.get("/api/region/07")
         assert resp_region.status_code == 404
 
+
+def test_region_series_nan_reliable_false(tmp_path: Path, monkeypatch):
+    """Verify that series points with NaN participation serialize to null and reliable=False."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    units_data = {
+        "id": ["20248"],
+        "level": ["mun"],
+        "cve_ent": ["20"],
+        "cve_mun": ["248"],
+        "cvegeo": ["20248"],
+        "name": ["San Mateo del Mar"],
+        "lista_nominal": [10000],
+        "category": ["sin_dato"],
+    }
+    pd.DataFrame(units_data).to_parquet(build_dir / "units.parquet", index=False)
+
+    part_data = {
+        "cvegeo": ["20248", "20248", "20248"],
+        "cve_ent": ["20", "20", "20"],
+        "year": [2012, 2018, 2021],
+        "election": ["DIP_FED", "DIP_FED", "DIP_FED"],
+        "lista_nominal": [8000, 9000, 10000],
+        "votos_totales": [0, 5400, 0],
+        "participacion": [np.nan, 0.60, np.nan],
+        "ns_rate": [0.95, 0.05, 0.98],
+        "reliable": [False, True, False],
+        "low_confidence": [False, False, False],
+    }
+    pd.DataFrame(part_data).to_parquet(build_dir / "participation.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    monkeypatch.setattr("atalaya.api.routes.get_store", lambda: store)
+    monkeypatch.setattr("atalaya.api.deps.get_store", lambda: store)
+    reload_all()
+
+    with TestClient(app) as tc:
+        resp = tc.get("/api/region/20248")
+        assert resp.status_code == 200
+        data = resp.json()
+        series = data["series"]
+        assert len(series) == 3
+
+        pt_2012 = next(s for s in series if s["year"] == 2012)
+        assert pt_2012["participation"] is None
+        assert pt_2012["reliable"] is False
+        assert pt_2012["ns_rate"] == 0.95
+
+        pt_2018 = next(s for s in series if s["year"] == 2018)
+        assert pt_2018["participation"] == 0.60
+        assert pt_2018["reliable"] is True
+
+        pt_2021 = next(s for s in series if s["year"] == 2021)
+        assert pt_2021["participation"] is None
+        assert pt_2021["reliable"] is False
+
+
+def test_region_ccpc_features_and_profile_pj(tmp_path: Path, monkeypatch):
+    """Verify RegionDetail.ccpc takes metrics from ccpc_features, and profile_pj is present."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    units_data = {
+        "id": ["14001"],
+        "level": ["mun"],
+        "cve_ent": ["14"],
+        "cve_mun": ["001"],
+        "cvegeo": ["14001"],
+        "name": ["Guadalajara"],
+        "lista_nominal": [1000000],
+        "category": ["verde"],
+    }
+    pd.DataFrame(units_data).to_parquet(build_dir / "units.parquet", index=False)
+
+    ccpc_feat = {
+        "cvegeo": ["14001"],
+        "cve_ent": ["14"],
+        "year": [2024],
+        "pct_ln_18_34": [0.285],
+        "part_18_34": [0.495],
+        "gap_youth_pp": [-6.2],
+        "gap_sexo_pp": [2.1],
+        "pct_ln_rural": [0.0],
+    }
+    pd.DataFrame(ccpc_feat).to_parquet(build_dir / "ccpc_features.parquet", index=False)
+
+    prof_data = [
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2009, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 1000, "sv": 400, "nv": 600, "ns": 0},
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 1200, "sv": 600, "nv": 600, "ns": 0},
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2025, "election": "PJF", "age_group": "18-24", "sexo": "H", "ln": 1200, "sv": 150, "nv": 1050, "ns": 0},
+    ]
+    pd.DataFrame(prof_data).to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    monkeypatch.setattr("atalaya.api.routes.get_store", lambda: store)
+    monkeypatch.setattr("atalaya.api.deps.get_store", lambda: store)
+    reload_all()
+
+    with TestClient(app) as tc:
+        resp = tc.get("/api/region/14001")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ccpc"]["pct_ln_18_34"] == 0.285
+        assert data["ccpc"]["part_18_34"] == 0.495
+
+        prof_years = {r["year"] for r in data["profile"]}
+        assert 2025 not in prof_years
+        assert 2009 in prof_years
+        assert 2024 in prof_years
+
+        assert "profile_pj" in data
+        assert len(data["profile_pj"]) == 1
+        assert data["profile_pj"][0]["year"] == 2025
+
+
+def test_metrics_passthrough_f3a_keys(tmp_path: Path, monkeypatch):
+    """Verify /api/metrics passes through all new F3-A keys present in metrics.json."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    metrics_f3a = {
+        "target_year": 2027,
+        "train_years": [2009, 2012, 2015, 2018, 2021, 2024],
+        "candidates": [
+            {"name": "persist_l1", "mae_pp": 4.8},
+            {"name": "mean_l1_l2", "mae_pp": 4.3},
+        ],
+        "selected_model": "mean_l1_l2",
+        "national_level_assumption": 51.84,
+        "offset_pp": -1.35,
+        "reliability_rule": "ns_rate <= 0.5 and participacion >= 0.02",
+        "excluded_unreliable": 71,
+        "drivers_low_confidence": False,
+        "backtests": [],
+        "coefficients": [],
+        "generated_at": "2026-10-05T12:00:00Z",
+    }
+    (build_dir / "metrics.json").write_text(json.dumps(metrics_f3a), encoding="utf-8")
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    monkeypatch.setattr("atalaya.api.routes.get_store", lambda: store)
+    monkeypatch.setattr("atalaya.api.deps.get_store", lambda: store)
+    reload_all()
+
+    with TestClient(app) as tc:
+        resp = tc.get("/api/metrics")
+        assert resp.status_code == 200
+        m = resp.json()
+        assert m["selected_model"] == "mean_l1_l2"
+        assert m["national_level_assumption"] == 51.84
+        assert m["offset_pp"] == -1.35
+        assert m["reliability_rule"] == "ns_rate <= 0.5 and participacion >= 0.02"
+        assert m["excluded_unreliable"] == 71
+        assert m["drivers_low_confidence"] is False
+        assert len(m["candidates"]) == 2
+
+

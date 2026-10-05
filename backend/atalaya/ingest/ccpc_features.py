@@ -1,7 +1,7 @@
-"""Compute CCPC municipal features for ATALAYA models and dashboards.
+"""Compute CCPC municipal and state features for ATALAYA models and dashboards.
 
 Produces data/build/ccpc_features.parquet from ccpc_profile_mun.parquet
-and ccpc_seccion_mun.parquet (§10.3).
+and ccpc_seccion_mun.parquet (§10.3, §11.1).
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ CCPC_FEATURES_COLUMNS = [
     "cvegeo",
     "cve_ent",
     "year",
+    "election",
+    "level",
     "pct_ln_18_34",
     "part_18_34",
     "part_total",
@@ -40,6 +42,8 @@ def create_empty_ccpc_features_df() -> pd.DataFrame:
         "cvegeo": pd.Series(dtype=object),
         "cve_ent": pd.Series(dtype=object),
         "year": pd.Series(dtype=np.int64),
+        "election": pd.Series(dtype=object),
+        "level": pd.Series(dtype=object),
         "pct_ln_18_34": pd.Series(dtype=np.float64),
         "part_18_34": pd.Series(dtype=np.float64),
         "part_total": pd.Series(dtype=np.float64),
@@ -51,75 +55,27 @@ def create_empty_ccpc_features_df() -> pd.DataFrame:
     })
 
 
-def compute_profile_indicators(df_prof: pd.DataFrame) -> pd.DataFrame:
-    """Compute municipal indicators derived from ccpc_profile_mun (§10.3)."""
-    if df_prof.empty:
-        return pd.DataFrame(
-            columns=[
-                "cvegeo",
-                "year",
-                "cve_ent",
-                "pct_ln_18_34",
-                "part_18_34",
-                "part_total",
-                "gap_youth_pp",
-                "gap_sexo_pp",
-                "ns_rate",
-            ]
-        )
-
-    # Filter to DIP_FED elections only
-    if "election" in df_prof.columns:
-        df = df_prof[df_prof["election"] == "DIP_FED"].copy()
-    else:
-        df = df_prof.copy()
-
-    if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "cvegeo",
-                "year",
-                "cve_ent",
-                "pct_ln_18_34",
-                "part_18_34",
-                "part_total",
-                "gap_youth_pp",
-                "gap_sexo_pp",
-                "ns_rate",
-            ]
-        )
-
-    # Ensure required columns
-    df["cvegeo"] = df["cvegeo"].astype(str).str.zfill(5)
-    df["year"] = df["year"].astype(int)
-    for col in ["ln", "sv", "nv", "ns"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        else:
-            df[col] = 0
-
-    # Overall totals by (cvegeo, year)
+def _calc_profile_metrics(sub_df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+    """Compute rate indicators from aggregated profile counts for given group columns."""
     totals = (
-        df.groupby(["cvegeo", "year"], as_index=False, observed=False)[["ln", "sv", "nv", "ns"]]
+        sub_df.groupby(group_cols, as_index=False, observed=False)[["ln", "sv", "nv", "ns"]]
         .sum()
         .rename(columns={"ln": "ln_tot", "sv": "sv_tot", "nv": "nv_tot", "ns": "ns_tot"})
     )
-
-    # part_total and ns_rate
     denom_tot = totals["sv_tot"] + totals["nv_tot"]
     totals["part_total"] = np.where(denom_tot > 0, totals["sv_tot"] / denom_tot, np.nan)
     totals["ns_rate"] = np.where(totals["ln_tot"] > 0, totals["ns_tot"] / totals["ln_tot"], np.nan)
 
     # Youth (18-24 and 25-34)
-    youth_mask = df["age_group"].isin(["18-24", "25-34"])
+    youth_mask = sub_df["age_group"].isin(["18-24", "25-34"])
     youth = (
-        df[youth_mask]
-        .groupby(["cvegeo", "year"], as_index=False, observed=False)[["ln", "sv", "nv"]]
+        sub_df[youth_mask]
+        .groupby(group_cols, as_index=False, observed=False)[["ln", "sv", "nv"]]
         .sum()
         .rename(columns={"ln": "ln_youth", "sv": "sv_youth", "nv": "nv_youth"})
     )
 
-    merged = pd.merge(totals, youth, on=["cvegeo", "year"], how="left")
+    merged = pd.merge(totals, youth, on=group_cols, how="left")
     merged["ln_youth"] = merged["ln_youth"].fillna(0)
     merged["sv_youth"] = merged["sv_youth"].fillna(0)
     merged["nv_youth"] = merged["nv_youth"].fillna(0)
@@ -143,8 +99,8 @@ def compute_profile_indicators(df_prof: pd.DataFrame) -> pd.DataFrame:
 
     # Sex breakdown (H and M, ignoring X)
     fem = (
-        df[df["sexo"] == "M"]
-        .groupby(["cvegeo", "year"], as_index=False, observed=False)[["sv", "nv"]]
+        sub_df[sub_df["sexo"] == "M"]
+        .groupby(group_cols, as_index=False, observed=False)[["sv", "nv"]]
         .sum()
         .rename(columns={"sv": "sv_m", "nv": "nv_m"})
     )
@@ -152,30 +108,33 @@ def compute_profile_indicators(df_prof: pd.DataFrame) -> pd.DataFrame:
     fem["part_m"] = np.where(denom_m > 0, fem["sv_m"] / denom_m, np.nan)
 
     masc = (
-        df[df["sexo"] == "H"]
-        .groupby(["cvegeo", "year"], as_index=False, observed=False)[["sv", "nv"]]
+        sub_df[sub_df["sexo"] == "H"]
+        .groupby(group_cols, as_index=False, observed=False)[["sv", "nv"]]
         .sum()
         .rename(columns={"sv": "sv_h", "nv": "nv_h"})
     )
     denom_h = masc["sv_h"] + masc["nv_h"]
     masc["part_h"] = np.where(denom_h > 0, masc["sv_h"] / denom_h, np.nan)
 
-    merged = pd.merge(merged, fem[["cvegeo", "year", "part_m"]], on=["cvegeo", "year"], how="left")
-    merged = pd.merge(merged, masc[["cvegeo", "year", "part_h"]], on=["cvegeo", "year"], how="left")
+    merged = pd.merge(merged, fem[group_cols + ["part_m"]], on=group_cols, how="left")
+    merged = pd.merge(merged, masc[group_cols + ["part_h"]], on=group_cols, how="left")
 
     merged["gap_sexo_pp"] = np.where(
         merged["part_m"].notna() & merged["part_h"].notna(),
         (merged["part_m"] - merged["part_h"]) * 100.0,
         np.nan,
     )
+    return merged
 
-    # Add cve_ent from cvegeo
-    merged["cve_ent"] = merged["cvegeo"].apply(lambda g: zpad(g[:2], 2))
 
+def compute_profile_indicators(df_prof: pd.DataFrame) -> pd.DataFrame:
+    """Compute municipal and state indicators derived from ccpc_profile_mun (§10.3)."""
     keep_cols = [
         "cvegeo",
         "cve_ent",
         "year",
+        "election",
+        "level",
         "pct_ln_18_34",
         "part_18_34",
         "part_total",
@@ -183,75 +142,120 @@ def compute_profile_indicators(df_prof: pd.DataFrame) -> pd.DataFrame:
         "gap_sexo_pp",
         "ns_rate",
     ]
-    return merged[keep_cols]
+
+    if df_prof.empty:
+        return pd.DataFrame(columns=keep_cols)
+
+    df = df_prof.copy()
+    if "election" in df.columns:
+        df = df[df["election"].isin(["DIP_FED", "PJF"])].copy()
+    else:
+        df["election"] = np.where(df["year"] == 2025, "PJF", "DIP_FED")
+
+    if df.empty:
+        return pd.DataFrame(columns=keep_cols)
+
+    df["cvegeo"] = df["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(v, 5))
+    if "cve_ent" not in df.columns:
+        df["cve_ent"] = df["cvegeo"].str[:2]
+    df["cve_ent"] = df["cve_ent"].astype(str).str.strip().apply(lambda v: zpad(v, 2))
+    df["year"] = df["year"].astype(int)
+    df["election"] = df["election"].astype(str).str.strip()
+
+    for col in ["ln", "sv", "nv", "ns"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        else:
+            df[col] = 0
+
+    # 1. Municipal metrics
+    mun_metrics = _calc_profile_metrics(df, ["cvegeo", "cve_ent", "year", "election"])
+    mun_metrics["level"] = "mun"
+
+    # 2. State metrics (from sums)
+    state_metrics = _calc_profile_metrics(df, ["cve_ent", "year", "election"])
+    state_metrics["cvegeo"] = state_metrics["cve_ent"]
+    state_metrics["level"] = "state"
+
+    res = pd.concat([mun_metrics, state_metrics], ignore_index=True)
+    return res[keep_cols]
 
 
 def compute_seccion_indicators(df_sec: pd.DataFrame) -> pd.DataFrame:
-    """Compute municipal indicators derived from ccpc_seccion_mun (§10.3)."""
-    if df_sec.empty:
-        return pd.DataFrame(columns=["cvegeo", "year", "pct_ln_rural", "pct_ln_urbana"])
+    """Compute municipal and state indicators derived from ccpc_seccion_mun (§10.3)."""
+    keep_cols = ["cvegeo", "cve_ent", "year", "election", "level", "pct_ln_rural", "pct_ln_urbana"]
 
-    if "election" in df_sec.columns:
-        df = df_sec[df_sec["election"] == "DIP_FED"].copy()
+    if df_sec.empty:
+        return pd.DataFrame(columns=keep_cols)
+
+    df = df_sec.copy()
+    if "election" in df.columns:
+        df = df[df["election"].isin(["DIP_FED", "PJF"])].copy()
     else:
-        df = df_sec.copy()
+        df["election"] = np.where(df["year"] == 2025, "PJF", "DIP_FED")
 
     if df.empty:
-        return pd.DataFrame(columns=["cvegeo", "year", "pct_ln_rural", "pct_ln_urbana"])
+        return pd.DataFrame(columns=keep_cols)
 
-    df["cvegeo"] = df["cvegeo"].astype(str).str.zfill(5)
+    df["cvegeo"] = df["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(v, 5))
+    if "cve_ent" not in df.columns:
+        df["cve_ent"] = df["cvegeo"].str[:2]
+    df["cve_ent"] = df["cve_ent"].astype(str).str.strip().apply(lambda v: zpad(v, 2))
     df["year"] = df["year"].astype(int)
+    df["election"] = df["election"].astype(str).str.strip()
     df["ln"] = pd.to_numeric(df["ln"], errors="coerce").fillna(0)
     df["tiposec_clean"] = df["tiposec"].astype(str).str.strip().str.upper()
 
-    # Total LN from sections
-    totals = (
-        df.groupby(["cvegeo", "year"], as_index=False, observed=False)["ln"]
-        .sum()
-        .rename(columns={"ln": "sec_ln_tot"})
-    )
+    def _calc_sec_metrics(sub_df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+        totals = (
+            sub_df.groupby(group_cols, as_index=False, observed=False)["ln"]
+            .sum()
+            .rename(columns={"ln": "sec_ln_tot"})
+        )
+        rural = (
+            sub_df[sub_df["tiposec_clean"] == "R"]
+            .groupby(group_cols, as_index=False, observed=False)["ln"]
+            .sum()
+            .rename(columns={"ln": "rural_ln"})
+        )
+        urbana = (
+            sub_df[sub_df["tiposec_clean"] == "U"]
+            .groupby(group_cols, as_index=False, observed=False)["ln"]
+            .sum()
+            .rename(columns={"ln": "urbana_ln"})
+        )
+        merged = pd.merge(totals, rural, on=group_cols, how="left")
+        merged = pd.merge(merged, urbana, on=group_cols, how="left")
+        merged["rural_ln"] = merged["rural_ln"].fillna(0)
+        merged["urbana_ln"] = merged["urbana_ln"].fillna(0)
+        merged["pct_ln_rural"] = np.where(
+            merged["sec_ln_tot"] > 0,
+            merged["rural_ln"] / merged["sec_ln_tot"],
+            np.nan,
+        )
+        merged["pct_ln_urbana"] = np.where(
+            merged["sec_ln_tot"] > 0,
+            merged["urbana_ln"] / merged["sec_ln_tot"],
+            np.nan,
+        )
+        return merged
 
-    # Rural LN (TIPOSEC == 'R')
-    rural = (
-        df[df["tiposec_clean"] == "R"]
-        .groupby(["cvegeo", "year"], as_index=False, observed=False)["ln"]
-        .sum()
-        .rename(columns={"ln": "rural_ln"})
-    )
+    mun_sec = _calc_sec_metrics(df, ["cvegeo", "cve_ent", "year", "election"])
+    mun_sec["level"] = "mun"
 
-    # Urban LN (TIPOSEC == 'U')
-    urbana = (
-        df[df["tiposec_clean"] == "U"]
-        .groupby(["cvegeo", "year"], as_index=False, observed=False)["ln"]
-        .sum()
-        .rename(columns={"ln": "urbana_ln"})
-    )
+    state_sec = _calc_sec_metrics(df, ["cve_ent", "year", "election"])
+    state_sec["cvegeo"] = state_sec["cve_ent"]
+    state_sec["level"] = "state"
 
-    merged = pd.merge(totals, rural, on=["cvegeo", "year"], how="left")
-    merged = pd.merge(merged, urbana, on=["cvegeo", "year"], how="left")
-
-    merged["rural_ln"] = merged["rural_ln"].fillna(0)
-    merged["urbana_ln"] = merged["urbana_ln"].fillna(0)
-
-    merged["pct_ln_rural"] = np.where(
-        merged["sec_ln_tot"] > 0,
-        merged["rural_ln"] / merged["sec_ln_tot"],
-        np.nan,
-    )
-    merged["pct_ln_urbana"] = np.where(
-        merged["sec_ln_tot"] > 0,
-        merged["urbana_ln"] / merged["sec_ln_tot"],
-        np.nan,
-    )
-
-    return merged[["cvegeo", "year", "pct_ln_rural", "pct_ln_urbana"]]
+    res = pd.concat([mun_sec, state_sec], ignore_index=True)
+    return res[keep_cols]
 
 
 def compute_ccpc_features(
     df_prof_mun: pd.DataFrame | None,
     df_sec_mun: pd.DataFrame | None,
 ) -> pd.DataFrame:
-    """Compute CCPC municipal features by combining profile and section indicators."""
+    """Compute CCPC municipal and state features by combining profile and section indicators."""
     has_prof = df_prof_mun is not None and not df_prof_mun.empty
     has_sec = df_sec_mun is not None and not df_sec_mun.empty
 
@@ -264,9 +268,10 @@ def compute_ccpc_features(
     if prof_ind.empty and sec_ind.empty:
         return create_empty_ccpc_features_df()
 
+    merge_keys = ["cvegeo", "cve_ent", "year", "election", "level"]
+
     if prof_ind.empty:
         res = sec_ind.copy()
-        res["cve_ent"] = res["cvegeo"].apply(lambda g: zpad(g[:2], 2))
         for c in ["pct_ln_18_34", "part_18_34", "part_total", "gap_youth_pp", "gap_sexo_pp", "ns_rate"]:
             res[c] = np.nan
     elif sec_ind.empty:
@@ -274,18 +279,15 @@ def compute_ccpc_features(
         res["pct_ln_rural"] = np.nan
         res["pct_ln_urbana"] = np.nan
     else:
-        res = pd.merge(prof_ind, sec_ind, on=["cvegeo", "year"], how="outer")
-        if "cve_ent" not in res.columns or res["cve_ent"].isna().any():
-            res["cve_ent"] = res["cvegeo"].apply(lambda g: zpad(g[:2], 2))
+        res = pd.merge(prof_ind, sec_ind, on=merge_keys, how="outer")
 
-    # Ensure all columns exist and are ordered
     for col in CCPC_FEATURES_COLUMNS:
         if col not in res.columns:
             res[col] = np.nan
 
     res = (
         res[CCPC_FEATURES_COLUMNS]
-        .sort_values(by=["year", "cvegeo"])
+        .sort_values(by=["year", "election", "level", "cvegeo"])
         .reset_index(drop=True)
     )
     return res
@@ -295,7 +297,7 @@ def ingest_ccpc_features(
     build_dir: Path | str | None = None,
     out_path: Path | str | None = None,
 ) -> pd.DataFrame:
-    """Execute computation of CCPC municipal features and save ccpc_features.parquet."""
+    """Execute computation of CCPC features and save ccpc_features.parquet."""
     build_dir = Path(build_dir) if build_dir else BUILD_DIR
     out_path = Path(out_path) if out_path else (build_dir / "ccpc_features.parquet")
 
@@ -330,7 +332,7 @@ def ingest_ccpc_features(
 
 def main() -> int:
     """CLI entrypoint for CCPC features generation."""
-    parser = argparse.ArgumentParser(description="Cálculo de features municipales CCPC")
+    parser = argparse.ArgumentParser(description="Cálculo de features CCPC municipales y estatales")
     parser.add_argument("--build-dir", type=str, default=None, help="Ruta a data/build")
 
     args = parser.parse_args()

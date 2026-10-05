@@ -41,6 +41,9 @@ PARTICIPATION_COLUMNS = [
     "participacion",
     "nv",
     "ns",
+    "ns_rate",
+    "reliable",
+    "low_confidence",
 ]
 UNMATCHED_COLUMNS = ["cve_ent", "mun_norm", "mun_name", "best_candidate", "best_score", "years"]
 
@@ -166,13 +169,22 @@ def process_crosswalk(
     out_seccion_mun: Path | str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Build crosswalk mapping INE municipalities to canonical INEGI cvegeo and attach to CCPC tables."""
-    ine_file = Path(participation_ine_path) if participation_ine_path else BUILD_DIR / "participation_ine.parquet"
-    feat_file = Path(features_path) if features_path else BUILD_DIR / "features.parquet"
-    cw_out = Path(out_crosswalk) if out_crosswalk else BUILD_DIR / "crosswalk.parquet"
-    part_out = Path(out_participation) if out_participation else BUILD_DIR / "participation.parquet"
-    unm_out = Path(out_unmatched) if out_unmatched else BUILD_DIR / "crosswalk_unmatched.csv"
-    profile_out = Path(out_profile_mun) if out_profile_mun else BUILD_DIR / "ccpc_profile_mun.parquet"
-    seccion_out = Path(out_seccion_mun) if out_seccion_mun else BUILD_DIR / "ccpc_seccion_mun.parquet"
+    if out_participation is not None:
+        base_dir = Path(out_participation).parent
+    elif out_crosswalk is not None:
+        base_dir = Path(out_crosswalk).parent
+    else:
+        base_dir = BUILD_DIR
+
+    ine_file = Path(participation_ine_path) if participation_ine_path else base_dir / "participation_ine.parquet"
+    feat_file = Path(features_path) if features_path else base_dir / "features.parquet"
+    cw_out = Path(out_crosswalk) if out_crosswalk else base_dir / "crosswalk.parquet"
+    part_out = Path(out_participation) if out_participation else base_dir / "participation.parquet"
+    unm_out = Path(out_unmatched) if out_unmatched else base_dir / "crosswalk_unmatched.csv"
+    profile_out = Path(out_profile_mun) if out_profile_mun else base_dir / "ccpc_profile_mun.parquet"
+    seccion_out = Path(out_seccion_mun) if out_seccion_mun else base_dir / "ccpc_seccion_mun.parquet"
+    profile_file = Path(ccpc_profile_path) if ccpc_profile_path else base_dir / "ccpc_profile.parquet"
+    seccion_file = Path(ccpc_seccion_path) if ccpc_seccion_path else base_dir / "ccpc_seccion.parquet"
 
     empty_cw = pd.DataFrame(columns=CROSSWALK_COLUMNS)
     empty_part = pd.DataFrame(columns=PARTICIPATION_COLUMNS)
@@ -181,7 +193,7 @@ def process_crosswalk(
     # Determine destination catalog:
     # 1. geo_catalog_path if explicitly provided and exists
     # 2. features_path if explicitly provided (and not default BUILD_DIR/features.parquet) and exists
-    # 3. BUILD_DIR / geo_mun_catalog.csv (MG 2024 catalog from W3-D)
+    # 3. base_dir / geo_mun_catalog.csv or BUILD_DIR / geo_mun_catalog.csv (MG 2024 catalog from W3-D)
     # 4. feat_file (BUILD_DIR / features.parquet)
     cat_df = None
     if geo_catalog_path and Path(geo_catalog_path).is_file():
@@ -190,12 +202,18 @@ def process_crosswalk(
     elif features_path and Path(features_path) != BUILD_DIR / "features.parquet" and Path(features_path).is_file():
         logger.info("Using destination catalog from explicit features_path: %s", features_path)
         cat_df = read_parquet(Path(features_path))
+    elif (base_dir / "geo_mun_catalog.csv").is_file():
+        logger.info("Using destination catalog from %s", base_dir / "geo_mun_catalog.csv")
+        cat_df = pd.read_csv(base_dir / "geo_mun_catalog.csv", dtype=str)
     elif (BUILD_DIR / "geo_mun_catalog.csv").is_file():
         logger.info("Using destination catalog from BUILD_DIR/geo_mun_catalog.csv")
         cat_df = pd.read_csv(BUILD_DIR / "geo_mun_catalog.csv", dtype=str)
     elif feat_file.is_file():
-        logger.info("Using destination catalog from BUILD_DIR/features.parquet")
+        logger.info("Using destination catalog from feat_file: %s", feat_file)
         cat_df = read_parquet(feat_file)
+    elif (BUILD_DIR / "features.parquet").is_file():
+        logger.info("Using destination catalog from BUILD_DIR/features.parquet")
+        cat_df = read_parquet(BUILD_DIR / "features.parquet")
 
     if not ine_file.is_file() or cat_df is None or cat_df.empty:
         logger.warning(
@@ -431,6 +449,22 @@ def process_crosswalk(
                 np.minimum(1.0, agg_df["votos_totales"] / agg_df["lista_nominal"]),
                 np.nan,
             )
+        agg_df["ns_rate"] = np.where(
+            agg_df["lista_nominal"] > 0,
+            agg_df["ns"] / agg_df["lista_nominal"],
+            np.nan,
+        )
+        agg_df["reliable"] = (
+            agg_df["ns_rate"].notna()
+            & (agg_df["ns_rate"] <= 0.5)
+            & agg_df["participacion"].notna()
+            & (agg_df["participacion"] >= 0.02)
+        )
+        agg_df["low_confidence"] = (
+            agg_df["ns_rate"].notna()
+            & (agg_df["ns_rate"] > 0.3)
+            & (agg_df["ns_rate"] <= 0.5)
+        )
         part_df = agg_df[PARTICIPATION_COLUMNS].copy()
     else:
         part_df = pd.DataFrame(columns=PARTICIPATION_COLUMNS)
@@ -439,7 +473,6 @@ def process_crosswalk(
     logger.info("Saved canonical participation to %s (%d rows)", part_out, len(part_df))
 
     # Map ccpc_profile if available
-    profile_file = Path(ccpc_profile_path) if ccpc_profile_path else BUILD_DIR / "ccpc_profile.parquet"
     if profile_file.is_file():
         prof_df = read_parquet(profile_file)
         if not prof_df.empty:
@@ -458,7 +491,6 @@ def process_crosswalk(
                 logger.info("Saved ccpc_profile_mun to %s (%d rows)", profile_out, len(agg_prof))
 
     # Map ccpc_seccion if available
-    seccion_file = Path(ccpc_seccion_path) if ccpc_seccion_path else BUILD_DIR / "ccpc_seccion.parquet"
     if seccion_file.is_file():
         sec_df = read_parquet(seccion_file)
         if not sec_df.empty:

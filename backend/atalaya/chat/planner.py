@@ -190,8 +190,16 @@ def _plan_rules(
             y = int(y_str)
             if y == 2027:
                 target_future = True
-            elif y in (2009, 2012, 2015, 2018, 2021, 2024):
+            elif y in (2009, 2012, 2015, 2018, 2021, 2024, 2025):
                 explicit_year = y
+
+    is_judicial = bool(re.search(r"\bjudicial\b|\bpoder\s+judicial\b", text_lower))
+    if is_judicial or explicit_year == 2025:
+        election = "PJF"
+        if explicit_year is None:
+            explicit_year = 2025
+    else:
+        election = "DIP_FED"
 
     followup_hint: str | None = None
 
@@ -217,7 +225,7 @@ def _plan_rules(
                 metric=m1,
                 filters=flts,
                 year=explicit_year,
-                election="DIP_FED",
+                election=election,
                 order="desc",
                 limit=10,
                 unit_ids=u_ids,
@@ -494,6 +502,9 @@ def _plan_rules(
     elif intent in ("explain_unit", "trend") and not unit_ids and not filters:
         high_confidence = False
 
+    if election == "PJF" and metric in ("participacion", "pred_participation"):
+        metric = "part_pj_2025"
+
     spec = QuerySpec(
         intent=intent,  # type: ignore
         level=level,  # type: ignore
@@ -501,7 +512,7 @@ def _plan_rules(
         x_metric=x_metric,
         filters=filters,
         year=explicit_year,
-        election="DIP_FED",
+        election=election,
         order=order,  # type: ignore
         limit=limit,
         unit_ids=unit_ids,

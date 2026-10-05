@@ -385,3 +385,61 @@ def test_store_ccpc_features_resolution(tmp_path: Path):
     assert mun_units[mun_units["id"] == "07101"].iloc[0]["part_pj_2025"] == 0.22
 
 
+def test_store_ccpc_features_state_and_mun(tmp_path: Path):
+    """Verify store.ccpc_features and state-level resolution of CCPC metrics."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    states_df = pd.DataFrame([
+        {"cve_ent": "07", "name": "Chiapas", "iso": "MX-CHP", "aliases": "CHIS"},
+        {"cve_ent": "14", "name": "Jalisco", "iso": "MX-JAL", "aliases": "JAL"},
+    ])
+    states_df.to_csv(seed_dir / "states.csv", index=False)
+
+    units_df = pd.DataFrame([
+        {"id": "07101", "level": "mun", "cve_ent": "07", "cve_mun": "101", "cvegeo": "07101", "name": "Tuxtla", "pob_tot": 500000, "lista_nominal": 350000},
+        {"id": "07", "level": "state", "cve_ent": "07", "cve_mun": "", "cvegeo": "07", "name": "Chiapas", "pob_tot": 5000000, "lista_nominal": 3500000},
+        {"id": "14", "level": "state", "cve_ent": "14", "cve_mun": "", "cvegeo": "14", "name": "Jalisco", "pob_tot": 8000000, "lista_nominal": 6000000},
+    ])
+    units_df.to_parquet(build_dir / "units.parquet", index=False)
+
+    feat_df = pd.DataFrame([
+        {"cvegeo": "07101", "cve_ent": "07", "level": "mun", "year": 2024, "pct_ln_18_34": 0.30, "part_18_34": 0.45},
+        {"cvegeo": "07", "cve_ent": "07", "level": "state", "year": 2024, "pct_ln_18_34": 0.32, "part_18_34": 0.50},
+        {"cvegeo": "14", "cve_ent": "14", "level": "state", "year": 2024, "pct_ln_18_34": 0.28, "part_18_34": 0.55},
+        # Judicial election 2025
+        {"cvegeo": "07", "cve_ent": "07", "level": "state", "year": 2025, "pct_ln_18_34": 0.32, "part_18_34": 0.15},
+    ])
+    feat_df.to_parquet(build_dir / "ccpc_features.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+
+    # 1. Mun ccpc_features
+    mun_feat = store.ccpc_features("07101")
+    assert mun_feat is not None
+    assert mun_feat["pct_ln_18_34"] == 0.30
+    assert mun_feat["part_18_34"] == 0.45
+    assert mun_feat["year"] == 2024
+
+    # 2. State ccpc_features defaults to DIP_FED year (2024), NOT 2025
+    st_feat = store.ccpc_features("07")
+    assert st_feat is not None
+    assert st_feat["year"] == 2024
+    assert st_feat["part_18_34"] == 0.50
+
+    # 3. State top for CCPC metric
+    top_states = store.top("part_18_34", level="state")
+    assert len(top_states) == 2
+    assert top_states[0]["id"] == "14"
+    assert top_states[0]["value"] == 0.55
+    assert top_states[1]["id"] == "07"
+    assert top_states[1]["value"] == 0.50
+
+    # 4. State aggregate for CCPC metric
+    agg = store.aggregate("part_18_34", level="state", filters={"cve_ent": "07"})
+    assert len(agg) == 1
+    assert agg[0]["value"] == 0.50
+
+

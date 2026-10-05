@@ -490,3 +490,75 @@ def test_executor_help_and_catalog(mock_store):
     help_result = execute(QuerySpec(intent="help"))
     assert help_result.empty
     assert len(help_result.facts) >= 4
+
+
+def test_executor_default_year_dip_fed_for_profile_and_rankings(mock_store):
+    """Verify profile without year targets latest DIP_FED year (2024), and PJF query targets 2025."""
+    build_dir = mock_store.build_dir
+    prof_data = [
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 1000, "sv": 550, "nv": 450, "ns": 10},
+        {"cvegeo": "14001", "cve_ent": "14", "year": 2025, "election": "PJF", "age_group": "18-24", "sexo": "H", "ln": 1000, "sv": 200, "nv": 800, "ns": 10},
+    ]
+    pd.DataFrame(prof_data).to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+    mock_store.reload()
+
+    # Default profile query (DIP_FED) without year -> should select 2024, not 2025
+    spec_dip = QuerySpec(intent="profile", level="mun", unit_ids=["14001"], year=None, election="DIP_FED")
+    res_dip = execute(spec_dip)
+    assert not res_dip.empty
+    assert any("2024" in f for f in res_dip.facts)
+    assert "2024" in res_dip.source
+    assert not any("2025" in f for f in res_dip.facts)
+
+    # Judicial profile query -> should select 2025
+    spec_pj = QuerySpec(intent="profile", level="mun", unit_ids=["14001"], year=None, election="PJF")
+    res_pj = execute(spec_pj)
+    assert not res_pj.empty
+    assert any("2025" in f for f in res_pj.facts)
+    assert "2025" in res_pj.source
+
+    # Ranking query without year -> source should cite 2024
+    spec_rank = QuerySpec(intent="ranking", level="mun", metric="participacion")
+    res_rank = execute(spec_rank)
+    assert "2024" in res_rank.source
+
+
+def test_executor_lookup_state_ccpc_part_18_34(mock_store):
+    """Verify lookup of part_18_34 for a state returns state-level data from ccpc_features."""
+    build_dir = mock_store.build_dir
+    ccpc_feat = [
+        {"cvegeo": "07", "cve_ent": "07", "level": "state", "year": 2024, "part_18_34": 0.525, "pct_ln_18_34": 0.28},
+        {"cvegeo": "07101", "cve_ent": "07", "level": "mun", "year": 2024, "part_18_34": 0.490, "pct_ln_18_34": 0.26},
+    ]
+    pd.DataFrame(ccpc_feat).to_parquet(build_dir / "ccpc_features.parquet", index=False)
+    mock_store.reload()
+
+    spec = QuerySpec(intent="lookup", level="state", metric="part_18_34", unit_ids=["07"], year=2024)
+    res = execute(spec)
+    assert not res.empty
+    assert len(res.rows) == 1
+    assert "52.5%" in res.rows[0][3]
+    assert any("Chiapas" in f and "52.5%" in f for f in res.facts)
+
+
+def test_executor_2027_national_level_assumption_fact(mock_store):
+    """Verify that queries discussing the 2027 forecast include the national level assumption fact."""
+    build_dir = mock_store.build_dir
+    import json
+    metrics_data = {"national_level_assumption": 51.84}
+    (build_dir / "metrics.json").write_text(json.dumps(metrics_data), encoding="utf-8")
+    mock_store.reload()
+
+    # Ranking on risk_score (2027)
+    spec_rank = QuerySpec(intent="ranking", metric="risk_score", level="mun")
+    res_rank = execute(spec_rank)
+    assert not res_rank.empty
+    expected_fact = "El nivel nacional de 2027 es un supuesto (último nivel de elección intermedia: 51.84 %); el semáforo compara zonas entre sí."
+    assert any(expected_fact in f for f in res_rank.facts)
+
+    # Lookup on pred_abstention (2027)
+    spec_lookup = QuerySpec(intent="lookup", metric="pred_abstention", unit_ids=["07101"])
+    res_lookup = execute(spec_lookup)
+    assert not res_lookup.empty
+    assert any(expected_fact in f for f in res_lookup.facts)
+

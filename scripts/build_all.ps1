@@ -1,4 +1,4 @@
-﻿# ATALAYA - Full Knowledge & Data Build Pipeline
+# ATALAYA - Full Knowledge & Data Build Pipeline
 # Compatible with PowerShell 5.1 (no &&, ??, or ternary operators)
 
 [CmdletBinding()]
@@ -37,7 +37,7 @@ function Run-Step {
     )
 
     Write-Host "`n----------------------------------------------------------" -ForegroundColor Yellow
-    Write-Host " [$StepNumber/11] $StepTitle" -ForegroundColor Yellow
+    Write-Host " [$StepNumber/12] $StepTitle" -ForegroundColor Yellow
     Write-Host "----------------------------------------------------------" -ForegroundColor Yellow
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -168,6 +168,17 @@ try {
             }
         } else {
             Write-Host "-Load flag not specified. Skipping cluster ingestion." -ForegroundColor Gray
+            $global:LASTEXITCODE = 0
+        }
+    }
+
+    # Step 12: Build Output Validation Summary
+    Run-Step -StepNumber "12" -StepTitle "Validation Summary of Build Artifacts" -Action {
+        $validateScript = Join-Path $backendDir "scripts\validate_build.py"
+        if (Test-Path $validateScript) {
+            python $validateScript
+        } else {
+            Write-Host "backend/scripts/validate_build.py does not exist. Skipped." -ForegroundColor Yellow
             $global:LASTEXITCODE = 0
         }
     }

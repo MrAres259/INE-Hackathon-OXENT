@@ -1,4 +1,4 @@
-"""Build pipeline for ATALAYA abstention risk model."""
+"""Build pipeline for ATALAYA abstention risk model with relative deviations and candidate selection."""
 
 from __future__ import annotations
 
@@ -15,9 +15,14 @@ from atalaya import config
 from atalaya.ingest.common import read_parquet, write_parquet, to_num, zpad
 from atalaya.model.panel import (
     load_inputs,
-    load_ccpc_features,
+    load_concurrencia,
+    get_gov_concurrence_set,
+    is_gubernatorial,
+    compute_reliable,
     participation_matrix,
     lista_nominal_matrix,
+    deviation_matrix,
+    intermediate_offset,
     unit_trend,
     training_rows,
     is_presidential,
@@ -31,12 +36,13 @@ from atalaya.model.forecast import (
     predict,
     contributions,
     contributions_structural,
-    backtest,
-    select_lambda,
+    backtest_candidates,
     BASE_FEATURES,
     CCPC_FEATURES,
     FEATURES,
     PREDICTORS,
+    RIDGE_RELATIVE_PREDICTORS,
+    CANDIDATE_NAMES,
     StructuralModel,
 )
 
@@ -84,6 +90,9 @@ UNITS_COLUMNS = [
     "gap_sexo_pp_last",
     "pct_ln_rural_last",
     "imputed_census",
+    "pred_dev_pp",
+    "fallback_model",
+    "last_reliable_year",
 ]
 
 DRIVERS_COLUMNS = [
@@ -127,8 +136,12 @@ def load_seed_maps(seed_dir: Path) -> tuple[dict[str, str], dict[str, str]]:
     # Standard overrides / labels
     label_map["coverage_ln"] = "Cobertura de lista nominal"
     label_map["log_pob_18ymas"] = "Tamaño de la población adulta"
-    label_map["lag1"] = "Participación t-3"
-    label_map["lag2"] = "Participación t-6 (mismo tipo)"
+    label_map["lag1"] = "Desviación participación t-3"
+    label_map["lag2"] = "Desviación participación t-6"
+    label_map["gov_T"] = "Concurrencia gubernatura t"
+    label_map["gov_lag1"] = "Concurrencia gubernatura t-3"
+    label_map["gov_lag2"] = "Concurrencia gubernatura t-6"
+    label_map["gov_mean"] = "Frecuencia de concurrencia de gubernatura"
     label_map["pres"] = "Ciclo presidencial"
 
     ccpc_defaults = {
@@ -151,6 +164,7 @@ def build_fallback_artifacts(
     build_dir: Path,
     seed_dir: Path,
     target_year: int,
+    national_level: float = 51.84,
 ) -> int:
     """Produce base artifacts when data is insufficient for training."""
     print("Aviso: Datos insuficientes de participación DIP_FED (< 3 años). Generando artefactos base sin predicción.")
@@ -170,6 +184,7 @@ def build_fallback_artifacts(
             row_dict["name"] = str(r.get("nom_mun", f"Municipio {cvegeo}"))
             row_dict["category"] = "sin_dato"
             row_dict["imputed_census"] = False
+            row_dict["fallback_model"] = None
             for col in [
                 "nom_ent", "nom_mun", "pob_tot", "pob_18ymas", "pct_18_24",
                 "pct_65ymas", "graproes", "pct_hli", "pct_sin_servsalud",
@@ -195,6 +210,7 @@ def build_fallback_artifacts(
             st_dict["name"] = states_map.get(ent, f"Estado {ent}")
             st_dict["category"] = "sin_dato"
             st_dict["imputed_census"] = False
+            st_dict["fallback_model"] = None
             st_dict["pob_tot"] = pob_tot
             st_dict["pob_18ymas"] = pob_18
             state_rows.append(st_dict)
@@ -217,6 +233,13 @@ def build_fallback_artifacts(
             {"name": "participation", "file": "participation.parquet", "rows": len(part)},
             {"name": "features", "file": "features.parquet", "rows": len(feats)},
         ],
+        "candidates": [],
+        "selected_model": "persist_l1",
+        "national_level_assumption": round(national_level, 2),
+        "offset_pp": 0.0,
+        "reliability_rule": "reliable = (ns_rate <= 0.5) and (participacion >= 0.02)",
+        "excluded_unreliable": {},
+        "drivers_low_confidence": True,
     }
 
     model_data = {
@@ -230,6 +253,9 @@ def build_fallback_artifacts(
         "sigma_pp": 0.0,
         "train_years": [],
         "target_year": target_year,
+        "selected_model": "persist_l1",
+        "national_level_assumption": round(national_level, 2),
+        "offset_pp": 0.0,
         "structural": {
             "features": list(FEATURES),
             "means": {},
@@ -253,8 +279,9 @@ def build_model(
     build_dir: Path | str | None = None,
     seed_dir: Path | str | None = None,
     target_year: int | None = None,
+    national_level: float | None = None,
 ) -> int:
-    """Run model training, scenario baseline predictions, and artifact exports."""
+    """Run relative model training, scenario baseline predictions, and artifact exports."""
     b_dir = Path(build_dir) if build_dir is not None else config.BUILD_DIR
     s_dir = Path(seed_dir) if seed_dir is not None else config.SEED_DIR
     t_year = int(target_year) if target_year is not None else config.get_settings().target_year
@@ -264,17 +291,58 @@ def build_model(
 
     part, feats, ccpc_feats = load_inputs(b_dir, include_ccpc=True)
 
+    # Concurrencia gubernatura
+    gov_set = get_gov_concurrence_set(s_dir)
+
+    # Assess reliability of participation data
+    part = part.copy()
+    part["reliable"] = compute_reliable(part)
+
     dip_part = part[part["election"] == "DIP_FED"] if ("election" in part.columns) else pd.DataFrame()
     distinct_years: list[int] = []
+    excluded_unreliable: dict[str, int] = {}
     if not dip_part.empty and "year" in dip_part.columns:
-        distinct_years = sorted(pd.to_numeric(dip_part["year"], errors="coerce").dropna().astype(int).unique().tolist())
+        dip_part_clean = dip_part.copy()
+        dip_part_clean["year_num"] = pd.to_numeric(dip_part_clean["year"], errors="coerce")
+        for yr, grp in dip_part_clean.dropna(subset=["year_num"]).groupby("year_num"):
+            yr_int = int(yr)
+            distinct_years.append(yr_int)
+            excluded_unreliable[str(yr_int)] = int((~grp["reliable"]).sum())
+        distinct_years = sorted(list(set(distinct_years)))
 
     if len(distinct_years) < 3 or feats.empty:
-        return build_fallback_artifacts(part, feats, b_dir, s_dir, t_year)
+        return build_fallback_artifacts(
+            part,
+            feats,
+            b_dir,
+            s_dir,
+            t_year,
+            national_level=national_level if national_level is not None else 51.84,
+        )
 
-    # 1. Pivot matrices
-    Y = participation_matrix(part, election="DIP_FED", min_year=2009, value_col="participacion")
+    # 1. Pivot matrices (reliable only for participation)
+    Y_rel = participation_matrix(part, election="DIP_FED", min_year=2009, value_col="participacion", reliable_only=True)
     L = lista_nominal_matrix(part, election="DIP_FED", min_year=2009)
+
+    # Calculate relative deviations and unweighted means per year
+    dev_matrix, unweighted_means = deviation_matrix(Y_rel)
+
+    # Turnout offset between municipal unweighted mean and LN-weighted national turnout
+    offset_pp = intermediate_offset(Y_rel, L, intermediate_years=(2009, 2015, 2021))
+
+    # National level assumption (default = weighted turnout of last reliable intermediate election, 2021 = 51.84%)
+    if national_level is not None:
+        nat_assumption = float(national_level)
+    else:
+        inter_candidates = [y for y in [2021, 2015, 2009] if y in Y_rel.columns]
+        last_inter_yr = inter_candidates[0] if inter_candidates else None
+        nat_assumption = 51.84
+        if last_inter_yr is not None and not dip_part.empty:
+            inter_rows = dip_part[(dip_part["year"] == last_inter_yr) & (dip_part["reliable"])]
+            vt_sum = to_num(inter_rows["votos_totales"]).sum()
+            ln_sum = to_num(inter_rows["lista_nominal"]).sum()
+            if ln_sum > 0:
+                nat_assumption = float(vt_sum / ln_sum * 100.0)
 
     # 2. Enrich features with log_pob_18ymas and coverage_ln, and handle new_since_2020 imputation
     feats = feats.copy()
@@ -316,7 +384,7 @@ def build_model(
 
     feats_idx = feats.set_index("cvegeo")
 
-    # Latest nominal list per municipality from CCPC/L
+    # Latest nominal list per municipality
     latest_ln = pd.Series(dtype=float)
     if not L.empty:
         if 2024 in L.columns:
@@ -332,7 +400,7 @@ def build_model(
     feats["log_pob_18ymas"] = feats["cvegeo"].map(log_pob_18)
     feats_idx = feats.set_index("cvegeo")
 
-    # Check CCPC features availability
+    # CCPC features availability
     has_ccpc = (
         ccpc_feats is not None
         and not ccpc_feats.empty
@@ -352,25 +420,31 @@ def build_model(
             ccpc_last_indexed = ccpc_copy[ccpc_copy["year"] == last_ccpc_yr].drop_duplicates(subset=["cvegeo"]).set_index("cvegeo")
 
     active_features = list(BASE_FEATURES) + available_ccpc
-    active_predictors = ["lag1", "lag2", "pres"] + active_features
 
-    # 3. Model selection & backtest
-    lam = select_lambda(Y, feats, ccpc_feats=ccpc_feats, L=L)
-    backtests = backtest(Y, feats, lam, ccpc_feats=ccpc_feats, L=L)
+    # 3. Candidate evaluation across backtest folds
+    candidates, selected_model, backtests, lam = backtest_candidates(
+        dev_matrix,
+        feats,
+        ccpc_feats=ccpc_feats,
+        L=L,
+        seed_dir=s_dir,
+    )
 
-    # Train final model with all available targets
-    train_targets = [t for t in Y.columns if (t - 3 in Y.columns) and (t - 6 in Y.columns)]
-    train_df = training_rows(Y, feats, train_targets, ccpc_feats=ccpc_feats, L=L)
-    if len(train_df) < 5:
-        return build_fallback_artifacts(part, feats, b_dir, s_dir, t_year)
+    # Train final Ridge model with all available training targets <= 2024
+    train_targets = [t for t in dev_matrix.columns if (t - 3 in dev_matrix.columns) and (t - 6 in dev_matrix.columns)]
+    train_df = training_rows(dev_matrix, feats, train_targets, ccpc_feats=ccpc_feats, L=L, gov_set=gov_set)
 
-    pred_cols = [c for c in active_predictors if c in train_df.columns]
-    final_model = fit_ridge(train_df[pred_cols], train_df["y"], lam)
-    final_model.train_years = sorted(list(train_targets))
-    final_model.target_year = t_year
+    final_ridge: Any = None
+    pred_cols: list[str] = []
+    if len(train_df) >= 5:
+        pred_cols = [c for c in RIDGE_RELATIVE_PREDICTORS if c in train_df.columns]
+        if len(pred_cols) >= 3:
+            final_ridge = fit_ridge(train_df[pred_cols], train_df["y"], lam, is_deviation=True)
+            final_ridge.train_years = sorted(list(train_targets))
+            final_ridge.target_year = t_year
 
-    # Fit structural model explaining intermediate DIP_FED turnout
-    target_structural = intermediate_turnout(Y)
+    # Fit structural model explaining average intermediate deviations
+    target_structural = intermediate_turnout(dev_matrix, intermediate_years=(2009, 2015, 2021))
     feats_structural = feats_idx.copy()
     if has_ccpc and available_ccpc:
         ccpc_inter = intermediate_ccpc_features(ccpc_feats, feature_cols=available_ccpc)
@@ -379,49 +453,66 @@ def build_model(
                 if c in ccpc_inter.columns:
                     feats_structural[c] = ccpc_inter[c].reindex(feats_structural.index)
 
+    # Add gov_mean for intermediate years (2009, 2015, 2021)
+    gov_means = []
+    for m in feats_structural.index:
+        ent = feats_structural.loc[m, "cve_ent"] if "cve_ent" in feats_structural.columns else str(m)[:2]
+        gm = np.mean([is_gubernatorial(y, ent, gov_set=gov_set) for y in (2009, 2015, 2021)])
+        gov_means.append(float(gm))
+    feats_structural["gov_mean"] = gov_means
+    structural_features = active_features + ["gov_mean"]
+
     structural_model = fit_structural(
         feats_structural,
         target_structural,
         folds_by=feats_structural.get("cve_ent"),
-        features=active_features,
+        features=structural_features,
     )
+    drivers_low_conf = bool(structural_model.cv_r2 < 0.05)
 
-    # Sigma pp estimation
+    # Sigma pp estimation: std of residuals of selected model on fold 2024 (or latest fold)
+    sigma_pp = 5.0
     if backtests:
-        last_test_year = backtests[-1]["test_year"]
-        test_df = training_rows(Y, feats, [last_test_year], ccpc_feats=ccpc_feats, L=L)
-        test_diff = predict(final_model, test_df[pred_cols]) - (test_df["y"].values.astype(float) * 100.0)
-        sigma_pp = float(np.std(test_diff, ddof=1)) if len(test_df) > 1 else 5.0
-    else:
-        train_diff = predict(final_model, train_df[pred_cols]) - (train_df["y"].values.astype(float) * 100.0)
-        sigma_pp = float(np.std(train_diff, ddof=1)) if len(train_df) > 1 else 5.0
-    final_model.sigma_pp = sigma_pp
+        last_test_spec = backtests[-1]
+        last_test_yr = last_test_spec["test_year"]
+        test_df = training_rows(dev_matrix, feats, [last_test_yr], ccpc_feats=ccpc_feats, L=L, gov_set=gov_set)
+        if len(test_df) >= 2:
+            y_tr = test_df["y"].values.astype(float)
+            l1_val = test_df["lag1"].values.astype(float)
+            l2_val = test_df["lag2"].values.astype(float)
+            if selected_model == "persist_l1":
+                yp = l1_val
+            elif selected_model == "persist_l2":
+                yp = l2_val
+            elif selected_model == "mean_l1_l2":
+                yp = (l1_val + l2_val) / 2.0
+            elif selected_model == "ridge" and final_ridge is not None and all(c in test_df.columns for c in pred_cols):
+                yp = predict(final_ridge, test_df[pred_cols], clip_range=None)
+            else:
+                yp = (l1_val + l2_val) / 2.0
+            sigma_pp = float(np.std(yp - y_tr, ddof=1))
+
+    sigma_pp = max(0.5, round(sigma_pp, 2))
+    if final_ridge is not None:
+        final_ridge.sigma_pp = sigma_pp
 
     # 4. Predictions for target_year (2027)
     mun_ids = feats_idx.index
-    target_pres = is_presidential(t_year)
     lag1_year = t_year - 3
     lag2_year = t_year - 6
 
-    lag1 = Y[lag1_year].reindex(mun_ids) if lag1_year in Y.columns else pd.Series(np.nan, index=mun_ids)
-    lag2 = Y[lag2_year].reindex(mun_ids) if lag2_year in Y.columns else pd.Series(np.nan, index=mun_ids)
+    lag1 = dev_matrix[lag1_year].reindex(mun_ids) if lag1_year in dev_matrix.columns else pd.Series(np.nan, index=mun_ids)
+    lag2 = dev_matrix[lag2_year].reindex(mun_ids) if lag2_year in dev_matrix.columns else pd.Series(np.nan, index=mun_ids)
 
-    # Compute cycle difference delta_ciclo between presidential and intermediate elections
-    cycle_diffs: list[float] = []
-    for t in Y.columns:
-        if is_presidential(t) == 1 and (t - 3 in Y.columns):
-            diff = (Y[t] - Y[t - 3]).dropna().values
-            cycle_diffs.extend(diff.tolist())
-    delta_ciclo = float(np.nanmedian(cycle_diffs)) if cycle_diffs else 0.10
-
-    # CONTRACT-NOTE: When lag2 (t-6) is missing but lag1 (t-3) exists, impute lag2 = lag1 - delta_ciclo
-    lag2_imputed = lag1 - delta_ciclo
-    lag2_effective = lag2.fillna(lag2_imputed)
-
+    # Ridge inputs for target_year
     X_target = pd.DataFrame(index=mun_ids)
     X_target["lag1"] = lag1.values
-    X_target["lag2"] = lag2_effective.values
-    X_target["pres"] = float(target_pres)
+    X_target["lag2"] = lag2.values
+    mun_ents = [feats_idx.loc[m, "cve_ent"] if "cve_ent" in feats_idx.columns else str(m)[:2] for m in mun_ids]
+    X_target["gov_T"] = [float(is_gubernatorial(t_year, e, gov_set=gov_set)) for e in mun_ents]
+    X_target["gov_lag1"] = [float(is_gubernatorial(lag1_year, e, gov_set=gov_set)) for e in mun_ents]
+    X_target["gov_lag2"] = [float(is_gubernatorial(lag2_year, e, gov_set=gov_set)) for e in mun_ents]
+
     for col in BASE_FEATURES:
         X_target[col] = feats_idx[col].values if col in feats_idx.columns else np.nan
 
@@ -432,31 +523,112 @@ def build_model(
             else:
                 X_target[col] = np.nan
 
-    can_predict = ~lag1.isna()
-    pred_part_pp = predict(final_model, X_target)
-    pred_part = pred_part_pp / 100.0
-    pred_part = np.where(can_predict, pred_part, np.nan)
+    ridge_preds = (
+        predict(final_ridge, X_target[pred_cols], clip_range=None)
+        if (final_ridge is not None and pred_cols and all(c in X_target.columns for c in pred_cols))
+        else np.full(len(mun_ids), np.nan)
+    )
+
+    # Fallback model chain: mean_l1_l2 -> persist_l1 -> persist_l2
+    pred_dev_list: list[float] = []
+    fallback_model_list: list[str | None] = []
+
+    for idx, mun in enumerate(mun_ids):
+        v_l1 = lag1.iloc[idx]
+        v_l2 = lag2.iloc[idx]
+        has_l1 = not np.isnan(v_l1)
+        has_l2 = not np.isnan(v_l2)
+        has_both = has_l1 and has_l2
+
+        if selected_model == "ridge":
+            if has_both and final_ridge is not None and not np.isnan(ridge_preds[idx]):
+                pred_dev_list.append(float(ridge_preds[idx]))
+                fallback_model_list.append(None)
+            elif has_both:
+                pred_dev_list.append(float((v_l1 + v_l2) / 2.0))
+                fallback_model_list.append("mean_l1_l2")
+            elif has_l1:
+                pred_dev_list.append(float(v_l1))
+                fallback_model_list.append("persist_l1")
+            elif has_l2:
+                pred_dev_list.append(float(v_l2))
+                fallback_model_list.append("persist_l2")
+            else:
+                pred_dev_list.append(np.nan)
+                fallback_model_list.append(None)
+        elif selected_model == "mean_l1_l2":
+            if has_both:
+                pred_dev_list.append(float((v_l1 + v_l2) / 2.0))
+                fallback_model_list.append(None)
+            elif has_l1:
+                pred_dev_list.append(float(v_l1))
+                fallback_model_list.append("persist_l1")
+            elif has_l2:
+                pred_dev_list.append(float(v_l2))
+                fallback_model_list.append("persist_l2")
+            else:
+                pred_dev_list.append(np.nan)
+                fallback_model_list.append(None)
+        elif selected_model == "persist_l1":
+            if has_l1:
+                pred_dev_list.append(float(v_l1))
+                fallback_model_list.append(None)
+            elif has_l2:
+                pred_dev_list.append(float(v_l2))
+                fallback_model_list.append("persist_l2")
+            else:
+                pred_dev_list.append(np.nan)
+                fallback_model_list.append(None)
+        elif selected_model == "persist_l2":
+            if has_l2:
+                pred_dev_list.append(float(v_l2))
+                fallback_model_list.append(None)
+            elif has_l1:
+                pred_dev_list.append(float(v_l1))
+                fallback_model_list.append("persist_l1")
+            else:
+                pred_dev_list.append(np.nan)
+                fallback_model_list.append(None)
+        else:
+            pred_dev_list.append(np.nan)
+            fallback_model_list.append(None)
+
+    pred_dev_arr = np.array(pred_dev_list, dtype=float)
+    can_predict = ~np.isnan(pred_dev_arr)
+
+    # Conversion to absolute level: pred_participation_i = (national_level + offset + dev̂_i)/100
+    pred_part_pp = nat_assumption + offset_pp + pred_dev_arr
+    pred_part = np.where(can_predict, np.clip(pred_part_pp / 100.0, 0.05, 0.98), np.nan)
     pred_abst = np.where(can_predict, 1.0 - pred_part, np.nan)
     pred_low = np.where(can_predict, np.clip(pred_abst - 1.645 * sigma_pp / 100.0, 0.0, 1.0), np.nan)
     pred_high = np.where(can_predict, np.clip(pred_abst + 1.645 * sigma_pp / 100.0, 0.0, 1.0), np.nan)
 
-    # Municipal trends and volatilities
+    # Municipal trends and volatilities calculated on deviations
     trend_map: dict[str, float] = {}
     vol_map: dict[str, float] = {}
     last_year_map: dict[str, int] = {}
+    last_reliable_year_map: dict[str, int] = {}
     last_part_map: dict[str, float] = {}
     last_ln_map: dict[str, float] = {}
 
     for mun in mun_ids:
-        if mun in Y.index:
-            s = Y.loc[mun].dropna()
-            t_val, v_val = unit_trend(s)
+        # Dev-based trend and volatility
+        if mun in dev_matrix.index:
+            s_dev = dev_matrix.loc[mun].dropna()
+            t_val, v_val = unit_trend(s_dev)
             trend_map[mun] = t_val
             vol_map[mun] = v_val
-            if len(s) > 0:
-                ly = int(s.index.max())
-                last_year_map[mun] = ly
-                last_part_map[mun] = float(s.loc[ly])
+
+        # Reliable participation history
+        if mun in Y_rel.index:
+            s_rel = Y_rel.loc[mun].dropna()
+            if len(s_rel) > 0:
+                lry = int(s_rel.index.max())
+                last_reliable_year_map[mun] = lry
+                last_part_map[mun] = float(s_rel.loc[lry])
+                last_year_map[mun] = lry
+
+        # LN history
         if mun in L.index:
             s_l = L.loc[mun].dropna()
             if len(s_l) > 0:
@@ -492,7 +664,10 @@ def build_model(
     mun_df["name"] = feats_idx["nom_mun"].fillna(feats_idx.index.to_series())
     mun_df["lista_nominal"] = [last_ln_map.get(m, np.nan) for m in mun_ids]
     mun_df["last_year"] = [last_year_map.get(m, np.nan) for m in mun_ids]
+    mun_df["last_reliable_year"] = [last_reliable_year_map.get(m, np.nan) for m in mun_ids]
     mun_df["last_participation"] = [last_part_map.get(m, np.nan) for m in mun_ids]
+    mun_df["pred_dev_pp"] = pred_dev_arr
+    mun_df["fallback_model"] = fallback_model_list
     mun_df["pred_participation"] = pred_part
     mun_df["pred_abstention"] = pred_abst
     mun_df["pred_low"] = pred_low
@@ -525,8 +700,7 @@ def build_model(
 
     # 5. State aggregation
     state_rows = []
-    # State-level turnout series from part table
-    part_dip = part[part["election"] == "DIP_FED"].copy()
+    part_dip = part[(part["election"] == "DIP_FED") & (part["reliable"])].copy()
     part_dip["cve_ent"] = part_dip["cve_ent"].astype(str).apply(lambda v: zpad(v, 2))
     part_dip["year"] = pd.to_numeric(part_dip["year"], errors="coerce")
     part_dip["votos_totales"] = pd.to_numeric(part_dip["votos_totales"], errors="coerce")
@@ -539,6 +713,7 @@ def build_model(
         st_dict["level"] = "state"
         st_dict["cve_ent"] = ent
         st_dict["name"] = states_map.get(ent, f"Estado {ent}")
+        st_dict["fallback_model"] = None
 
         pob_tot = to_num(muns_ent["pob_tot"]).sum()
         pob_18 = to_num(muns_ent["pob_18ymas"]).sum()
@@ -547,7 +722,6 @@ def build_model(
         st_dict["pob_18ymas"] = pob_18
         st_dict["lista_nominal"] = ln_tot
 
-        # Weighted sociodemographics by pob_18ymas
         w_pob = to_num(muns_ent["pob_18ymas"]).fillna(0)
         sum_w_pob = w_pob.sum()
         for col in [
@@ -565,32 +739,37 @@ def build_model(
         st_dict["im_2020"] = np.nan
         st_dict["gm_2020"] = None
 
-        # Weighted predictions by lista_nominal
         w_ln = to_num(muns_ent["lista_nominal"]).fillna(0)
         valid_preds = ~muns_ent["pred_participation"].isna() & (w_ln > 0)
         if valid_preds.any():
             sum_w_ln = w_ln[valid_preds].sum()
             st_pred_part = float((muns_ent.loc[valid_preds, "pred_participation"] * w_ln[valid_preds]).sum() / sum_w_ln)
+            st_pred_dev = float((muns_ent.loc[valid_preds, "pred_dev_pp"] * w_ln[valid_preds]).sum() / sum_w_ln)
+            st_dict["pred_dev_pp"] = st_pred_dev
             st_dict["pred_participation"] = st_pred_part
             st_dict["pred_abstention"] = 1.0 - st_pred_part
             st_dict["pred_low"] = float((muns_ent.loc[valid_preds, "pred_low"] * w_ln[valid_preds]).sum() / sum_w_ln)
             st_dict["pred_high"] = float((muns_ent.loc[valid_preds, "pred_high"] * w_ln[valid_preds]).sum() / sum_w_ln)
 
-        # State trend and volatility
+        # State trend & volatility
+        valid_trends = ~muns_ent["trend_pp"].isna() & (w_ln > 0)
+        if valid_trends.any():
+            sum_w_tr = w_ln[valid_trends].sum()
+            st_dict["trend_pp"] = float((muns_ent.loc[valid_trends, "trend_pp"] * w_ln[valid_trends]).sum() / sum_w_tr)
+            st_dict["volatility_pp"] = float((muns_ent.loc[valid_trends, "volatility_pp"] * w_ln[valid_trends]).sum() / sum_w_tr)
+
+        # State turnout in latest reliable year
         ent_part = part_dip[part_dip["cve_ent"] == ent].dropna(subset=["year", "votos_totales", "lista_nominal"])
         if not ent_part.empty:
             grp = ent_part.groupby("year")[["votos_totales", "lista_nominal"]].sum()
             grp = grp[grp["lista_nominal"] > 0]
             if not grp.empty:
                 st_turnout = grp["votos_totales"] / grp["lista_nominal"]
-                st_trend, st_vol = unit_trend(st_turnout)
-                st_dict["trend_pp"] = st_trend
-                st_dict["volatility_pp"] = st_vol
                 ly = int(st_turnout.index.max())
                 st_dict["last_year"] = ly
+                st_dict["last_reliable_year"] = ly
                 st_dict["last_participation"] = float(st_turnout.loc[ly])
 
-        # New state columns
         st_dict["part_pj_2025"] = st_pjf_part_map.get(ent, np.nan)
         for col in ["part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last"]:
             vals = to_num(muns_ent[col])
@@ -613,13 +792,17 @@ def build_model(
         units_df["risk_score"] = np.nan
         units_df["category"] = "sin_dato"
 
+    # Municipalities with missing pred_abstention must have category = 'sin_dato'
+    missing_pred = units_df["pred_abstention"].isna()
+    units_df.loc[missing_pred, "risk_score"] = np.nan
+    units_df.loc[missing_pred, "category"] = "sin_dato"
+
     # 7. Feature contributions & drivers (structural model)
     mun_contribs = contributions_structural(structural_model, feats_structural, features=structural_model.features)
-    # Effect on abstention is negative of effect on participation
+    # Effect on abstention is negative of effect on participation deviation
     mun_abst_effects = -mun_contribs
 
     drivers_records = []
-    # Municipal drivers (top 5 by absolute effect)
     for mun in mun_ids:
         eff_series = mun_abst_effects.loc[mun]
         top_keys = eff_series.abs().sort_values(ascending=False).head(5).index
@@ -635,7 +818,6 @@ def build_model(
                 "rank": rank,
             })
 
-    # State drivers (weighted average by municipal lista_nominal)
     for ent in sorted(mun_df["cve_ent"].unique()):
         muns_ent = mun_df[mun_df["cve_ent"] == ent]
         ent_ids = muns_ent["id"].values
@@ -673,12 +855,13 @@ def build_model(
         })
 
     forecast_coef_list = []
-    for k in pred_cols:
-        forecast_coef_list.append({
-            "key": k,
-            "label": label_map.get(k, k),
-            "coef_pp_per_sd": round(final_model.coef.get(k, 0.0), 3),
-        })
+    if final_ridge is not None:
+        for k in pred_cols:
+            forecast_coef_list.append({
+                "key": k,
+                "label": label_map.get(k, k),
+                "coef_pp_per_sd": round(final_ridge.coef.get(k, 0.0), 3),
+            })
 
     data_sources_list = [
         {"name": "participation", "file": "participation.parquet", "rows": len(part)},
@@ -689,7 +872,7 @@ def build_model(
 
     metrics_data = {
         "target_year": t_year,
-        "train_years": final_model.train_years,
+        "train_years": final_ridge.train_years if final_ridge is not None else [],
         "backtests": backtests,
         "coefficients": structural_coef_list,
         "forecast_coefficients": forecast_coef_list,
@@ -698,51 +881,72 @@ def build_model(
         "sigma_pp": round(sigma_pp, 2),
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "data_sources": data_sources_list,
+        "candidates": candidates,
+        "selected_model": selected_model,
+        "national_level_assumption": round(nat_assumption, 2),
+        "offset_pp": round(offset_pp, 2),
+        "reliability_rule": "reliable = (ns_rate <= 0.5) and (participacion >= 0.02)",
+        "excluded_unreliable": excluded_unreliable,
+        "drivers_low_confidence": drivers_low_conf,
     }
-    if len(backtests) == 1:
-        metrics_data["lambda_selection_note"] = "lambda elegida y evaluada en el mismo fold"
 
     (b_dir / "metrics.json").write_text(json.dumps(metrics_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Serialize model.json
-    model_dict = final_model.to_dict()
+    model_dict = final_ridge.to_dict() if final_ridge is not None else {}
+    model_dict["selected_model"] = selected_model
+    model_dict["national_level_assumption"] = round(nat_assumption, 2)
+    model_dict["offset_pp"] = round(offset_pp, 2)
     model_dict["structural"] = structural_model.to_dict()
     (b_dir / "model.json").write_text(json.dumps(model_dict, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # 9. Print build summary
-    print(f"ATALAYA Model built successfully for target year {t_year}")
-    print(f"Optimal lambda: {lam}")
-    print(f"R² estructural (CV): {structural_model.cv_r2:.4f}")
-    top3_coefs = sorted(
-        structural_model.coef.items(),
-        key=lambda item: abs(item[1]),
-        reverse=True,
-    )[:3]
-    top3_str = ", ".join(f"{k}={v:+.3f}" for k, v in top3_coefs)
-    print(f"Top 3 coeficientes estructurales: {top3_str}")
-    for b in backtests:
-        print(f"Fold {b['test_year']}: MAE={b['mae_pp']} pp vs baseline={b['baseline_mae_pp']} pp (Spearman={b['spearman']})")
+    print("\n" + "=" * 70)
+    print("ATALAYA · Modelo de Participación Relativa")
+    print(f"Año objetivo: {t_year} | Nivel nacional supuesto: {nat_assumption:.2f} % | Offset: {offset_pp:+.2f} pp")
+    print("=" * 70)
+
+    # Print candidates table
+    print("\nTabla de Candidatos x Folds:")
+    print(f"{'Candidato':<14} | {'Fold':<6} | {'MAE (pp)':<9} | {'RMSE (pp)':<10} | {'Spearman':<9} | {'Top20 Hit':<9}")
+    print("-" * 70)
+    for cand in candidates:
+        c_name = cand["name"]
+        for f in cand.get("folds", []):
+            print(f"{c_name:<14} | {f['test_year']:<6} | {f['mae_pp']:<9.2f} | {f['rmse_pp']:<10.2f} | {f['spearman']:<9.3f} | {f['top20_hit']:<9.3f}")
+    print("-" * 70)
+    print(f"Modelo seleccionado (menor MAE promedio): {selected_model}")
+    print(f"R² estructural: {structural_model.cv_r2:.4f} (drivers_low_confidence={drivers_low_conf})")
 
     cat_counts = units_df[units_df["level"] == "mun"]["category"].value_counts().to_dict()
-    print(f"Municipalities by risk category: {cat_counts}")
+    print(f"\nMunicipios por semáforo de riesgo: {cat_counts}")
 
     top_risk = units_df[units_df["level"] == "mun"].sort_values("risk_score", ascending=False).head(10)
-    print("Top 10 municipalities by risk_score:")
+    print("\nTop 10 municipios con mayor riesgo:")
     for _, r in top_risk.iterrows():
-        print(f"  {r['id']} {r['name']}: score={r['risk_score']} ({r['category']}) pred_abs={r['pred_abstention']:.3f}")
+        p_abs = f"{r['pred_abstention']:.3f}" if pd.notna(r['pred_abstention']) else "N/D"
+        dev_str = f"{r['pred_dev_pp']:+.2f} pp" if pd.notna(r['pred_dev_pp']) else "N/D"
+        print(f"  {r['id']} {r['name']:<25}: score={r['risk_score']} ({r['category']}) abst={p_abs} (dev={dev_str})")
+    print("=" * 70 + "\n")
 
     return 0
 
 
 def main() -> None:
     """CLI entrypoint."""
-    parser = argparse.ArgumentParser(description="ATALAYA risk model build")
+    parser = argparse.ArgumentParser(description="ATALAYA relative risk model build")
     parser.add_argument("--build-dir", type=Path, default=config.BUILD_DIR, help="Path to build dir")
     parser.add_argument("--seed-dir", type=Path, default=config.SEED_DIR, help="Path to seed dir")
     parser.add_argument("--target-year", type=int, default=config.get_settings().target_year, help="Target year")
+    parser.add_argument("--national-level", type=float, default=None, help="Explicit national turnout assumption (e.g. 51.84)")
     args = parser.parse_args()
 
-    sys.exit(build_model(build_dir=args.build_dir, seed_dir=args.seed_dir, target_year=args.target_year))
+    sys.exit(build_model(
+        build_dir=args.build_dir,
+        seed_dir=args.seed_dir,
+        target_year=args.target_year,
+        national_level=args.national_level,
+    ))
 
 
 if __name__ == "__main__":

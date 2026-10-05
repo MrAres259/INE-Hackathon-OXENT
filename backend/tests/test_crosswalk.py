@@ -53,14 +53,22 @@ def test_crosswalk_pipeline_and_cases(tmp_path: Path):
     out_cw = tmp_path / "crosswalk.parquet"
     out_part = tmp_path / "participation.parquet"
     out_unm = tmp_path / "crosswalk_unmatched.csv"
+    out_prof = tmp_path / "ccpc_profile_mun.parquet"
+    out_sec = tmp_path / "ccpc_seccion_mun.parquet"
+    prof_pq = tmp_path / "ccpc_profile.parquet"
+    sec_pq = tmp_path / "ccpc_seccion.parquet"
 
     cw_df, part_df, unm_df = process_crosswalk(
         participation_ine_path=ine_pq,
         features_path=feat_pq,
         overrides_path=overrides_csv,
+        ccpc_profile_path=prof_pq,
+        ccpc_seccion_path=sec_pq,
         out_crosswalk=out_cw,
         out_participation=out_part,
         out_unmatched=out_unm,
+        out_profile_mun=out_prof,
+        out_seccion_mun=out_sec,
     )
 
     assert out_cw.is_file()
@@ -313,4 +321,152 @@ def test_crosswalk_ccpc_profile_and_seccion(tmp_path: Path):
     res_sec = pd.read_parquet(out_sec)
     assert "cvegeo" in res_sec.columns
     assert set(res_sec["cvegeo"].unique()) == {"01001", "07101"}
+
+
+def test_crosswalk_path_resolution_rule(tmp_path: Path):
+    """Verify that when out_participation is given, all unspecified paths resolve to its parent."""
+    custom_dir = tmp_path / "sub_build"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    out_part = custom_dir / "participation.parquet"
+
+    # Create dummy input files
+    ine_df = pd.DataFrame([{
+        "cve_ent": "01",
+        "ine_mun": 1,
+        "mun_name": "Aguascalientes",
+        "mun_norm": "AGUASCALIENTES",
+        "year": 2024,
+        "election": "DIP_FED",
+        "lista_nominal": 1000,
+        "votos_totales": 600,
+        "participacion": 0.60,
+        "nv": 400,
+        "ns": 10,
+        "source_file": "test.zip",
+    }])
+    ine_pq = tmp_path / "participation_ine.parquet"
+    ine_df.to_parquet(ine_pq, index=False)
+
+    feat_df = pd.DataFrame([{
+        "cvegeo": "01001",
+        "cve_ent": "01",
+        "cve_mun": "001",
+        "nom_ent": "Aguascalientes",
+        "nom_mun": "Aguascalientes",
+    }])
+    feat_pq = tmp_path / "features.parquet"
+    feat_df.to_parquet(feat_pq, index=False)
+
+    # Call with only out_participation specified among output paths
+    cw_df, part_df, unm_df = process_crosswalk(
+        participation_ine_path=ine_pq,
+        features_path=feat_pq,
+        out_participation=out_part,
+    )
+
+    # Verify defaults resolved inside custom_dir, not BUILD_DIR
+    assert (custom_dir / "crosswalk.parquet").is_file()
+    assert (custom_dir / "participation.parquet").is_file()
+    assert (custom_dir / "crosswalk_unmatched.csv").is_file()
+    assert not cw_df.empty
+    assert not part_df.empty
+
+
+def test_participation_reliability_edge_cases(tmp_path: Path):
+    """Verify ns_rate, reliable, and low_confidence edge cases (§11.1).
+
+    Rules:
+    - reliable = ns_rate <= 0.5 and participacion >= 0.02
+    - low_confidence = 0.3 < ns_rate <= 0.5
+    Edge cases:
+    - ns_rate 0.5 exact -> reliable: True, low_confidence: True
+    - ns_rate 0.51 -> reliable: False, low_confidence: False
+    - participacion 0.01 -> reliable: False
+    - participacion 0.02 exact -> reliable: True (if ns_rate <= 0.5)
+    - ns_rate 0.30 exact -> low_confidence: False (must be > 0.3)
+    - ns_rate 0.31 -> low_confidence: True
+    """
+    ine_records = [
+        # 1. ns_rate = 50/100 = 0.50 exact, part = 40/(40+10) = 0.80 -> reliable=True, low_conf=True
+        {"cve_ent": "01", "ine_mun": 1, "mun_name": "M1", "mun_norm": "M1", "year": 2024, "election": "DIP_FED",
+         "lista_nominal": 100, "votos_totales": 40, "nv": 10, "ns": 50},
+        # 2. ns_rate = 51/100 = 0.51, part = 40/(40+9) = 0.816 -> reliable=False, low_conf=False
+        {"cve_ent": "01", "ine_mun": 2, "mun_name": "M2", "mun_norm": "M2", "year": 2024, "election": "DIP_FED",
+         "lista_nominal": 100, "votos_totales": 40, "nv": 9, "ns": 51},
+        # 3. ns_rate = 10/100 = 0.10, part = 1/(1+99) = 0.01 -> reliable=False (part < 0.02), low_conf=False
+        {"cve_ent": "01", "ine_mun": 3, "mun_name": "M3", "mun_norm": "M3", "year": 2024, "election": "DIP_FED",
+         "lista_nominal": 100, "votos_totales": 1, "nv": 99, "ns": 10},
+        # 4. ns_rate = 10/100 = 0.10, part = 2/(2+98) = 0.02 exact -> reliable=True, low_conf=False
+        {"cve_ent": "01", "ine_mun": 4, "mun_name": "M4", "mun_norm": "M4", "year": 2024, "election": "DIP_FED",
+         "lista_nominal": 100, "votos_totales": 2, "nv": 98, "ns": 10},
+        # 5. ns_rate = 30/100 = 0.30 exact, part = 50/(50+20) = 0.714 -> reliable=True, low_conf=False
+        {"cve_ent": "01", "ine_mun": 5, "mun_name": "M5", "mun_norm": "M5", "year": 2024, "election": "DIP_FED",
+         "lista_nominal": 100, "votos_totales": 50, "nv": 20, "ns": 30},
+        # 6. ns_rate = 31/100 = 0.31, part = 50/(50+19) = 0.724 -> reliable=True, low_conf=True
+        {"cve_ent": "01", "ine_mun": 6, "mun_name": "M6", "mun_norm": "M6", "year": 2024, "election": "DIP_FED",
+         "lista_nominal": 100, "votos_totales": 50, "nv": 19, "ns": 31},
+        # 7. lista_nominal = 0 -> ns_rate=NaN, part=NaN -> reliable=False, low_conf=False
+        {"cve_ent": "01", "ine_mun": 7, "mun_name": "M7", "mun_norm": "M7", "year": 2024, "election": "DIP_FED",
+         "lista_nominal": 0, "votos_totales": 0, "nv": 0, "ns": 0},
+    ]
+    ine_df = pd.DataFrame(ine_records)
+    ine_pq = tmp_path / "part_ine.parquet"
+    ine_df.to_parquet(ine_pq, index=False)
+
+    feat_records = [
+        {"cvegeo": f"0100{i}", "cve_ent": "01", "cve_mun": f"00{i}", "nom_ent": "Aguascalientes", "nom_mun": f"M{i}"}
+        for i in range(1, 8)
+    ]
+    feat_pq = tmp_path / "feat.parquet"
+    pd.DataFrame(feat_records).to_parquet(feat_pq, index=False)
+
+    out_cw = tmp_path / "cw.parquet"
+    out_part = tmp_path / "part.parquet"
+    out_unm = tmp_path / "unm.csv"
+
+    _, part_df, _ = process_crosswalk(
+        participation_ine_path=ine_pq,
+        features_path=feat_pq,
+        out_crosswalk=out_cw,
+        out_participation=out_part,
+        out_unmatched=out_unm,
+    )
+
+    p_map = part_df.set_index("cvegeo")
+
+    # 1. ns_rate 0.50 exact
+    assert p_map.loc["01001", "ns_rate"] == pytest.approx(0.50)
+    assert bool(p_map.loc["01001", "reliable"]) is True
+    assert bool(p_map.loc["01001", "low_confidence"]) is True
+
+    # 2. ns_rate 0.51
+    assert p_map.loc["01002", "ns_rate"] == pytest.approx(0.51)
+    assert bool(p_map.loc["01002", "reliable"]) is False
+    assert bool(p_map.loc["01002", "low_confidence"]) is False
+
+    # 3. participacion 0.01 (< 0.02)
+    assert p_map.loc["01003", "participacion"] == pytest.approx(0.01)
+    assert bool(p_map.loc["01003", "reliable"]) is False
+    assert bool(p_map.loc["01003", "low_confidence"]) is False
+
+    # 4. participacion 0.02 exact
+    assert p_map.loc["01004", "participacion"] == pytest.approx(0.02)
+    assert bool(p_map.loc["01004", "reliable"]) is True
+    assert bool(p_map.loc["01004", "low_confidence"]) is False
+
+    # 5. ns_rate 0.30 exact (not > 0.3)
+    assert p_map.loc["01005", "ns_rate"] == pytest.approx(0.30)
+    assert bool(p_map.loc["01005", "reliable"]) is True
+    assert bool(p_map.loc["01005", "low_confidence"]) is False
+
+    # 6. ns_rate 0.31 (> 0.3 and <= 0.5)
+    assert p_map.loc["01006", "ns_rate"] == pytest.approx(0.31)
+    assert bool(p_map.loc["01006", "reliable"]) is True
+    assert bool(p_map.loc["01006", "low_confidence"]) is True
+
+    # 7. lista_nominal 0
+    assert pd.isna(p_map.loc["01007", "ns_rate"])
+    assert bool(p_map.loc["01007", "reliable"]) is False
+    assert bool(p_map.loc["01007", "low_confidence"]) is False
+
 

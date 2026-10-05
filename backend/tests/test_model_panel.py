@@ -1,11 +1,17 @@
-"""Tests for ATALAYA panel data and trend analysis."""
+"""Tests for ATALAYA panel data, relative deviations, and trend analysis."""
 
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
 
 from atalaya.model.panel import (
     is_presidential,
+    load_concurrencia,
+    is_gubernatorial,
+    compute_reliable,
+    deviation_matrix,
+    intermediate_offset,
     load_inputs,
     participation_matrix,
     lista_nominal_matrix,
@@ -29,6 +35,164 @@ def test_is_presidential():
     assert is_presidential(2027) == 0
 
 
+def test_compute_reliable_rule():
+    """Verify §11.1 reliability rule: reliable = (ns_rate <= 0.5) and (participacion >= 0.02)."""
+    df = pd.DataFrame([
+        # Case 1: normal reliable
+        {"cvegeo": "01001", "participacion": 0.55, "ns": 10, "lista_nominal": 1000},
+        # Case 2: high NS rate (> 0.5) -> unreliable
+        {"cvegeo": "01002", "participacion": 0.55, "ns": 600, "lista_nominal": 1000},
+        # Case 3: very low participation (< 0.02) -> unreliable
+        {"cvegeo": "01003", "participacion": 0.01, "ns": 10, "lista_nominal": 1000},
+        # Case 4: NaN participation -> unreliable
+        {"cvegeo": "01004", "participacion": np.nan, "ns": 10, "lista_nominal": 1000},
+    ])
+
+    rel = compute_reliable(df)
+    assert bool(rel.iloc[0]) is True
+    assert bool(rel.iloc[1]) is False
+    assert bool(rel.iloc[2]) is False
+    assert bool(rel.iloc[3]) is False
+
+    # Case 5: explicit reliable column present -> uses it directly
+    df_explicit = pd.DataFrame([
+        {"cvegeo": "01001", "participacion": 0.55, "ns": 10, "lista_nominal": 1000, "reliable": False},
+        {"cvegeo": "01002", "participacion": 0.01, "ns": 10, "lista_nominal": 1000, "reliable": True},
+    ])
+    rel_exp = compute_reliable(df_explicit)
+    assert bool(rel_exp.iloc[0]) is False
+    assert bool(rel_exp.iloc[1]) is True
+
+
+def test_participation_matrix_reliable_only():
+    """Verify participation_matrix filters out non-reliable municipality-years when reliable_only=True."""
+    df = pd.DataFrame([
+        {"cvegeo": "01001", "year": 2021, "election": "DIP_FED", "participacion": 0.55, "ns": 10, "lista_nominal": 1000},
+        # 01002 is unreliable in 2021
+        {"cvegeo": "01002", "year": 2021, "election": "DIP_FED", "participacion": 0.55, "ns": 800, "lista_nominal": 1000},
+        {"cvegeo": "01001", "year": 2024, "election": "DIP_FED", "participacion": 0.60, "ns": 10, "lista_nominal": 1000},
+        {"cvegeo": "01002", "year": 2024, "election": "DIP_FED", "participacion": 0.62, "ns": 10, "lista_nominal": 1000},
+    ])
+
+    piv = participation_matrix(df, reliable_only=True)
+    assert piv.loc["01001", 2021] == pytest.approx(0.55)
+    assert np.isnan(piv.loc["01002", 2021])  # Filtered out because unreliable
+    assert piv.loc["01002", 2024] == pytest.approx(0.62)  # Kept because reliable in 2024
+
+
+def test_deviation_matrix_and_unweighted_means():
+    """Verify relative deviations: dev_{i, T} = 100 * Y_{i, T} - unweighted_mean_T."""
+    Y = pd.DataFrame(
+        {
+            2021: [0.40, 0.60, 0.50],
+            2024: [0.55, 0.65, np.nan],
+        },
+        index=["01001", "01002", "01003"],
+    )
+
+    dev, means = deviation_matrix(Y)
+
+    # 2021: unweighted mean = 50.0 pp
+    # dev for 01001: 40 - 50 = -10.0 pp
+    # dev for 01002: 60 - 50 = +10.0 pp
+    # dev for 01003: 50 - 50 = 0.0 pp
+    assert means[2021] == pytest.approx(50.0)
+    assert dev.loc["01001", 2021] == pytest.approx(-10.0)
+    assert dev.loc["01002", 2021] == pytest.approx(10.0)
+    assert dev.loc["01003", 2021] == pytest.approx(0.0)
+    assert dev[2021].mean() == pytest.approx(0.0)
+
+    # 2024: unweighted mean = (55 + 65) / 2 = 60.0 pp
+    # dev for 01001: 55 - 60 = -5.0 pp
+    # dev for 01002: 65 - 60 = +5.0 pp
+    # 01003: NaN
+    assert means[2024] == pytest.approx(60.0)
+    assert dev.loc["01001", 2024] == pytest.approx(-5.0)
+    assert dev.loc["01002", 2024] == pytest.approx(5.0)
+    assert np.isnan(dev.loc["01003", 2024])
+
+
+def test_intermediate_offset():
+    """Verify offset between unweighted municipal mean and LN-weighted national turnout."""
+    # 2 municipalities: 01001 (large, turnout 40%), 01002 (small, turnout 60%)
+    # unweighted mean = 50.0%
+    # weighted mean: (40*9000 + 60*1000) / 10000 = (360000 + 60000) / 10000 = 42.0%
+    # diff = 50.0 - 42.0 = +8.0 pp
+    Y = pd.DataFrame(
+        {
+            2009: [0.40, 0.60],
+            2015: [0.40, 0.60],
+            2021: [0.40, 0.60],
+        },
+        index=["01001", "01002"],
+    )
+    L = pd.DataFrame(
+        {
+            2009: [9000, 1000],
+            2015: [9000, 1000],
+            2021: [9000, 1000],
+        },
+        index=["01001", "01002"],
+    )
+
+    offset = intermediate_offset(Y, L, intermediate_years=[2009, 2015, 2021])
+    assert offset == pytest.approx(8.0)
+
+
+def test_load_concurrencia_seed():
+    """Verify loading concurrencia_gubernatura.csv seed table."""
+    df = load_concurrencia()
+    assert not df.empty
+    assert "year" in df.columns
+    assert "cve_ent" in df.columns
+    # Check 2027 17 states
+    gov_2027 = df[df["year"] == 2027]
+    assert len(gov_2027) == 17
+    assert "01" in gov_2027["cve_ent"].values
+
+
+def test_is_gubernatorial():
+    """Verify gubernatorial concurrence indicator by state and year."""
+    # From seed §11.2:
+    # 2024 has Chiapas (07), CDMX (09), Guanajuato (11), Jalisco (14), Morelos (17), Puebla (21), Tabasco (27), Veracruz (30), Yucatán (31)
+    assert is_gubernatorial(2024, "07") == 1
+    assert is_gubernatorial(2024, "09") == 1
+    assert is_gubernatorial(2024, "01") == 0  # Aguascalientes had no gubernatorial election in 2024
+
+    # 2027 has Aguascalientes (01)
+    assert is_gubernatorial(2027, "01") == 1
+    assert is_gubernatorial(2027, "09") == 0
+
+
+def test_training_rows_with_gov_indicators():
+    """Verify training rows include gov_T, gov_lag1, gov_lag2."""
+    Y = pd.DataFrame(
+        {
+            2012: [0.55],
+            2015: [0.48],
+            2018: [0.62],
+            2021: [0.51],
+            2024: [0.65],
+        },
+        index=["07101"],  # Chiapas: had gov election in 2012, 2018, 2024; none in 2015, 2021
+    )
+    feats = pd.DataFrame(
+        {
+            "cvegeo": ["07101"],
+            "cve_ent": ["07"],
+            "pob_18ymas": [10000],
+        }
+    )
+
+    train_df = training_rows(Y, feats, [2024])
+    assert len(train_df) == 1
+    row = train_df.iloc[0]
+    # For T=2024: gov_T=1 (2024), gov_lag1=0 (2021), gov_lag2=1 (2018)
+    assert row["gov_T"] == 1.0
+    assert row["gov_lag1"] == 0.0
+    assert row["gov_lag2"] == 1.0
+
+
 def test_participation_matrix_and_lista_nominal():
     """Verify pivoting participation and nominal list tables."""
     data = [
@@ -36,7 +200,7 @@ def test_participation_matrix_and_lista_nominal():
         {"cvegeo": "01001", "year": 2021, "election": "DIP_FED", "participacion": 0.55, "lista_nominal": 10500},
         {"cvegeo": "01002", "year": 2018, "election": "DIP_FED", "participacion": 0.58, "lista_nominal": 5000},
         {"cvegeo": "01002", "year": 2021, "election": "DIP_FED", "participacion": 0.50, "lista_nominal": 5200},
-        {"cvegeo": "01001", "year": 2024, "election": "PRES", "participacion": 0.65, "lista_nominal": 11000},  # Different election
+        {"cvegeo": "01001", "year": 2024, "election": "PRES", "participacion": 0.65, "lista_nominal": 11000},
     ]
     df = pd.DataFrame(data)
 
@@ -58,18 +222,29 @@ def test_unit_trend_recovers_known_slope():
     b = -1.8  # trend per election cycle in pp
     c = 8.5   # presidential bump in pp
 
-    # y = a + b * k + c * pres
     y_values = []
     for yr in years:
         k = (yr - 2009) / 3.0
         pres = is_presidential(yr)
         y_pp = a + b * k + c * pres
-        y_prop = y_pp / 100.0  # input in proportion
+        y_prop = y_pp / 100.0
         y_values.append(y_prop)
 
     series = pd.Series(y_values, index=years)
     trend_pp, volatility_pp = unit_trend(series, min_year=2009)
 
+    assert trend_pp == pytest.approx(b, rel=1e-3)
+    assert volatility_pp == pytest.approx(0.0, abs=1e-5)
+
+
+def test_unit_trend_with_negative_deviations():
+    """Verify unit_trend operates correctly when input is negative/positive deviation in pp."""
+    years = [2009, 2012, 2015, 2018, 2021, 2024]
+    b = -1.2  # slope in pp per cycle
+    dev_values = [b * ((yr - 2009) / 3.0) for yr in years]
+
+    series = pd.Series(dev_values, index=years)
+    trend_pp, volatility_pp = unit_trend(series, min_year=2009)
     assert trend_pp == pytest.approx(b, rel=1e-3)
     assert volatility_pp == pytest.approx(0.0, abs=1e-5)
 
@@ -82,58 +257,6 @@ def test_unit_trend_insufficient_points():
     assert np.isnan(volatility_pp)
 
 
-def test_training_rows_lags_and_nan_filtering():
-    """Verify training rows structure, lag alignment, and NaN row dropping."""
-    # Years: 2009, 2012, 2015, 2018
-    # For target 2015: lag1=2012, lag2=2009
-    # For target 2018: lag1=2015, lag2=2012
-    Y = pd.DataFrame(
-        {
-            2009: [0.45, 0.50, np.nan],
-            2012: [0.55, 0.60, 0.65],
-            2015: [0.48, np.nan, 0.52],
-            2018: [0.62, 0.68, 0.70],
-        },
-        index=["01001", "01002", "01003"],
-    )
-
-    feats = pd.DataFrame(
-        {
-            "cvegeo": ["01001", "01002", "01003"],
-            "pob_18ymas": [10000, 20000, 15000],
-            "pct_18_24": [0.15, 0.18, 0.14],
-        }
-    )
-
-    targets = [2015, 2018]
-    train_df = training_rows(Y, feats, targets)
-
-    # For 2015:
-    # 01001: 2015=0.48, lag1=0.55, lag2=0.45 -> Valid
-    # 01002: 2015=NaN -> Dropped
-    # 01003: 2009=NaN -> Dropped (lag2 is NaN)
-
-    # For 2018:
-    # 01001: 2018=0.62, lag1=0.48, lag2=0.55 -> Valid
-    # 01002: 2015=NaN (lag1 is NaN) -> Dropped
-    # 01003: 2018=0.70, lag1=0.52, lag2=0.65 -> Valid
-
-    assert len(train_df) == 3
-    row_2015_01001 = train_df[(train_df["cvegeo"] == "01001") & (train_df["target_year"] == 2015)].iloc[0]
-    assert row_2015_01001["y"] == pytest.approx(0.48)
-    assert row_2015_01001["lag1"] == pytest.approx(0.55)
-    assert row_2015_01001["lag2"] == pytest.approx(0.45)
-    assert row_2015_01001["pres"] == 0.0
-    assert row_2015_01001["pct_18_24"] == pytest.approx(0.15)
-    assert "log_pob_18ymas" in row_2015_01001
-
-    row_2018_01001 = train_df[(train_df["cvegeo"] == "01001") & (train_df["target_year"] == 2018)].iloc[0]
-    assert row_2018_01001["y"] == pytest.approx(0.62)
-    assert row_2018_01001["lag1"] == pytest.approx(0.48)
-    assert row_2018_01001["lag2"] == pytest.approx(0.55)
-    assert row_2018_01001["pres"] == 1.0
-
-
 def test_load_inputs_missing(tmp_path):
     """Verify load_inputs returns empty DataFrames when files are missing."""
     part, feats = load_inputs(tmp_path)
@@ -143,106 +266,3 @@ def test_load_inputs_missing(tmp_path):
     assert feats.empty
     assert "cvegeo" in part.columns
     assert "nom_mun" in feats.columns
-
-
-def test_intermediate_turnout():
-    """Verify intermediate_turnout averages non-presidential DIP_FED years and converts to pp."""
-    # 2009 (inter), 2012 (pres), 2015 (inter), 2018 (pres), 2021 (inter)
-    Y = pd.DataFrame(
-        {
-            2009: [0.40, np.nan],
-            2012: [0.60, 0.65],  # pres - excluded
-            2015: [0.46, 0.50],
-            2018: [0.62, 0.68],  # pres - excluded
-            2021: [0.49, 0.52],
-        },
-        index=["01001", "01002"],
-    )
-    target = intermediate_turnout(Y)
-    # 01001: (40 + 46 + 49) / 3 = 45.0 pp
-    # 01002: (50 + 52) / 2 = 51.0 pp
-    assert target.loc["01001"] == pytest.approx(45.0)
-    assert target.loc["01002"] == pytest.approx(51.0)
-
-
-def test_training_rows_with_ccpc_features_and_coverage():
-    """Verify training rows pull CCPC features from T-3 and dynamic coverage from L."""
-    Y = pd.DataFrame(
-        {
-            2009: [0.45],
-            2012: [0.55],
-            2015: [0.48],
-            2018: [0.62],
-        },
-        index=["01001"],
-    )
-    L = pd.DataFrame(
-        {
-            2009: [8000],
-            2012: [9000],
-            2015: [9500],
-            2018: [10000],
-        },
-        index=["01001"],
-    )
-    feats = pd.DataFrame(
-        {
-            "cvegeo": ["01001"],
-            "pob_18ymas": [10000],
-            "pct_18_24": [0.20],
-        }
-    )
-    ccpc_feats = pd.DataFrame(
-        [
-            {"cvegeo": "01001", "year": 2012, "gap_youth_pp": -10.5, "pct_ln_18_34": 0.32},
-            {"cvegeo": "01001", "year": 2015, "gap_youth_pp": -7.2, "pct_ln_18_34": 0.35},
-        ]
-    )
-
-    targets = [2015, 2018]
-    train_df = training_rows(Y, feats, targets, ccpc_feats=ccpc_feats, L=L)
-    assert len(train_df) == 2
-
-    # Target 2015 -> features from T-3 = 2012
-    row_2015 = train_df[train_df["target_year"] == 2015].iloc[0]
-    assert row_2015["gap_youth_pp"] == pytest.approx(-10.5)
-    assert row_2015["pct_ln_18_34"] == pytest.approx(0.32)
-    # coverage_ln = L[2012] / pob_18ymas = 9000 / 10000 = 0.90
-    assert row_2015["coverage_ln"] == pytest.approx(0.90)
-
-    # Target 2018 -> features from T-3 = 2015
-    row_2018 = train_df[train_df["target_year"] == 2018].iloc[0]
-    assert row_2018["gap_youth_pp"] == pytest.approx(-7.2)
-    assert row_2018["pct_ln_18_34"] == pytest.approx(0.35)
-    # coverage_ln = L[2015] / pob_18ymas = 9500 / 10000 = 0.95
-    assert row_2018["coverage_ln"] == pytest.approx(0.95)
-
-
-def test_intermediate_ccpc_features():
-    """Verify intermediate_ccpc_features averages over intermediate years 2009, 2015, 2021."""
-    from atalaya.model.panel import intermediate_ccpc_features
-    ccpc_df = pd.DataFrame(
-        [
-            {"cvegeo": "01001", "year": 2009, "gap_youth_pp": -10.0, "pct_ln_18_34": 0.30},
-            {"cvegeo": "01001", "year": 2012, "gap_youth_pp": -20.0, "pct_ln_18_34": 0.50},  # Pres - excluded
-            {"cvegeo": "01001", "year": 2015, "gap_youth_pp": -8.0, "pct_ln_18_34": 0.32},
-            {"cvegeo": "01001", "year": 2018, "gap_youth_pp": -15.0, "pct_ln_18_34": 0.40},  # Pres - excluded
-            {"cvegeo": "01001", "year": 2021, "gap_youth_pp": -6.0, "pct_ln_18_34": 0.34},
-        ]
-    )
-    res = intermediate_ccpc_features(ccpc_df)
-    # Means across 2009, 2015, 2021:
-    # gap_youth_pp: (-10 + -8 + -6) / 3 = -8.0
-    # pct_ln_18_34: (0.30 + 0.32 + 0.34) / 3 = 0.32
-    assert res.loc["01001", "gap_youth_pp"] == pytest.approx(-8.0)
-    assert res.loc["01001", "pct_ln_18_34"] == pytest.approx(0.32)
-
-
-def test_load_inputs_with_include_ccpc(tmp_path):
-    """Verify load_inputs with include_ccpc=True returns 3 DataFrames."""
-    part, feats, ccpc = load_inputs(tmp_path, include_ccpc=True)
-    assert isinstance(part, pd.DataFrame)
-    assert isinstance(feats, pd.DataFrame)
-    assert isinstance(ccpc, pd.DataFrame)
-
-

@@ -93,34 +93,46 @@ def test_hand_calculated_indicators():
     ])
 
     res = compute_ccpc_features(prof_df, sec_df)
-    assert len(res) == 1
-    row = res.iloc[0]
+    assert len(res) == 2  # 1 mun row + 1 state row
+    assert set(res["level"].unique()) == {"mun", "state"}
 
-    assert row["cvegeo"] == "01001"
-    assert row["cve_ent"] == "01"
-    assert row["year"] == 2024
+    # Check municipal row
+    row_mun = res[res["level"] == "mun"].iloc[0]
+    assert row_mun["cvegeo"] == "01001"
+    assert row_mun["cve_ent"] == "01"
+    assert row_mun["year"] == 2024
+    assert row_mun["election"] == "DIP_FED"
 
-    assert pytest.approx(row["part_total"], rel=1e-5) == (375.0 / 585.0)
-    assert pytest.approx(row["ns_rate"], rel=1e-5) == (25.0 / 610.0)
-    assert pytest.approx(row["pct_ln_18_34"], rel=1e-5) == (400.0 / 610.0)
-    assert pytest.approx(row["part_18_34"], rel=1e-5) == (220.0 / 375.0)
-    assert pytest.approx(row["gap_youth_pp"], rel=1e-5) == (220.0 / 375.0 - 375.0 / 585.0) * 100.0
-    assert pytest.approx(row["gap_sexo_pp"], rel=1e-5) == (200.0 / 290.0 - 170.0 / 285.0) * 100.0
-    assert pytest.approx(row["pct_ln_rural"], rel=1e-5) == (200.0 / 610.0)
-    assert pytest.approx(row["pct_ln_urbana"], rel=1e-5) == (300.0 / 610.0)
+    assert pytest.approx(row_mun["part_total"], rel=1e-5) == (375.0 / 585.0)
+    assert pytest.approx(row_mun["ns_rate"], rel=1e-5) == (25.0 / 610.0)
+    assert pytest.approx(row_mun["pct_ln_18_34"], rel=1e-5) == (400.0 / 610.0)
+    assert pytest.approx(row_mun["part_18_34"], rel=1e-5) == (220.0 / 375.0)
+    assert pytest.approx(row_mun["gap_youth_pp"], rel=1e-5) == (220.0 / 375.0 - 375.0 / 585.0) * 100.0
+    assert pytest.approx(row_mun["gap_sexo_pp"], rel=1e-5) == (200.0 / 290.0 - 170.0 / 285.0) * 100.0
+    assert pytest.approx(row_mun["pct_ln_rural"], rel=1e-5) == (200.0 / 610.0)
+    assert pytest.approx(row_mun["pct_ln_urbana"], rel=1e-5) == (300.0 / 610.0)
+
+    # Check state row (identical values because single municipality in state)
+    row_state = res[res["level"] == "state"].iloc[0]
+    assert row_state["cvegeo"] == "01"
+    assert row_state["cve_ent"] == "01"
+    assert row_state["year"] == 2024
+    assert row_state["election"] == "DIP_FED"
+    assert pytest.approx(row_state["part_total"], rel=1e-5) == (375.0 / 585.0)
+    assert pytest.approx(row_state["pct_ln_rural"], rel=1e-5) == (200.0 / 610.0)
 
 
 def test_division_by_zero_and_edge_cases():
-    """Verify safe handling of zero denominators, missing sexes, and non-DIP elections."""
+    """Verify safe handling of zero denominators, missing sexes, and PJF election support."""
     # Mun 02001: All zeros (LN=0, SV=0, NV=0, NS=0)
     # Mun 02002: Only men (no women), no rural sections (only urban)
-    # Mun 02003: Only election == 'PJF' (must be excluded from DIP_FED indicators)
+    # Mun 02003: Election == 'PJF' (must be included with election='PJF')
     prof_df = pd.DataFrame([
         # Mun 02001: All zero
         {"cvegeo": "02001", "cve_ent": "02", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 0, "sv": 0, "nv": 0, "ns": 0},
         # Mun 02002: Only men, no women
         {"cvegeo": "02002", "cve_ent": "02", "year": 2024, "election": "DIP_FED", "age_group": "35-44", "sexo": "H", "ln": 100, "sv": 60, "nv": 40, "ns": 0},
-        # Mun 02003: Only PJF
+        # Mun 02003: PJF election in 2025
         {"cvegeo": "02003", "cve_ent": "02", "year": 2025, "election": "PJF", "age_group": "35-44", "sexo": "M", "ln": 100, "sv": 20, "nv": 80, "ns": 0},
     ])
 
@@ -129,17 +141,21 @@ def test_division_by_zero_and_edge_cases():
         {"cvegeo": "02001", "cve_ent": "02", "year": 2024, "election": "DIP_FED", "seccion": 1, "tiposec": "U", "ln": 0},
         # Mun 02002: Only urban sections
         {"cvegeo": "02002", "cve_ent": "02", "year": 2024, "election": "DIP_FED", "seccion": 1, "tiposec": "U", "ln": 100},
-        # Mun 02003: Only PJF
+        # Mun 02003: PJF
         {"cvegeo": "02003", "cve_ent": "02", "year": 2025, "election": "PJF", "seccion": 1, "tiposec": "U", "ln": 100},
     ])
 
     res = compute_ccpc_features(prof_df, sec_df)
 
-    # 1. Mun 02003 (PJF) should NOT be in output because only DIP_FED is processed
-    assert "02003" not in res["cvegeo"].values
+    # 1. Mun 02003 (PJF) MUST be present in output
+    assert "02003" in res["cvegeo"].values
+    row_03 = res[(res["cvegeo"] == "02003") & (res["level"] == "mun")].iloc[0]
+    assert row_03["election"] == "PJF"
+    assert row_03["year"] == 2025
+    assert pytest.approx(row_03["part_total"], rel=1e-5) == 0.20
 
     # 2. Mun 02001: All zero denominators -> all rates/gaps must be NaN
-    row_01 = res[res["cvegeo"] == "02001"].iloc[0]
+    row_01 = res[(res["cvegeo"] == "02001") & (res["level"] == "mun")].iloc[0]
     assert pd.isna(row_01["part_total"])
     assert pd.isna(row_01["pct_ln_18_34"])
     assert pd.isna(row_01["part_18_34"])
@@ -150,13 +166,80 @@ def test_division_by_zero_and_edge_cases():
     assert pd.isna(row_01["ns_rate"])
 
     # 3. Mun 02002:
-    row_02 = res[res["cvegeo"] == "02002"].iloc[0]
-    # No women -> gap_sexo_pp must be NaN
+    row_02 = res[(res["cvegeo"] == "02002") & (res["level"] == "mun")].iloc[0]
     assert pd.isna(row_02["gap_sexo_pp"])
-    # No 18-34 -> pct_ln_18_34 is 0.0, part_18_34 is NaN, gap_youth_pp is NaN
     assert row_02["pct_ln_18_34"] == 0.0
     assert pd.isna(row_02["part_18_34"])
     assert pd.isna(row_02["gap_youth_pp"])
-    # Only urban sections -> pct_ln_rural is 0.0, pct_ln_urbana is 1.0
     assert row_02["pct_ln_rural"] == 0.0
     assert row_02["pct_ln_urbana"] == 1.0
+
+    # 4. State rows present for both DIP_FED (2024) and PJF (2025)
+    st_rows = res[res["level"] == "state"]
+    assert len(st_rows) == 2
+    assert set(st_rows["election"].unique()) == {"DIP_FED", "PJF"}
+
+
+def test_state_indicators_calculated_from_sums():
+    """Verify state indicators are calculated from sums and NOT by unweighted average of municipalities (§10.3)."""
+    # State 03 with 2 municipalities of very different sizes:
+    # Mun 03001 (small, high participation):
+    #   LN=100, SV=80, NV=20 -> part_total = 80/100 = 0.80
+    #   Youth: LN=50, SV=40, NV=10 -> part_18_34 = 40/50 = 0.80
+    #   Sections: Rural LN=20, Urban LN=80 -> pct_rural = 0.20, pct_urban = 0.80
+    # Mun 03002 (large, low participation):
+    #   LN=900, SV=180, NV=720 -> part_total = 180/900 = 0.20
+    #   Youth: LN=450, SV=90, NV=360 -> part_18_34 = 90/450 = 0.20
+    #   Sections: Rural LN=900, Urban LN=0 -> pct_rural = 1.00, pct_urban = 0.00
+    #
+    # Unweighted municipal averages:
+    #   avg part_total = (0.80 + 0.20) / 2 = 0.50
+    #   avg part_18_34 = (0.80 + 0.20) / 2 = 0.50
+    #   avg pct_ln_rural = (0.20 + 1.00) / 2 = 0.60
+    #
+    # True state aggregation from sums:
+    #   total LN = 1000, SV = 260, NV = 740 -> part_total = 260/1000 = 0.26
+    #   youth LN = 500, youth SV = 130, youth NV = 370 -> part_18_34 = 130/500 = 0.26
+    #   rural LN = 20 + 900 = 920 -> pct_ln_rural = 920/1000 = 0.92
+    #   urban LN = 80 + 0 = 80 -> pct_ln_urbana = 80/1000 = 0.08
+    prof_df = pd.DataFrame([
+        # Mun 03001
+        {"cvegeo": "03001", "cve_ent": "03", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 50, "sv": 40, "nv": 10, "ns": 0},
+        {"cvegeo": "03001", "cve_ent": "03", "year": 2024, "election": "DIP_FED", "age_group": "35-44", "sexo": "H", "ln": 50, "sv": 40, "nv": 10, "ns": 0},
+        # Mun 03002
+        {"cvegeo": "03002", "cve_ent": "03", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 450, "sv": 90, "nv": 360, "ns": 0},
+        {"cvegeo": "03002", "cve_ent": "03", "year": 2024, "election": "DIP_FED", "age_group": "35-44", "sexo": "H", "ln": 450, "sv": 90, "nv": 360, "ns": 0},
+    ])
+
+    sec_df = pd.DataFrame([
+        # Mun 03001
+        {"cvegeo": "03001", "cve_ent": "03", "year": 2024, "election": "DIP_FED", "seccion": 1, "tiposec": "R", "ln": 20},
+        {"cvegeo": "03001", "cve_ent": "03", "year": 2024, "election": "DIP_FED", "seccion": 2, "tiposec": "U", "ln": 80},
+        # Mun 03002
+        {"cvegeo": "03002", "cve_ent": "03", "year": 2024, "election": "DIP_FED", "seccion": 3, "tiposec": "R", "ln": 900},
+    ])
+
+    res = compute_ccpc_features(prof_df, sec_df)
+
+    st_row = res[(res["cvegeo"] == "03") & (res["level"] == "state")].iloc[0]
+    mun_rows = res[res["level"] == "mun"]
+
+    # Verify municipal values
+    assert pytest.approx(mun_rows[mun_rows["cvegeo"] == "03001"]["part_total"].iloc[0]) == 0.80
+    assert pytest.approx(mun_rows[mun_rows["cvegeo"] == "03002"]["part_total"].iloc[0]) == 0.20
+
+    # Verify state matches sum (0.26) and strictly differs from unweighted average (0.50)
+    assert pytest.approx(st_row["part_total"], rel=1e-5) == 0.26
+    assert abs(st_row["part_total"] - 0.50) > 0.15
+
+    # Verify youth participation matches sum (0.26) and strictly differs from unweighted average (0.50)
+    assert pytest.approx(st_row["part_18_34"], rel=1e-5) == 0.26
+    assert abs(st_row["part_18_34"] - 0.50) > 0.15
+
+    # Verify rural percentage matches sum (0.92) and strictly differs from unweighted average (0.60)
+    assert pytest.approx(st_row["pct_ln_rural"], rel=1e-5) == 0.92
+    assert abs(st_row["pct_ln_rural"] - 0.60) > 0.20
+
+    # Verify urban percentage matches sum (0.08) and strictly differs from unweighted average (0.40)
+    assert pytest.approx(st_row["pct_ln_urbana"], rel=1e-5) == 0.08
+    assert abs(st_row["pct_ln_urbana"] - 0.40) > 0.20

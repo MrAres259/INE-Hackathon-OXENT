@@ -306,11 +306,38 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
             part_df = part_df.sort_values(by="year", ascending=True)
             series = []
             for _, r in part_df.iterrows():
+                part_val = _clean_float(r.get("participacion"))
+                ns_rate = _clean_float(r.get("ns_rate"))
+                if ns_rate is None:
+                    ns_val = _clean_float(r.get("ns"))
+                    ln_val = _clean_float(r.get("lista_nominal"))
+                    if ns_val is not None and ln_val is not None and ln_val > 0:
+                        ns_rate = round(ns_val / ln_val, 6)
+
+                if "reliable" in r and pd.notna(r["reliable"]):
+                    reliable = bool(r["reliable"])
+                elif part_val is None:
+                    reliable = False
+                elif ns_rate is not None:
+                    reliable = bool(ns_rate <= 0.5 and part_val >= 0.02)
+                else:
+                    reliable = bool(part_val >= 0.02)
+
+                if "low_confidence" in r and pd.notna(r["low_confidence"]):
+                    low_conf = bool(r["low_confidence"])
+                elif ns_rate is not None:
+                    low_conf = bool(0.3 < ns_rate <= 0.5)
+                else:
+                    low_conf = False
+
                 series.append({
                     "year": int(r["year"]),
                     "election": str(r.get("election", "")),
-                    "participation": _clean_float(r.get("participacion")) or 0.0,
+                    "participation": part_val,
                     "lista_nominal": _clean_int(r.get("lista_nominal")) or 0,
+                    "reliable": reliable,
+                    "low_confidence": low_conf,
+                    "ns_rate": ns_rate,
                 })
             # Ensure PJF 2025 is included in series
             has_pjf = any(s.get("election") == "PJF" or s.get("year") == 2025 for s in series)
@@ -322,6 +349,9 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
                         "election": "PJF",
                         "participation": pj_val,
                         "lista_nominal": _clean_int(unit.get("lista_nominal")) or 0,
+                        "reliable": bool(pj_val >= 0.02),
+                        "low_confidence": False,
+                        "ns_rate": None,
                     })
         else:
             pj_val = _clean_float(unit.get("part_pj_2025"))
@@ -331,6 +361,9 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
                     "election": "PJF",
                     "participation": pj_val,
                     "lista_nominal": _clean_int(unit.get("lista_nominal")) or 0,
+                    "reliable": bool(pj_val >= 0.02),
+                    "low_confidence": False,
+                    "ns_rate": None,
                 }]
             else:
                 series = []
@@ -438,13 +471,13 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
                 if s["pred_abstention"] is not None:
                     unit_data["pred_participation"] = round(1.0 - s["pred_abstention"], 6)
 
-    # 7. CCPC profile, pj_2025, ccpc features, and imputed_census
+    # 7. CCPC profile, profile_pj, ccpc features, and imputed_census
     try:
         raw_profile = store.profile(id)
         if raw_profile:
-            avail_years = sorted(list({int(r["year"]) for r in raw_profile if "year" in r and r["year"] is not None}))
-            if avail_years:
-                target_years = {avail_years[0], avail_years[-1]}
+            dip_years = sorted(list({int(r["year"]) for r in raw_profile if "year" in r and r["year"] is not None and int(r["year"]) <= 2024}))
+            if dip_years:
+                target_years = {dip_years[0], dip_years[-1]}
                 prof_items = []
                 for r in raw_profile:
                     yr = int(r.get("year", 0))
@@ -465,6 +498,20 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
         logger.debug("Error getting profile for %s: %s", id, exc)
         profile_res = []
 
+    # profile_pj (2025 judicial election)
+    profile_pj_res = []
+    if raw_profile:
+        for r in raw_profile:
+            yr = int(r.get("year", 0))
+            if yr == 2025 or str(r.get("election", "")).upper() == "PJF":
+                profile_pj_res.append({
+                    "year": yr,
+                    "age_group": str(r.get("age_group", "")),
+                    "sexo": str(r.get("sexo", "")),
+                    "ln": _clean_int(r.get("ln")) or 0,
+                    "participation": _clean_float(r.get("participacion")),
+                })
+
     # pj_2025
     pj_part = _clean_float(unit.get("part_pj_2025"))
     if pj_part is None:
@@ -473,14 +520,30 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
             pj_part = pjf_pt.get("participation")
     pj_2025 = {"participation": pj_part}
 
-    # ccpc summary for latest year
-    ccpc_res = {
-        "pct_ln_18_34": _clean_float(unit.get("pct_ln_18_34_last") if unit.get("pct_ln_18_34_last") is not None else unit.get("pct_ln_18_34")),
-        "part_18_34": _clean_float(unit.get("part_18_34_last") if unit.get("part_18_34_last") is not None else unit.get("part_18_34")),
-        "gap_youth_pp": _clean_float(unit.get("gap_youth_pp_last") if unit.get("gap_youth_pp_last") is not None else unit.get("gap_youth_pp")),
-        "gap_sexo_pp": _clean_float(unit.get("gap_sexo_pp_last") if unit.get("gap_sexo_pp_last") is not None else unit.get("gap_sexo_pp")),
-        "pct_ln_rural": _clean_float(unit.get("pct_ln_rural_last") if unit.get("pct_ln_rural_last") is not None else unit.get("pct_ln_rural")),
-    }
+    # ccpc summary for latest DIP_FED year directly from ccpc_features
+    ccpc_data = None
+    if hasattr(store, "ccpc_features"):
+        try:
+            ccpc_data = store.ccpc_features(id)
+        except Exception as e:
+            logger.debug("Error fetching ccpc_features for %s: %s", id, e)
+
+    if ccpc_data:
+        ccpc_res = {
+            "pct_ln_18_34": _clean_float(ccpc_data.get("pct_ln_18_34")),
+            "part_18_34": _clean_float(ccpc_data.get("part_18_34")),
+            "gap_youth_pp": _clean_float(ccpc_data.get("gap_youth_pp")),
+            "gap_sexo_pp": _clean_float(ccpc_data.get("gap_sexo_pp")),
+            "pct_ln_rural": _clean_float(ccpc_data.get("pct_ln_rural")),
+        }
+    else:
+        ccpc_res = {
+            "pct_ln_18_34": _clean_float(unit.get("pct_ln_18_34_last") if unit.get("pct_ln_18_34_last") is not None else unit.get("pct_ln_18_34")),
+            "part_18_34": _clean_float(unit.get("part_18_34_last") if unit.get("part_18_34_last") is not None else unit.get("part_18_34")),
+            "gap_youth_pp": _clean_float(unit.get("gap_youth_pp_last") if unit.get("gap_youth_pp_last") is not None else unit.get("gap_youth_pp")),
+            "gap_sexo_pp": _clean_float(unit.get("gap_sexo_pp_last") if unit.get("gap_sexo_pp_last") is not None else unit.get("gap_sexo_pp")),
+            "pct_ln_rural": _clean_float(unit.get("pct_ln_rural_last") if unit.get("pct_ln_rural_last") is not None else unit.get("pct_ln_rural")),
+        }
 
     # imputed_census
     imputed_census = bool(unit.get("imputed_census", False)) if pd.notna(unit.get("imputed_census")) else False
@@ -494,6 +557,7 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
         "scenarios": scenarios_res,
         "recommendations": recommendations,
         "profile": profile_res,
+        "profile_pj": profile_pj_res,
         "pj_2025": pj_2025,
         "ccpc": ccpc_res,
         "imputed_census": imputed_census,

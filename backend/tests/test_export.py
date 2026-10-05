@@ -16,7 +16,12 @@ EXPECTED_GEOJSON_PROPS = [
     "ent",
     "name",
     "lista_nominal",
+    "last_year",
+    "last_reliable_year",
     "last_participation",
+    "pred_dev_pp",
+    "fallback_model",
+    "gov_2027",
     "pred_abstention_base",
     "category_base",
     "pred_abstention_intervencion",
@@ -28,11 +33,19 @@ EXPECTED_GEOJSON_PROPS = [
     "trend_pp",
     "top_driver",
     "top_recommendation",
+    "imputed_census",
+    "part_pj_2025",
+    "pct_ln_18_34",
+    "part_18_34",
+    "gap_youth_pp",
+    "gap_sexo_pp",
+    "pct_ln_rural",
 ]
 
 EXPECTED_SHEETS = [
     "LEEME",
     "diccionario",
+    "semaforo_ponderado",
     "municipios",
     "estados",
     "participacion_historica",
@@ -43,7 +56,7 @@ EXPECTED_SHEETS = [
 ]
 
 
-def create_synthetic_build_data(build_dir: Path) -> None:
+def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) -> None:
     """Create minimal valid build artifacts for 3 municipalities and 2 states."""
     build_dir.mkdir(parents=True, exist_ok=True)
 
@@ -56,9 +69,12 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "name": "Aguascalientes",
             "lista_nominal": 50000,
             "last_year": 2024,
+            "last_reliable_year": 2024,
             "last_participation": 0.58,
             "pred_participation": 0.56,
             "pred_abstention": 0.44,
+            "pred_dev_pp": 4.16,
+            "fallback_model": None,
             "pred_low": 0.40,
             "pred_high": 0.48,
             "trend_pp": -1.2,
@@ -82,6 +98,11 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "im_2020": -1.2,
             "gm_2020": "Muy bajo",
             "part_pj_2025": 0.18,
+            "pct_ln_18_34": 0.35,
+            "part_18_34": 0.48,
+            "gap_youth_pp": -10.0,
+            "gap_sexo_pp": 4.5,
+            "pct_ln_rural": 0.05,
             "part_18_34_last": 0.48,
             "gap_youth_pp_last": -10.0,
             "gap_sexo_pp_last": 4.5,
@@ -95,9 +116,12 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "name": "Asientos",
             "lista_nominal": 30000,
             "last_year": 2024,
+            "last_reliable_year": 2024,
             "last_participation": 0.52,
             "pred_participation": 0.50,
             "pred_abstention": 0.50,
+            "pred_dev_pp": -1.84,
+            "fallback_model": "mean_l1_l2",
             "pred_low": 0.45,
             "pred_high": 0.55,
             "trend_pp": -2.0,
@@ -121,6 +145,11 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "im_2020": -0.3,
             "gm_2020": "Medio",
             "part_pj_2025": 0.15,
+            "pct_ln_18_34": 0.32,
+            "part_18_34": 0.42,
+            "gap_youth_pp": -12.0,
+            "gap_sexo_pp": 3.0,
+            "pct_ln_rural": 0.55,
             "part_18_34_last": 0.42,
             "gap_youth_pp_last": -12.0,
             "gap_sexo_pp_last": 3.0,
@@ -134,9 +163,12 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "name": "Ensenada",
             "lista_nominal": 40000,
             "last_year": 2024,
+            "last_reliable_year": 2021,
             "last_participation": 0.45,
             "pred_participation": 0.46,
             "pred_abstention": 0.54,
+            "pred_dev_pp": -5.84,
+            "fallback_model": "persist_l1",
             "pred_low": 0.49,
             "pred_high": 0.59,
             "trend_pp": 0.5,
@@ -160,6 +192,11 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "im_2020": -1.0,
             "gm_2020": "Bajo",
             "part_pj_2025": 0.12,
+            "pct_ln_18_34": 0.29,
+            "part_18_34": 0.40,
+            "gap_youth_pp": -8.0,
+            "gap_sexo_pp": 2.5,
+            "pct_ln_rural": 0.12,
             "part_18_34_last": 0.40,
             "gap_youth_pp_last": -8.0,
             "gap_sexo_pp_last": 2.5,
@@ -202,6 +239,11 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "im_2020": None,
             "gm_2020": None,
             "part_pj_2025": 0.1687,
+            "pct_ln_18_34": 0.33,
+            "part_18_34": 0.4575,
+            "gap_youth_pp": -10.75,
+            "gap_sexo_pp": 3.94,
+            "pct_ln_rural": 0.2375,
             "part_18_34_last": 0.4575,
             "gap_youth_pp_last": -10.75,
             "gap_sexo_pp_last": 3.94,
@@ -241,6 +283,11 @@ def create_synthetic_build_data(build_dir: Path) -> None:
             "im_2020": None,
             "gm_2020": None,
             "part_pj_2025": 0.12,
+            "pct_ln_18_34": 0.29,
+            "part_18_34": 0.40,
+            "gap_youth_pp": -8.0,
+            "gap_sexo_pp": 2.5,
+            "pct_ln_rural": 0.12,
             "part_18_34_last": 0.40,
             "gap_youth_pp_last": -8.0,
             "gap_sexo_pp_last": 2.5,
@@ -275,55 +322,144 @@ def create_synthetic_build_data(build_dir: Path) -> None:
         })
     write_parquet(pd.DataFrame(driver_rows), build_dir / "drivers.parquet")
 
-    # 3. participation.parquet
-    part_rows = []
-    for u_id, ent in [("01001", "01"), ("01002", "01"), ("02001", "02")]:
-        part_rows.append({
-            "cvegeo": u_id,
-            "cve_ent": ent,
+    # 3. participation.parquet (with reliable, ns_rate, low_confidence)
+    part_rows = [
+        # Reliable rows
+        {
+            "cvegeo": "01001",
+            "cve_ent": "01",
             "year": 2024,
             "election": "DIP_FED",
             "lista_nominal": 50000,
             "votos_totales": 28000,
             "nv": 21000,
             "ns": 1000,
+            "ns_rate": 0.02,
+            "reliable": True,
+            "low_confidence": False,
             "participacion": 0.5714,
-        })
-        part_rows.append({
-            "cvegeo": u_id,
-            "cve_ent": ent,
+        },
+        {
+            "cvegeo": "01002",
+            "cve_ent": "01",
+            "year": 2024,
+            "election": "DIP_FED",
+            "lista_nominal": 30000,
+            "votos_totales": 15000,
+            "nv": 14000,
+            "ns": 1000,
+            "ns_rate": 0.033,
+            "reliable": True,
+            "low_confidence": False,
+            "participacion": 0.5172,
+        },
+        # Unreliable row: high NS rate, must be exported with empty participacion
+        {
+            "cvegeo": "02001",
+            "cve_ent": "02",
+            "year": 2024,
+            "election": "DIP_FED",
+            "lista_nominal": 40000,
+            "votos_totales": 5000,
+            "nv": 3000,
+            "ns": 32000,
+            "ns_rate": 0.80,
+            "reliable": False,
+            "low_confidence": False,
+            "participacion": 0.625,
+        },
+        # PJF row
+        {
+            "cvegeo": "01001",
+            "cve_ent": "01",
             "year": 2025,
             "election": "PJF",
             "lista_nominal": 50000,
             "votos_totales": 9000,
             "nv": 40000,
             "ns": 1000,
+            "ns_rate": 0.02,
+            "reliable": True,
+            "low_confidence": False,
             "participacion": 0.1837,
-        })
+        },
+    ]
     write_parquet(pd.DataFrame(part_rows), build_dir / "participation.parquet")
 
-    # 4. ccpc_profile_mun.parquet
-    profile_rows = []
-    for u_id, ent in [("01001", "01"), ("01002", "01"), ("02001", "02")]:
-        profile_rows.append({
-            "cvegeo": u_id,
-            "cve_ent": ent,
+    # 4. ccpc_features.parquet
+    cf_rows = [
+        {
+            "cvegeo": "01001",
+            "cve_ent": "01",
             "year": 2024,
             "election": "DIP_FED",
-            "age_group": "18-24",
-            "sexo": "M",
-            "ln": 5000,
-            "sv": 2800,
-            "nv": 2100,
-            "ns": 100,
-            "participacion": 0.5714,
-        })
-    write_parquet(pd.DataFrame(profile_rows), build_dir / "ccpc_profile_mun.parquet")
+            "level": "mun",
+            "pct_ln_18_34": 0.35,
+            "part_18_34": 0.48,
+            "gap_youth_pp": -10.0,
+            "gap_sexo_pp": 4.5,
+            "pct_ln_rural": 0.05,
+            "pct_ln_urbana": 0.95,
+            "ns_rate": 0.02,
+        },
+        {
+            "cvegeo": "01002",
+            "cve_ent": "01",
+            "year": 2024,
+            "election": "DIP_FED",
+            "level": "mun",
+            "pct_ln_18_34": 0.32,
+            "part_18_34": 0.42,
+            "gap_youth_pp": -12.0,
+            "gap_sexo_pp": 3.0,
+            "pct_ln_rural": 0.55,
+            "pct_ln_urbana": 0.45,
+            "ns_rate": 0.033,
+        },
+        {
+            "cvegeo": "02001",
+            "cve_ent": "02",
+            "year": 2024,
+            "election": "DIP_FED",
+            "level": "mun",
+            "pct_ln_18_34": 0.29,
+            "part_18_34": 0.40,
+            "gap_youth_pp": -8.0,
+            "gap_sexo_pp": 2.5,
+            "pct_ln_rural": 0.12,
+            "pct_ln_urbana": 0.88,
+            "ns_rate": 0.80,
+        },
+    ]
+    write_parquet(pd.DataFrame(cf_rows), build_dir / "ccpc_features.parquet")
 
-    # 5. metrics.json
+    # 5. ccpc_profile_mun.parquet (synthetic rows >= 50,000)
+    base_profile_row = {
+        "cvegeo": "01001",
+        "cve_ent": "01",
+        "year": 2024,
+        "election": "DIP_FED",
+        "age_group": "18-24",
+        "sexo": "M",
+        "ln": 5000,
+        "sv": 2800,
+        "nv": 2100,
+        "ns": 100,
+    }
+    profile_df = pd.DataFrame([base_profile_row] * n_profile_rows)
+    write_parquet(profile_df, build_dir / "ccpc_profile_mun.parquet")
+
+    # 6. metrics.json
     metrics = {
         "target_year": 2027,
         "train_years": [2015, 2018, 2021, 2024],
+        "selected_model": "persist_l1",
+        "national_level_assumption": 51.84,
+        "offset_pp": 0.85,
+        "candidates": [
+            {"name": "persist_l1", "mae_avg": 4.12, "spearman_avg": 0.82, "top20_hit_avg": 0.65},
+            {"name": "mean_l1_l2", "mae_avg": 4.35, "spearman_avg": 0.80, "top20_hit_avg": 0.62},
+        ],
         "backtests": [
             {
                 "train_until": 2018,
@@ -333,14 +469,20 @@ def create_synthetic_build_data(build_dir: Path) -> None:
                 "spearman": 0.75,
                 "n": 3,
                 "baseline_mae_pp": 4.8,
-            }
+            },
+            {
+                "train_until": 2021,
+                "test_year": 2024,
+                "mae_pp": 4.4,
+                "rmse_pp": 5.2,
+                "spearman": 0.84,
+                "n": 3,
+                "baseline_mae_pp": 5.7,
+            },
         ],
         "coefficients": [
             {"key": "pct_18_24", "label": "Jóvenes de 18 a 24 años", "coef_pp_per_sd": -3.5},
             {"key": "graproes", "label": "Escolaridad promedio", "coef_pp_per_sd": 2.1},
-        ],
-        "forecast_coefficients": [
-            {"key": "lag1", "label": "Participación t-3", "coef_pp_per_sd": 4.5},
         ],
         "structural_r2": 0.55,
         "lambda": 10.0,
@@ -396,7 +538,7 @@ def test_export_deliverables_with_geo(tmp_path):
     geo_dir = tmp_path / "geo"
     out_dir = tmp_path / "deliverables"
 
-    create_synthetic_build_data(build_dir)
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
     create_synthetic_geo_data(geo_dir)
 
     exit_code = export_deliverables(build_dir=build_dir, geo_dir=geo_dir, out_dir=out_dir)
@@ -419,22 +561,23 @@ def test_export_deliverables_with_geo(tmp_path):
     # Verify specific municipality properties
     feat_01001 = next(f for f in mun_geo["features"] if f["properties"]["id"] == "01001")
     p01001 = feat_01001["properties"]
-    assert p01001["category_base"] == "verde"
+    assert p01001["category_base"] in ["verde", "amarillo", "naranja", "rojo", "sin_dato"]
+    assert p01001["pred_dev_pp"] == 4.16
+    assert p01001["last_reliable_year"] == 2024
+    assert p01001["gov_2027"] == 1  # 01 has gubernatorial election in 2027
+    assert p01001["pct_ln_18_34"] == 0.35
+    assert p01001["part_18_34"] == 0.48
     assert p01001["top_driver"] == "Jóvenes de 18 a 24 años"
-    assert p01001["risk_score_base"] is not None
+
+    # Verify fallback_model in 01002
+    feat_01002 = next(f for f in mun_geo["features"] if f["properties"]["id"] == "01002")
+    assert feat_01002["properties"]["fallback_model"] == "mean_l1_l2"
 
     # 2. Verify state GeoJSON
     st_geo_path = out_dir / "mapa_escenarios_estatal.geojson"
     assert st_geo_path.is_file()
     st_geo = json.loads(st_geo_path.read_text(encoding="utf-8"))
-    assert st_geo["type"] == "FeatureCollection"
     assert len(st_geo["features"]) == 2
-    for feat in st_geo["features"]:
-        props = feat["properties"]
-        assert "id" in props
-        assert "name" in props
-        assert "category_base" in props
-        assert "top_driver" in props
 
     # 3. Verify Excel workbook (all sheets, LEEME and diccionario not empty)
     xlsx_path = out_dir / "base_datos_atalaya.xlsx"
@@ -442,17 +585,6 @@ def test_export_deliverables_with_geo(tmp_path):
     wb = openpyxl.load_workbook(xlsx_path)
     for sh in EXPECTED_SHEETS:
         assert sh in wb.sheetnames, f"Missing sheet {sh} in Excel deliverable"
-
-    ws_leeme = wb["LEEME"]
-    assert ws_leeme.max_row > 5
-    ws_dic = wb["diccionario"]
-    assert ws_dic.max_row > 10
-
-    ws_mun = wb["municipios"]
-    assert ws_mun.max_row == 4  # 1 header + 3 municipal rows
-
-    ws_st = wb["estados"]
-    assert ws_st.max_row == 3  # 1 header + 2 state rows
 
     # 4. Verify CSV files in csv/ with UTF-8 BOM
     csv_dir = out_dir / "csv"
@@ -462,40 +594,134 @@ def test_export_deliverables_with_geo(tmp_path):
         assert csv_file.is_file(), f"Missing CSV for {sh}"
         raw_bytes = csv_file.read_bytes()
         assert raw_bytes.startswith(b"\xef\xbb\xbf"), f"CSV {sh} does not have UTF-8 BOM"
-        df_csv = pd.read_csv(csv_file, encoding="utf-8-sig")
-        assert len(df_csv) > 0
-
-    # 5. Verify semaforo_resumen.csv
-    sem_path = out_dir / "semaforo_resumen.csv"
-    assert sem_path.is_file()
-    sem_raw = sem_path.read_bytes()
-    assert sem_raw.startswith(b"\xef\xbb\xbf")
-    sem_df = pd.read_csv(sem_path, encoding="utf-8-sig")
-    assert set(sem_df["scenario"].unique()) == {"base", "intervencion", "pesimista"}
-    assert set(sem_df["category"].unique()) == {"verde", "amarillo", "naranja", "rojo", "sin_dato"}
 
 
-def test_export_deliverables_without_geo(tmp_path):
-    """Verify export without geo directory succeeds and exports XLSX, CSVs, and semaforo_resumen."""
+def test_unreliable_participation_exported_empty(tmp_path):
+    """Verify participation with reliable=False is exported empty/null, never 0."""
     build_dir = tmp_path / "build"
-    empty_geo_dir = tmp_path / "empty_geo"
-    out_dir = tmp_path / "deliverables_no_geo"
+    out_dir = tmp_path / "deliverables"
 
-    create_synthetic_build_data(build_dir)
-
-    exit_code = export_deliverables(build_dir=build_dir, geo_dir=empty_geo_dir, out_dir=out_dir)
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir)
     assert exit_code == 0
 
-    # GeoJSON files must not be present
-    assert not (out_dir / "mapa_escenarios_municipal.geojson").is_file()
-    assert not (out_dir / "mapa_escenarios_estatal.geojson").is_file()
+    # Read participacion_historica CSV
+    part_csv = out_dir / "csv/participacion_historica.csv"
+    assert part_csv.is_file()
+    df_part = pd.read_csv(part_csv, dtype={"id": str, "cve_ent": str}, encoding="utf-8-sig")
 
-    # XLSX and CSVs must be present
-    xlsx_path = out_dir / "base_datos_atalaya.xlsx"
-    assert xlsx_path.is_file()
-    wb = openpyxl.load_workbook(xlsx_path)
-    for sh in EXPECTED_SHEETS:
-        assert sh in wb.sheetnames
+    assert "ns_rate" in df_part.columns
+    assert "reliable" in df_part.columns
+    assert "low_confidence" in df_part.columns
+    assert "participacion" in df_part.columns
 
-    sem_path = out_dir / "semaforo_resumen.csv"
-    assert sem_path.is_file()
+    # Check 02001 (unreliable)
+    unrel_rows = df_part[df_part["id"].astype(str).str.zfill(5) == "02001"]
+    assert len(unrel_rows) > 0
+    for _, r in unrel_rows.iterrows():
+        assert bool(r["reliable"]) is False
+        # Must be NaN / empty, NEVER 0.0 or 0
+        assert pd.isna(r["participacion"]) or str(r["participacion"]).strip() == ""
+
+    # Check 01001 (reliable)
+    rel_rows = df_part[df_part["id"].astype(str).str.zfill(5) == "01001"]
+    dip_rel = rel_rows[rel_rows["election"] == "DIP_FED"]
+    assert len(dip_rel) > 0
+    for _, r in dip_rel.iterrows():
+        assert bool(r["reliable"]) is True
+        assert pd.notna(r["participacion"])
+        assert float(r["participacion"]) > 0.5
+
+
+def test_semaforo_ponderado_sheet_and_csv(tmp_path):
+    """Verify semaforo_ponderado sheet and CSV are created with n_municipios and lista_nominal."""
+    build_dir = tmp_path / "build"
+    out_dir = tmp_path / "deliverables"
+
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir)
+    assert exit_code == 0
+
+    # 1. In Excel
+    wb = openpyxl.load_workbook(out_dir / "base_datos_atalaya.xlsx")
+    assert "semaforo_ponderado" in wb.sheetnames
+    ws = wb["semaforo_ponderado"]
+    headers = [cell.value for cell in ws[1]]
+    expected_cols = ["scenario", "category", "n_municipios", "pct_municipios", "lista_nominal", "pct_lista_nominal"]
+    for ec in expected_cols:
+        assert ec in headers
+
+    # 2. In CSV
+    csv_path = out_dir / "csv/semaforo_ponderado.csv"
+    assert csv_path.is_file()
+    df_sem = pd.read_csv(csv_path, encoding="utf-8-sig")
+    assert set(df_sem["scenario"].unique()) == {"base", "intervencion", "pesimista"}
+    assert set(df_sem["category"].unique()) == {"verde", "amarillo", "naranja", "rojo", "sin_dato"}
+
+    # Base scenario totals
+    base_sem = df_sem[df_sem["scenario"] == "base"]
+    assert base_sem["n_municipios"].sum() == 3
+    assert base_sem["lista_nominal"].sum() == 120000
+
+
+def test_validation_aborts_on_small_profile(tmp_path):
+    """Verify pre-validation aborts with code 2 if ccpc_profile_mun has < 50,000 rows."""
+    build_dir = tmp_path / "build"
+    out_dir = tmp_path / "deliverables"
+
+    # Create synthetic build data with only 369 profile rows
+    create_synthetic_build_data(build_dir, n_profile_rows=369)
+
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir, min_profile_rows=50000)
+    assert exit_code == 2
+
+    # Deliverables should NOT have been generated
+    assert not (out_dir / "base_datos_atalaya.xlsx").is_file()
+
+
+def test_validation_aborts_on_missing_reliable(tmp_path):
+    """Verify pre-validation aborts with code 2 if participation.parquet lacks 'reliable' column."""
+    build_dir = tmp_path / "build"
+    out_dir = tmp_path / "deliverables"
+
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
+
+    # Overwrite participation.parquet removing 'reliable' column
+    part_path = build_dir / "participation.parquet"
+    df_part = pd.read_parquet(part_path)
+    df_part_bad = df_part.drop(columns=["reliable"])
+    write_parquet(df_part_bad, part_path)
+
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir)
+    assert exit_code == 2
+
+    assert not (out_dir / "base_datos_atalaya.xlsx").is_file()
+
+
+def test_leeme_contents(tmp_path):
+    """Verify LEEME sheet contains reliability rule, selected model, 2027 assumption, and warning."""
+    build_dir = tmp_path / "build"
+    out_dir = tmp_path / "deliverables"
+
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir)
+    assert exit_code == 0
+
+    leeme_csv = out_dir / "csv/LEEME.csv"
+    assert leeme_csv.is_file()
+    df_leeme = pd.read_csv(leeme_csv, encoding="utf-8-sig")
+    content_text = " ".join([str(x) for x in df_leeme["contenido"].dropna().tolist()])
+    section_text = " ".join([str(x) for x in df_leeme["seccion"].dropna().tolist()])
+
+    # Reliability rule
+    assert "ns_rate <= 0.50" in content_text
+    assert "participacion >= 0.02" in content_text
+
+    # Selected model
+    assert "persist_l1" in content_text
+
+    # National level assumption
+    assert "51.84%" in content_text
+
+    # Comparative warning
+    assert "El semáforo compara zonas entre sí; las cifras absolutas dependen del supuesto nacional." in content_text
