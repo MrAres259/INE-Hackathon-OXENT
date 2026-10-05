@@ -69,6 +69,13 @@ def api_test_env(tmp_path: Path, monkeypatch):
         "volatility_pp": [4.0, 3.0, 2.0, 3.7, 2.0],
         "risk_score": [78.0, 58.0, np.nan, 72.0, 30.0],
         "category": ["rojo", "naranja", "sin_dato", "naranja", "verde"],
+        "vulnerability_pp": [3.5, 1.2, np.nan, 2.8, -1.5],
+        "abstencion_esperada": [140000, 50400, 112000, 190400, 112000],
+        "prioridad": [1, 2, None, None, None],
+        "r_abs": [80.0, 60.0, np.nan, 75.0, 30.0],
+        "r_vuln": [70.0, 50.0, np.nan, 65.0, 25.0],
+        "r_trend": [75.0, 55.0, np.nan, 70.0, 28.0],
+        "r_vol": [85.0, 65.0, np.nan, 78.0, 35.0],
     }
     pd.DataFrame(units_data).to_parquet(build_dir / "units.parquet", index=False)
 
@@ -559,5 +566,217 @@ def test_metrics_passthrough_f3a_keys(tmp_path: Path, monkeypatch):
         assert m["excluded_unreliable"] == 71
         assert m["drivers_low_confidence"] is False
         assert len(m["candidates"]) == 2
+
+
+def test_ranking_sort_prioridad_and_abstencion_esperada(tmp_path: Path, monkeypatch):
+    """Verify /api/ranking supports ?sort=prioridad (asc, rojo/naranja) and ?sort=abstencion_esperada (desc)."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    units_data = {
+        "id": ["01001", "01002", "01003", "01004"],
+        "level": ["mun", "mun", "mun", "mun"],
+        "cve_ent": ["01", "01", "01", "01"],
+        "cvegeo": ["01001", "01002", "01003", "01004"],
+        "name": ["Mun 1", "Mun 2", "Mun 3", "Mun 4"],
+        "category": ["rojo", "naranja", "verde", "rojo"],
+        "risk_score": [80.0, 60.0, 30.0, 85.0],
+        "abstencion_esperada": [50000, 30000, 10000, 70000],
+        "prioridad": [2, 3, None, 1],
+        "vulnerability_pp": [5.2, 1.4, -2.1, 8.0],
+        "r_abs": [85.0, 62.0, 31.0, 88.0],
+        "r_vuln": [70.0, 50.0, 20.0, 90.0],
+        "r_trend": [60.0, 45.0, 15.0, 65.0],
+        "r_vol": [55.0, 40.0, 10.0, 60.0],
+        "lista_nominal": [100000, 80000, 50000, 120000],
+        "last_year": [2024, 2024, 2024, 2024],
+        "last_participation": [0.5, 0.55, 0.7, 0.45],
+        "pred_participation": [0.5, 0.55, 0.7, 0.45],
+        "pred_abstention": [0.5, 0.45, 0.3, 0.55],
+        "trend_pp": [-1.0, -0.5, 1.0, -2.0],
+    }
+    pd.DataFrame(units_data).to_parquet(build_dir / "units.parquet", index=False)
+    (seed_dir / "states.csv").write_text("cve_ent,name\n01,Aguascalientes\n", encoding="utf-8")
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    monkeypatch.setattr("atalaya.api.routes.get_store", lambda: store)
+    monkeypatch.setattr("atalaya.api.deps.get_store", lambda: store)
+    reload_all()
+
+    with TestClient(app) as tc:
+        # 1. sort=prioridad (ascending 1..N, only rojo/naranja)
+        resp_prio = tc.get("/api/ranking?sort=prioridad")
+        assert resp_prio.status_code == 200
+        items_prio = resp_prio.json()["items"]
+        assert len(items_prio) == 3  # Mun 4 (prio 1), Mun 1 (prio 2), Mun 2 (prio 3). Mun 3 is verde (prio None)
+        assert items_prio[0]["id"] == "01004"
+        assert items_prio[0]["prioridad"] == 1
+        assert items_prio[1]["id"] == "01001"
+        assert items_prio[1]["prioridad"] == 2
+        assert items_prio[2]["id"] == "01002"
+        assert items_prio[2]["prioridad"] == 3
+
+        # Check risk fields and risk_components
+        assert items_prio[0]["vulnerability_pp"] == 8.0
+        assert items_prio[0]["abstencion_esperada"] == 70000
+        assert items_prio[0]["risk_components"] == {
+            "r_abs": 88.0,
+            "r_vuln": 90.0,
+            "r_trend": 65.0,
+            "r_vol": 60.0,
+        }
+
+        # 2. sort=abstencion_esperada (descending)
+        resp_abs = tc.get("/api/ranking?sort=abstencion_esperada")
+        assert resp_abs.status_code == 200
+        items_abs = resp_abs.json()["items"]
+        assert items_abs[0]["id"] == "01004"  # 70000
+        assert items_abs[1]["id"] == "01001"  # 50000
+        assert items_abs[2]["id"] == "01002"  # 30000
+        assert items_abs[3]["id"] == "01003"  # 10000
+
+
+def test_api_privacy_profile_small_cells_and_nonbinary(tmp_path: Path, monkeypatch):
+    """Verify privacy constraints on /api/region:
+    1. Municipal profile drops sexo='X'.
+    2. Small cells with LN < 10 have ln=None, participation=None, suprimido=True.
+    3. No response exposes raw counts < 10 for age x sex x municipality cells.
+    4. State profile retains sexo='X' but suppresses LN < 10 cells.
+    """
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    units_data = {
+        "id": ["01001", "01"],
+        "level": ["mun", "state"],
+        "cve_ent": ["01", "01"],
+        "cve_mun": ["001", ""],
+        "cvegeo": ["01001", "01"],
+        "name": ["Municipio Pequeno", "Aguascalientes"],
+        "category": ["rojo", "amarillo"],
+        "lista_nominal": [5000, 1000000],
+        "last_year": [2024, 2024],
+        "last_participation": [0.5, 0.55],
+        "pred_participation": [0.5, 0.55],
+        "pred_abstention": [0.5, 0.45],
+        "risk_score": [75.0, 50.0],
+    }
+    pd.DataFrame(units_data).to_parquet(build_dir / "units.parquet", index=False)
+    (seed_dir / "states.csv").write_text("cve_ent,name\n01,Aguascalientes\n", encoding="utf-8")
+
+    # Demographic profile data with small cells and nonbinary
+    prof_data = [
+        # Mun 01001 cells
+        {"cvegeo": "01001", "cve_ent": "01", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 150, "sv": 90, "nv": 60, "ns": 0, "participacion": 0.60},
+        {"cvegeo": "01001", "cve_ent": "01", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "M", "ln": 5, "sv": 3, "nv": 2, "ns": 0, "participacion": 0.60},  # LN < 10!
+        {"cvegeo": "01001", "cve_ent": "01", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "X", "ln": 2, "sv": 1, "nv": 1, "ns": 0, "participacion": 0.50},  # Nonbinary municipal!
+        # Judicial election 2025
+        {"cvegeo": "01001", "cve_ent": "01", "year": 2025, "election": "PJF", "age_group": "18-24", "sexo": "H", "ln": 150, "sv": 30, "nv": 120, "ns": 0, "participacion": 0.20},
+        {"cvegeo": "01001", "cve_ent": "01", "year": 2025, "election": "PJF", "age_group": "18-24", "sexo": "M", "ln": 4, "sv": 1, "nv": 3, "ns": 0, "participacion": 0.25},  # LN < 10!
+        {"cvegeo": "01001", "cve_ent": "01", "year": 2025, "election": "PJF", "age_group": "18-24", "sexo": "X", "ln": 1, "sv": 0, "nv": 1, "ns": 0, "participacion": 0.0},
+        # Another mun in state 01 so state sums work
+        {"cvegeo": "01002", "cve_ent": "01", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "X", "ln": 18, "sv": 10, "nv": 8, "ns": 0, "participacion": 0.55},
+        {"cvegeo": "01002", "cve_ent": "01", "year": 2024, "election": "DIP_FED", "age_group": "65+", "sexo": "X", "ln": 3, "sv": 1, "nv": 2, "ns": 0, "participacion": 0.33},
+    ]
+    pd.DataFrame(prof_data).to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    monkeypatch.setattr("atalaya.api.routes.get_store", lambda: store)
+    monkeypatch.setattr("atalaya.api.deps.get_store", lambda: store)
+    reload_all()
+
+    with TestClient(app) as tc:
+        # A. Municipal endpoint
+        resp_mun = tc.get("/api/region/01001")
+        assert resp_mun.status_code == 200
+        mun_detail = resp_mun.json()
+
+        # Check 1: No sexo == "X" at municipal level
+        mun_sexes_profile = [r["sexo"] for r in mun_detail["profile"]]
+        assert "X" not in mun_sexes_profile
+        mun_sexes_pj = [r["sexo"] for r in mun_detail["profile_pj"]]
+        assert "X" not in mun_sexes_pj
+
+        # Check 2: LN < 10 suppressed
+        m_row = next(r for r in mun_detail["profile"] if r["age_group"] == "18-24" and r["sexo"] == "M")
+        assert m_row["suprimido"] is True
+        assert m_row["ln"] is None
+        assert m_row["participation"] is None
+
+        # Check unsuppressed cell
+        h_row = next(r for r in mun_detail["profile"] if r["age_group"] == "18-24" and r["sexo"] == "H")
+        assert h_row["suprimido"] is False
+        assert h_row["ln"] == 150
+        assert h_row["participation"] == 0.60
+
+        # Check profile_pj suppression
+        m_pj = next(r for r in mun_detail["profile_pj"] if r["age_group"] == "18-24" and r["sexo"] == "M")
+        assert m_pj["suprimido"] is True
+        assert m_pj["ln"] is None
+        assert m_pj["participation"] is None
+
+        # Check 3: Zero responses expose counts < 10 for age x sex x municipality
+        for item in mun_detail["profile"] + mun_detail["profile_pj"]:
+            if item.get("ln") is not None:
+                assert item["ln"] >= 10, f"Exposed small cell count: {item}"
+
+        # B. State endpoint
+        resp_state = tc.get("/api/region/01")
+        assert resp_state.status_code == 200
+        st_detail = resp_state.json()
+
+        # State level retains sexo == "X" (18-24 has 2 + 18 = 20 electors >= 10)
+        st_x_rows = [r for r in st_detail["profile"] if r["sexo"] == "X"]
+        assert len(st_x_rows) >= 1
+        st_x_18 = next(r for r in st_x_rows if r["age_group"] == "18-24")
+        assert st_x_18["suprimido"] is False
+        assert st_x_18["ln"] == 20
+
+        # State cell with total LN < 10 is suppressed (65+ has 3 electors)
+        st_x_65 = next((r for r in st_x_rows if r["age_group"] == "65+"), None)
+        if st_x_65:
+            assert st_x_65["suprimido"] is True
+            assert st_x_65["ln"] is None
+
+
+def test_metrics_passthrough_w4a_keys(tmp_path: Path, monkeypatch):
+    """Verify /api/metrics passes through all structural and calibration metrics from W4-A."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    metrics_w4a = {
+        "target_year": 2027,
+        "selected_model": "persist_l1",
+        "national_level_assumption": 51.84,
+        "structural_r2": 0.30,
+        "structural_r2_within_state": 0.27,
+        "structural_r2_state_cv": -0.04,
+        "between_state_share": 0.47,
+        "calibration_pp": -0.70,
+        "drivers_low_confidence": False,
+        "generated_at": "2026-10-05T12:00:00Z",
+    }
+    (build_dir / "metrics.json").write_text(json.dumps(metrics_w4a), encoding="utf-8")
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    monkeypatch.setattr("atalaya.api.routes.get_store", lambda: store)
+    monkeypatch.setattr("atalaya.api.deps.get_store", lambda: store)
+    reload_all()
+
+    with TestClient(app) as tc:
+        resp = tc.get("/api/metrics")
+        assert resp.status_code == 200
+        m = resp.json()
+        assert m["structural_r2_within_state"] == 0.27
+        assert m["structural_r2_state_cv"] == -0.04
+        assert m["between_state_share"] == 0.47
+        assert m["calibration_pp"] == -0.70
+
 
 

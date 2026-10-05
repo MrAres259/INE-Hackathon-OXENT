@@ -139,6 +139,46 @@ export function getMockRegionDetail(id: string, scenario: ScenarioId = "base"): 
     },
   ];
 
+  // 6. CCPC Profile (Age x Sex for 2009 and 2024)
+  const profile = [
+    // 2024
+    { year: 2024, age_group: "18-24", sexo: "M", ln: Math.round(nominal * 0.08), participation: 0.542 },
+    { year: 2024, age_group: "18-24", sexo: "H", ln: Math.round(nominal * 0.08), participation: 0.478 },
+    { year: 2024, age_group: "25-34", sexo: "M", ln: Math.round(nominal * 0.11), participation: 0.512 },
+    { year: 2024, age_group: "25-34", sexo: "H", ln: Math.round(nominal * 0.11), participation: 0.463 },
+    { year: 2024, age_group: "35-44", sexo: "M", ln: Math.round(nominal * 0.10), participation: 0.598 },
+    { year: 2024, age_group: "35-44", sexo: "H", ln: Math.round(nominal * 0.10), participation: 0.541 },
+    { year: 2024, age_group: "45-54", sexo: "M", ln: Math.round(nominal * 0.09), participation: 0.672 },
+    { year: 2024, age_group: "45-54", sexo: "H", ln: Math.round(nominal * 0.09), participation: 0.615 },
+    { year: 2024, age_group: "55-64", sexo: "M", ln: Math.round(nominal * 0.07), participation: 0.724 },
+    { year: 2024, age_group: "55-64", sexo: "H", ln: Math.round(nominal * 0.07), participation: 0.681 },
+    { year: 2024, age_group: "65+", sexo: "M", ln: Math.round(nominal * 0.06), participation: 0.645 },
+    { year: 2024, age_group: "65+", sexo: "H", ln: Math.round(nominal * 0.06), participation: 0.628 },
+    // 2009
+    { year: 2009, age_group: "18-24", sexo: "M", ln: Math.round(nominal * 0.07), participation: 0.384 },
+    { year: 2009, age_group: "18-24", sexo: "H", ln: Math.round(nominal * 0.07), participation: 0.341 },
+    { year: 2009, age_group: "25-34", sexo: "M", ln: Math.round(nominal * 0.09), participation: 0.412 },
+    { year: 2009, age_group: "25-34", sexo: "H", ln: Math.round(nominal * 0.09), participation: 0.378 },
+    { year: 2009, age_group: "35-44", sexo: "M", ln: Math.round(nominal * 0.08), participation: 0.485 },
+    { year: 2009, age_group: "35-44", sexo: "H", ln: Math.round(nominal * 0.08), participation: 0.452 },
+    { year: 2009, age_group: "45-54", sexo: "M", ln: Math.round(nominal * 0.07), participation: 0.548 },
+    { year: 2009, age_group: "45-54", sexo: "H", ln: Math.round(nominal * 0.07), participation: 0.512 },
+    { year: 2009, age_group: "55-64", sexo: "M", ln: Math.round(nominal * 0.05), participation: 0.589 },
+    { year: 2009, age_group: "55-64", sexo: "H", ln: Math.round(nominal * 0.05), participation: 0.564 },
+    { year: 2009, age_group: "65+", sexo: "M", ln: Math.round(nominal * 0.04), participation: 0.512 },
+    { year: 2009, age_group: "65+", sexo: "H", ln: Math.round(nominal * 0.04), participation: 0.495 },
+  ];
+
+  const ccpc = {
+    pct_ln_18_34: 0.315,
+    part_18_34: 0.482,
+    gap_youth_pp: -6.4,
+    gap_sexo_pp: 3.2,
+    pct_ln_rural: isMun && (ent === "07" || ent === "20") ? 0.42 : 0.18,
+  };
+
+  const score = baseItem.risk_score ?? 50;
+
   return {
     ...baseItem,
     parent,
@@ -147,5 +187,16 @@ export function getMockRegionDetail(id: string, scenario: ScenarioId = "base"): 
     drivers,
     scenarios: scenariosComparison,
     recommendations,
+    profile,
+    ccpc,
+    pj_2025: { participation: 0.128 },
+    part_pj_2025: 0.128,
+    imputed_census: false,
+    abstencion_esperada: Math.round(baseAbs * nominal),
+    prioridad: isMun ? Math.max(1, Math.round(100 - score)) : 4,
+    r_abs: score * 0.95,
+    r_vuln: 52.8,
+    r_trend: 42.1,
+    r_vol: 36.5,
   };
 }

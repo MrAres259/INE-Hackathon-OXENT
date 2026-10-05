@@ -83,6 +83,24 @@ def _clean_int(val: Any) -> int | None:
 
 def _format_risk_item(d: dict, is_delta_allowed: bool = False) -> dict:
     ent_val = d.get("ent") or d.get("cve_ent") or ""
+
+    risk_comp = None
+    if isinstance(d.get("risk_components"), dict):
+        rc = d["risk_components"]
+        risk_comp = {
+            "r_abs": _clean_float(rc.get("r_abs")),
+            "r_vuln": _clean_float(rc.get("r_vuln")),
+            "r_trend": _clean_float(rc.get("r_trend")),
+            "r_vol": _clean_float(rc.get("r_vol")),
+        }
+    elif any(c in d and d[c] is not None and pd.notna(d[c]) for c in ("r_abs", "r_vuln", "r_trend", "r_vol")):
+        risk_comp = {
+            "r_abs": _clean_float(d.get("r_abs")),
+            "r_vuln": _clean_float(d.get("r_vuln")),
+            "r_trend": _clean_float(d.get("r_trend")),
+            "r_vol": _clean_float(d.get("r_vol")),
+        }
+
     item: dict[str, Any] = {
         "id": str(d.get("id", "")),
         "name": str(d.get("name", "")),
@@ -98,6 +116,10 @@ def _format_risk_item(d: dict, is_delta_allowed: bool = False) -> dict:
         "trend_pp": _clean_float(d.get("trend_pp")),
         "risk_score": _clean_float(d.get("risk_score")),
         "category": str(d.get("category", "sin_dato")),
+        "vulnerability_pp": _clean_float(d.get("vulnerability_pp")),
+        "abstencion_esperada": _clean_int(d.get("abstencion_esperada")),
+        "prioridad": _clean_int(d.get("prioridad")),
+        "risk_components": risk_comp,
     }
     if is_delta_allowed and "delta_vs_base_pp" in d:
         item["delta_vs_base_pp"] = _clean_float(d.get("delta_vs_base_pp"))
@@ -471,7 +493,7 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
                 if s["pred_abstention"] is not None:
                     unit_data["pred_participation"] = round(1.0 - s["pred_abstention"], 6)
 
-    # 7. CCPC profile, profile_pj, ccpc features, and imputed_census
+    raw_profile: list[dict] = []
     try:
         raw_profile = store.profile(id)
         if raw_profile:
@@ -482,12 +504,19 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
                 for r in raw_profile:
                     yr = int(r.get("year", 0))
                     if yr in target_years:
+                        if level == "mun" and str(r.get("sexo", "")).upper() == "X":
+                            continue
+                        raw_ln = _clean_int(r.get("ln"))
+                        is_sup = bool(r.get("suprimido", False)) or (raw_ln is not None and raw_ln < 10)
+                        ln_val = None if is_sup else raw_ln
+                        part_val = None if is_sup else _clean_float(r.get("participacion"))
                         prof_items.append({
                             "year": yr,
                             "age_group": str(r.get("age_group", "")),
                             "sexo": str(r.get("sexo", "")),
-                            "ln": _clean_int(r.get("ln")) or 0,
-                            "participation": _clean_float(r.get("participacion")),
+                            "ln": ln_val,
+                            "participation": part_val,
+                            "suprimido": is_sup,
                         })
                 profile_res = prof_items
             else:
@@ -504,12 +533,19 @@ def get_region(id: str, scenario: str = "base") -> dict[str, Any]:
         for r in raw_profile:
             yr = int(r.get("year", 0))
             if yr == 2025 or str(r.get("election", "")).upper() == "PJF":
+                if level == "mun" and str(r.get("sexo", "")).upper() == "X":
+                    continue
+                raw_ln = _clean_int(r.get("ln"))
+                is_sup = bool(r.get("suprimido", False)) or (raw_ln is not None and raw_ln < 10)
+                ln_val = None if is_sup else raw_ln
+                part_val = None if is_sup else _clean_float(r.get("participacion"))
                 profile_pj_res.append({
                     "year": yr,
                     "age_group": str(r.get("age_group", "")),
                     "sexo": str(r.get("sexo", "")),
-                    "ln": _clean_int(r.get("ln")) or 0,
-                    "participation": _clean_float(r.get("participacion")),
+                    "ln": ln_val,
+                    "participation": part_val,
+                    "suprimido": is_sup,
                 })
 
     # pj_2025
@@ -571,6 +607,7 @@ def get_ranking(
     ent: str | None = None,
     scenario: str = "base",
     limit: int = Query(20, ge=1, le=100),
+    sort: str = Query("risk", pattern="^(risk|abstencion_esperada|prioridad)$"),
 ) -> dict[str, Any]:
     store = get_store()
     ent_str = zpad(ent, 2) if ent else None
@@ -591,14 +628,43 @@ def get_ranking(
             df = sim_df
             is_delta = True
 
-        if df.empty or "risk_score" not in df.columns:
+        if df.empty:
             return {"items": []}
 
-        # Exclude 'sin_dato' and NaN risk scores
-        valid = df[df["category"] != "sin_dato"].copy()
-        valid["_score_num"] = pd.to_numeric(valid["risk_score"], errors="coerce")
-        valid = valid[valid["_score_num"].notna()]
-        valid = valid.sort_values(by="_score_num", ascending=False).head(limit)
+        if sort == "abstencion_esperada":
+            valid = df.copy()
+            if "abstencion_esperada" in valid.columns:
+                valid["_sort_val"] = pd.to_numeric(valid["abstencion_esperada"], errors="coerce")
+            elif "pred_abstention" in valid.columns and "lista_nominal" in valid.columns:
+                valid["_sort_val"] = pd.to_numeric(valid["pred_abstention"], errors="coerce") * pd.to_numeric(valid["lista_nominal"], errors="coerce")
+            else:
+                valid["_sort_val"] = np.nan
+            valid = valid[valid["_sort_val"].notna()]
+            valid = valid.sort_values(by="_sort_val", ascending=False).head(limit)
+        elif sort == "prioridad":
+            valid = df.copy()
+            if "prioridad" in valid.columns and valid["prioridad"].notna().any():
+                valid["_sort_val"] = pd.to_numeric(valid["prioridad"], errors="coerce")
+                valid = valid[valid["_sort_val"].notna()]
+                valid = valid.sort_values(by="_sort_val", ascending=True).head(limit)
+            else:
+                valid = valid[valid["category"].isin(["rojo", "naranja"])].copy()
+                if "abstencion_esperada" in valid.columns:
+                    valid["_sort_val"] = pd.to_numeric(valid["abstencion_esperada"], errors="coerce")
+                elif "pred_abstention" in valid.columns and "lista_nominal" in valid.columns:
+                    valid["_sort_val"] = pd.to_numeric(valid["pred_abstention"], errors="coerce") * pd.to_numeric(valid["lista_nominal"], errors="coerce")
+                else:
+                    valid["_sort_val"] = np.nan
+                valid = valid[valid["_sort_val"].notna()]
+                valid = valid.sort_values(by="_sort_val", ascending=False).head(limit)
+                valid["prioridad"] = range(1, len(valid) + 1)
+        else:
+            if "risk_score" not in df.columns:
+                return {"items": []}
+            valid = df[df["category"] != "sin_dato"].copy()
+            valid["_score_num"] = pd.to_numeric(valid["risk_score"], errors="coerce")
+            valid = valid[valid["_score_num"].notna()]
+            valid = valid.sort_values(by="_score_num", ascending=False).head(limit)
 
         items = [_format_risk_item(r.to_dict(), is_delta_allowed=is_delta) for _, r in valid.iterrows()]
         return {"items": items}
@@ -622,6 +688,10 @@ def get_metrics() -> dict[str, Any]:
         "train_years": [],
         "backtests": [],
         "coefficients": [],
+        "structural_r2_within_state": None,
+        "structural_r2_state_cv": None,
+        "between_state_share": None,
+        "calibration_pp": None,
         "generated_at": "",
         "data_sources": [],
     }

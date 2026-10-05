@@ -8,10 +8,14 @@ from typing import Any
 
 import pandas as pd
 
-from atalaya.chat.spec import QuerySpec
+from atalaya.chat.spec import CORE_CATALOG_KEYS, QuerySpec, get_catalog_keys
 from atalaya.config import SEED_DIR
 from atalaya.ingest.common import norm_name, zpad
 from atalaya import llm
+
+# Ensure W4-A final metric keys are recognized by QuerySpec validator
+CORE_CATALOG_KEYS.update({"prioridad", "abstencion_esperada", "vulnerability_pp"})
+get_catalog_keys.cache_clear()
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,12 @@ class PlanResult(tuple):
 def _extract_metric_candidate(text: str, target_future: bool = False) -> str | None:
     """Extract candidate catalog metric key from text snippet."""
     t = text.lower()
+    if re.search(r"priorizar|prioridad|priorizaci[oó]n", t):
+        return "prioridad"
+    if re.search(r"abstencionistas?\s+esperad[oa]s?|abstenci[oó]n\s+esperada", t):
+        return "abstencion_esperada"
+    if re.search(r"vulnerabilidad(?:\s+estructural)?", t):
+        return "vulnerability_pp"
     if re.search(r"riesgo|sem[aá]foro", t):
         return "risk_score"
     if re.search(r"brecha\s+(?:de\s+)?participaci[oó]n\s+juvenil", t):
@@ -157,7 +167,8 @@ def _build_llm_system_prompt() -> str:
         "2. Usa ÚNICAMENTE claves de métricas válidas del catálogo: participacion, abstencion, lista_nominal, "
         "votos_totales, pred_abstention, risk_score, category, trend_pp, pob_tot, pob_18ymas, pct_18_24, "
         "pct_65ymas, graproes, pct_hli, pct_sin_servsalud, pct_internet, pct_rural, pct_analfabeta, "
-        "pct_po2sm, im_2020, gm_2020, pct_ln_18_34, part_18_34, gap_youth_pp, gap_sexo_pp, pct_ln_rural, ns_rate, part_pj_2025 "
+        "pct_po2sm, im_2020, gm_2020, pct_ln_18_34, part_18_34, gap_youth_pp, gap_sexo_pp, pct_ln_rural, ns_rate, part_pj_2025, "
+        "prioridad, abstencion_esperada, vulnerability_pp "
         "(o columnas anchas part_dip_<año>/abst_dip_<año>).\n"
         "3. Claves de entidad (cve_ent):\n"
         f"{states_list}\n"
@@ -241,10 +252,22 @@ def _plan_rules(
     # 3. Intent detection
     intent: str | None = None
     explicit_intent_found = False
+    metric: str | None = None
+    explicit_metric_found = False
 
     if re.search(r"qu[eé]\s+pasa\s+si|escenario|intervenci[oó]n|si\s+hacemos|pesimista|simula(?:r)?", text_lower):
         intent = "scenario"
         explicit_intent_found = True
+    elif re.search(r"d[oó]nde\s+(?:conviene\s+)?priorizar|priorizar\s+(?:los\s+)?recursos|prioridad\s+de\s+recursos|mayor\s+prioridad", text_lower):
+        intent = "ranking"
+        metric = "prioridad"
+        explicit_intent_found = True
+        explicit_metric_found = True
+    elif re.search(r"abstencionistas?\s+esperad[oa]s?|m[aá]s\s+abstencionistas|mayor\s+abstenci[oó]n\s+esperada", text_lower):
+        intent = "ranking"
+        metric = "abstencion_esperada"
+        explicit_intent_found = True
+        explicit_metric_found = True
     elif re.search(r"por\s+qu[eé]|factores|recomendaci[oó]n|recomendaciones|qu[eé]\s+recomiendas?", text_lower):
         intent = "explain_unit"
         explicit_intent_found = True
@@ -273,73 +296,83 @@ def _plan_rules(
         explicit_intent_found = True
 
     # 4. Metric detection
-    metric = "risk_score" if target_future else "participacion"
-    explicit_metric_found = False
+    if not explicit_metric_found:
+        metric = "risk_score" if target_future else "participacion"
     x_metric: str | None = None
 
-    if re.search(r"brecha\s+(?:de\s+)?participaci[oó]n\s+juvenil", text_lower):
-        metric = "gap_youth_pp"
-        explicit_metric_found = True
-    elif re.search(r"brecha\s+(?:de\s+)?g[eé]nero|mujeres\s+(?:vs\.?|contra|y|frente\s+a)\s+hombres|hombres\s+(?:vs\.?|contra|y|frente\s+a)\s+mujeres", text_lower):
-        metric = "gap_sexo_pp"
-        explicit_metric_found = True
-    elif re.search(r"participaci[oó]n\s+(?:de\s+)?j[oó]venes|participaci[oó]n\s+juvenil|voto\s+juvenil", text_lower):
-        metric = "part_18_34"
-        explicit_metric_found = True
-    elif re.search(r"elecci[oó]n\s+judicial|poder\s+judicial|judicial\s+2025", text_lower):
-        metric = "part_pj_2025"
-        explicit_metric_found = True
-    elif re.search(r"riesgo|sem[aá]foro", text_lower):
-        metric = "risk_score"
-        explicit_metric_found = True
-    elif re.search(r"abstenci[oó]n", text_lower):
-        metric = "pred_abstention" if target_future else "abstencion"
-        explicit_metric_found = True
-    elif re.search(r"participaci[oó]n", text_lower):
-        metric = "pred_participation" if target_future else "participacion"
-        explicit_metric_found = True
-    elif re.search(r"j[oó]venes|juventud|18\s+a\s+24|voto\s+joven", text_lower):
-        metric = "pct_18_24"
-        explicit_metric_found = True
-    elif re.search(r"adultos\s+mayores|65\s+y\s+m[aá]s", text_lower):
-        metric = "pct_65ymas"
-        explicit_metric_found = True
-    elif re.search(r"escolaridad|educaci[oó]n|estudios|graproes", text_lower):
-        metric = "graproes"
-        explicit_metric_found = True
-    elif re.search(r"ind[ií]gena|lengua\s+ind[ií]gena|hli", text_lower):
-        metric = "pct_hli"
-        explicit_metric_found = True
-    elif re.search(r"salud|servicios\s+de\s+salud|sin\s+seguro", text_lower):
-        metric = "pct_sin_servsalud"
-        explicit_metric_found = True
-    elif re.search(r"internet|conectividad", text_lower):
-        metric = "pct_internet"
-        explicit_metric_found = True
-    elif re.search(r"marginaci[oó]n", text_lower):
-        metric = "im_2020"
-        explicit_metric_found = True
-    elif re.search(r"rural|campo", text_lower):
-        metric = "pct_rural"
-        explicit_metric_found = True
-    elif re.search(r"analfabeta|analfabetismo", text_lower):
-        metric = "pct_analfabeta"
-        explicit_metric_found = True
-    elif re.search(r"ingresos\s+bajos|salarios\s+m[ií]nimos", text_lower):
-        metric = "pct_po2sm"
-        explicit_metric_found = True
-    elif re.search(r"lista\s+nominal|padr[oó]n", text_lower):
-        metric = "lista_nominal"
-        explicit_metric_found = True
-    elif re.search(r"votos\s+totales", text_lower):
-        metric = "votos_totales"
-        explicit_metric_found = True
-    elif re.search(r"poblaci[oó]n\s+total|habitantes", text_lower):
-        metric = "pob_tot"
-        explicit_metric_found = True
-    elif re.search(r"poblaci[oó]n\s+de\s+18|poblaci[oó]n\s+18|edad\s+de\s+votar", text_lower):
-        metric = "pob_18ymas"
-        explicit_metric_found = True
+    if not explicit_metric_found:
+        if re.search(r"priorizar|prioridad|priorizaci[oó]n", text_lower):
+            metric = "prioridad"
+            explicit_metric_found = True
+        elif re.search(r"abstencionistas?\s+esperad[oa]s?|abstenci[oó]n\s+esperada", text_lower):
+            metric = "abstencion_esperada"
+            explicit_metric_found = True
+        elif re.search(r"vulnerabilidad(?:\s+estructural)?", text_lower):
+            metric = "vulnerability_pp"
+            explicit_metric_found = True
+        elif re.search(r"brecha\s+(?:de\s+)?participaci[oó]n\s+juvenil", text_lower):
+            metric = "gap_youth_pp"
+            explicit_metric_found = True
+        elif re.search(r"brecha\s+(?:de\s+)?g[eé]nero|mujeres\s+(?:vs\.?|contra|y|frente\s+a)\s+hombres|hombres\s+(?:vs\.?|contra|y|frente\s+a)\s+mujeres", text_lower):
+            metric = "gap_sexo_pp"
+            explicit_metric_found = True
+        elif re.search(r"participaci[oó]n\s+(?:de\s+)?j[oó]venes|participaci[oó]n\s+juvenil|voto\s+juvenil", text_lower):
+            metric = "part_18_34"
+            explicit_metric_found = True
+        elif re.search(r"elecci[oó]n\s+judicial|poder\s+judicial|judicial\s+2025", text_lower):
+            metric = "part_pj_2025"
+            explicit_metric_found = True
+        elif re.search(r"riesgo|sem[aá]foro", text_lower):
+            metric = "risk_score"
+            explicit_metric_found = True
+        elif re.search(r"abstenci[oó]n", text_lower):
+            metric = "pred_abstention" if target_future else "abstencion"
+            explicit_metric_found = True
+        elif re.search(r"participaci[oó]n", text_lower):
+            metric = "pred_participation" if target_future else "participacion"
+            explicit_metric_found = True
+        elif re.search(r"j[oó]venes|juventud|18\s+a\s+24|voto\s+joven", text_lower):
+            metric = "pct_18_24"
+            explicit_metric_found = True
+        elif re.search(r"adultos\s+mayores|65\s+y\s+m[aá]s", text_lower):
+            metric = "pct_65ymas"
+            explicit_metric_found = True
+        elif re.search(r"escolaridad|educaci[oó]n|estudios|graproes", text_lower):
+            metric = "graproes"
+            explicit_metric_found = True
+        elif re.search(r"ind[ií]gena|lengua\s+ind[ií]gena|hli", text_lower):
+            metric = "pct_hli"
+            explicit_metric_found = True
+        elif re.search(r"salud|servicios\s+de\s+salud|sin\s+seguro", text_lower):
+            metric = "pct_sin_servsalud"
+            explicit_metric_found = True
+        elif re.search(r"internet|conectividad", text_lower):
+            metric = "pct_internet"
+            explicit_metric_found = True
+        elif re.search(r"marginaci[oó]n", text_lower):
+            metric = "im_2020"
+            explicit_metric_found = True
+        elif re.search(r"rural|campo", text_lower):
+            metric = "pct_rural"
+            explicit_metric_found = True
+        elif re.search(r"analfabeta|analfabetismo", text_lower):
+            metric = "pct_analfabeta"
+            explicit_metric_found = True
+        elif re.search(r"ingresos\s+bajos|salarios\s+m[ií]nimos", text_lower):
+            metric = "pct_po2sm"
+            explicit_metric_found = True
+        elif re.search(r"lista\s+nominal|padr[oó]n", text_lower):
+            metric = "lista_nominal"
+            explicit_metric_found = True
+        elif re.search(r"votos\s+totales", text_lower):
+            metric = "votos_totales"
+            explicit_metric_found = True
+        elif re.search(r"poblaci[oó]n\s+total|habitantes", text_lower):
+            metric = "pob_tot"
+            explicit_metric_found = True
+        elif re.search(r"poblaci[oó]n\s+de\s+18|poblaci[oó]n\s+18|edad\s+de\s+votar", text_lower):
+            metric = "pob_18ymas"
+            explicit_metric_found = True
 
     # Specific handling for correlation intent
     if intent == "correlation":
@@ -488,7 +521,9 @@ def _plan_rules(
             pass
 
     order: str = "desc"
-    if re.search(r"menor|m[aá]s\s+baja?|peores|bajo", text_lower):
+    if metric == "prioridad":
+        order = "asc"
+    elif re.search(r"menor|m[aá]s\s+baja?|peores|bajo", text_lower):
         order = "asc"
 
     # Evaluate confidence

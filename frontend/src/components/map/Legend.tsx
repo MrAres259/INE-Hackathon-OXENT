@@ -8,7 +8,7 @@ import type { Category } from "@/lib/types";
 export function Legend() {
   const { meta, riskItems, simulationResult, scenario } = useAtalaya();
 
-  // Compute category counts
+  // Compute category counts & nominal list sums
   const counts: Record<Category, number> = {
     verde: 0,
     amarillo: 0,
@@ -16,6 +16,23 @@ export function Legend() {
     rojo: 0,
     sin_dato: 0,
   };
+
+  const lnByCategory: Record<Category, number> = {
+    verde: 0,
+    amarillo: 0,
+    naranja: 0,
+    rojo: 0,
+    sin_dato: 0,
+  };
+
+  let totalLn = 0;
+  for (const item of riskItems) {
+    const ln = item.lista_nominal ?? 0;
+    totalLn += ln;
+    if (item.category in lnByCategory) {
+      lnByCategory[item.category] += ln;
+    }
+  }
 
   if (scenario === "intervencion" && simulationResult?.summary?.by_category) {
     Object.assign(counts, simulationResult.summary.by_category);
@@ -36,7 +53,7 @@ export function Legend() {
   ];
 
   return (
-    <div className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl p-3 shadow-lg text-white max-w-xs">
+    <div className="bg-slate-900/95 backdrop-blur-sm border border-slate-800 rounded-xl p-3 shadow-lg text-white max-w-sm">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
           Semáforo de Riesgo 2027
@@ -50,6 +67,8 @@ export function Legend() {
         {categories.map((cat) => {
           const color = CATEGORY_COLORS[cat.id] ?? "#bdbdbd";
           const count = counts[cat.id] ?? 0;
+          const catLn = lnByCategory[cat.id] ?? 0;
+          const pctLn = totalLn > 0 ? (catLn / totalLn) * 100 : 0;
 
           return (
             <div key={cat.id} className="flex items-center justify-between text-xs gap-2">
@@ -65,9 +84,17 @@ export function Legend() {
                   ({cat.rule})
                 </span>
               </div>
-              <span className="font-mono font-bold text-slate-300 text-[11px] bg-slate-800/80 px-1.5 py-0.5 rounded">
-                {count}
-              </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="font-mono font-bold text-slate-300 text-[11px] bg-slate-800/80 px-1.5 py-0.5 rounded">
+                  {count}
+                </span>
+                <span
+                  className="font-mono text-[10px] text-slate-400 bg-slate-800/50 px-1.5 py-0.5 rounded"
+                  title={`Población electoral: ${catLn.toLocaleString("es-MX")} personas`}
+                >
+                  {totalLn > 0 ? `${pctLn.toFixed(1)}% LN` : "—"}
+                </span>
+              </div>
             </div>
           );
         })}

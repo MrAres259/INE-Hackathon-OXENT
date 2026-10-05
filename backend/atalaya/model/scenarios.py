@@ -321,20 +321,25 @@ def simulate(
             else:
                 s_part, s_abs, s_low, s_high, s_delta = None, None, None, None, None
 
+            s_ln = int(sum_ln) if sum_ln > 0 else (s_match["lista_nominal"].iloc[0] if len(s_match) > 0 and "lista_nominal" in s_match.columns else None)
+            s_abs_val = round(s_abs, 4) if s_abs is not None else None
+            abst_esp_st = int(round(s_abs_val * s_ln)) if (s_abs_val is not None and s_ln is not None) else None
+
             state_rows.append({
                 "id": str(s_id),
                 "name": name,
                 "level": "state",
                 "ent": str(s_id),
-                "lista_nominal": int(sum_ln) if sum_ln > 0 else (s_match["lista_nominal"].iloc[0] if len(s_match) > 0 and "lista_nominal" in s_match.columns else None),
+                "lista_nominal": s_ln,
                 "last_year": last_yr,
                 "last_participation": last_part,
                 "pred_participation": round(s_part, 4) if s_part is not None else None,
-                "pred_abstention": round(s_abs, 4) if s_abs is not None else None,
+                "pred_abstention": s_abs_val,
                 "pred_low": round(s_low, 4) if s_low is not None else None,
                 "pred_high": round(s_high, 4) if s_high is not None else None,
                 "trend_pp": trend,
                 "delta_vs_base_pp": round(s_delta, 1) if s_delta is not None else None,
+                "abstencion_esperada": abst_esp_st,
             })
 
         items = pd.DataFrame(state_rows)
@@ -356,6 +361,10 @@ def simulate(
             items_base_cat = items["category"]
 
     else:  # level == 'mun'
+        mun_ln = mun_df["lista_nominal"] if "lista_nominal" in mun_df.columns else pd.Series(np.nan, index=mun_df.index)
+        abst_esp_raw = (new_abs * pd.to_numeric(mun_ln, errors="coerce")).round()
+        abst_esp_mun = abst_esp_raw.where(mun_ln.notna() & new_abs.notna(), None)
+
         items = pd.DataFrame({
             "id": mun_df["id"],
             "name": mun_df["name"],
@@ -372,6 +381,7 @@ def simulate(
             "risk_score": new_score_mun,
             "category": new_cat_mun,
             "delta_vs_base_pp": delta_vs_base_pp_mun,
+            "abstencion_esperada": abst_esp_mun,
         })
         items_base_cat = mun_df["category"]
 
@@ -388,6 +398,7 @@ def simulate(
         "last_year", "last_participation", "pred_participation",
         "pred_abstention", "pred_low", "pred_high", "trend_pp",
         "risk_score", "category", "delta_vs_base_pp",
+        "abstencion_esperada",
     ]
     items = items[cols_order].reset_index(drop=True)
 

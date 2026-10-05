@@ -93,6 +93,14 @@ UNITS_COLUMNS = [
     "pred_dev_pp",
     "fallback_model",
     "last_reliable_year",
+    "struct_pred_dev_pp",
+    "vulnerability_pp",
+    "r_abs",
+    "r_vuln",
+    "r_trend",
+    "r_vol",
+    "abstencion_esperada",
+    "prioridad",
 ]
 
 DRIVERS_COLUMNS = [
@@ -236,7 +244,11 @@ def build_fallback_artifacts(
         "candidates": [],
         "selected_model": "persist_l1",
         "national_level_assumption": round(national_level, 2),
+        "calibration_pp": 0.0,
         "offset_pp": 0.0,
+        "structural_r2_within_state": 0.0,
+        "structural_r2_state_cv": 0.0,
+        "between_state_share": 0.0,
         "reliability_rule": "reliable = (ns_rate <= 0.5) and (participacion >= 0.02)",
         "excluded_unreliable": {},
         "drivers_low_confidence": True,
@@ -255,6 +267,7 @@ def build_fallback_artifacts(
         "target_year": target_year,
         "selected_model": "persist_l1",
         "national_level_assumption": round(national_level, 2),
+        "calibration_pp": 0.0,
         "offset_pp": 0.0,
         "structural": {
             "features": list(FEATURES),
@@ -265,6 +278,10 @@ def build_fallback_artifacts(
             "intercept": 0.0,
             "lambda": 10.0,
             "cv_r2": 0.0,
+            "structural_r2": 0.0,
+            "structural_r2_within_state": 0.0,
+            "structural_r2_state_cv": 0.0,
+            "between_state_share": 0.0,
         },
     }
 
@@ -340,9 +357,13 @@ def build_model(
         if last_inter_yr is not None and not dip_part.empty:
             inter_rows = dip_part[(dip_part["year"] == last_inter_yr) & (dip_part["reliable"])]
             vt_sum = to_num(inter_rows["votos_totales"]).sum()
-            ln_sum = to_num(inter_rows["lista_nominal"]).sum()
-            if ln_sum > 0:
-                nat_assumption = float(vt_sum / ln_sum * 100.0)
+            if "nv" in inter_rows.columns:
+                nv_sum = to_num(inter_rows["nv"]).sum()
+                denom = vt_sum + nv_sum
+            else:
+                denom = to_num(inter_rows["lista_nominal"]).sum()
+            if denom > 0:
+                nat_assumption = float(vt_sum / denom * 100.0)
 
     # 2. Enrich features with log_pob_18ymas and coverage_ln, and handle new_since_2020 imputation
     feats = feats.copy()
@@ -596,14 +617,7 @@ def build_model(
     pred_dev_arr = np.array(pred_dev_list, dtype=float)
     can_predict = ~np.isnan(pred_dev_arr)
 
-    # Conversion to absolute level: pred_participation_i = (national_level + offset + dev̂_i)/100
-    pred_part_pp = nat_assumption + offset_pp + pred_dev_arr
-    pred_part = np.where(can_predict, np.clip(pred_part_pp / 100.0, 0.05, 0.98), np.nan)
-    pred_abst = np.where(can_predict, 1.0 - pred_part, np.nan)
-    pred_low = np.where(can_predict, np.clip(pred_abst - 1.645 * sigma_pp / 100.0, 0.0, 1.0), np.nan)
-    pred_high = np.where(can_predict, np.clip(pred_abst + 1.645 * sigma_pp / 100.0, 0.0, 1.0), np.nan)
-
-    # Municipal trends and volatilities calculated on deviations
+    # Municipal trends, volatilities, and history maps
     trend_map: dict[str, float] = {}
     vol_map: dict[str, float] = {}
     last_year_map: dict[str, int] = {}
@@ -633,6 +647,38 @@ def build_model(
             s_l = L.loc[mun].dropna()
             if len(s_l) > 0:
                 last_ln_map[mun] = float(s_l.loc[int(s_l.index.max())])
+
+    # Exact calibration for national level
+    mun_ln_arr = np.array([
+        float(last_ln_map.get(m, 0.0))
+        if (m in last_ln_map and pd.notna(last_ln_map[m]) and last_ln_map[m] > 0)
+        else 0.0
+        for m in mun_ids
+    ])
+
+    if can_predict.any() and mun_ln_arr[can_predict].sum() > 0:
+        w = mun_ln_arr[can_predict]
+        w_sum = w.sum()
+        w_norm = w / w_sum
+        c = nat_assumption - float(np.sum(w_norm * pred_dev_arr[can_predict]))
+        for _ in range(5):
+            p_eval = np.clip((pred_dev_arr[can_predict] + c) / 100.0, 0.05, 0.98)
+            current_agg = float(np.sum(w_norm * p_eval * 100.0))
+            diff = nat_assumption - current_agg
+            if abs(diff) < 0.005:
+                break
+            c += diff
+    else:
+        c = nat_assumption
+
+    calibration_pp = float(round(c, 4))
+    offset_pp = calibration_pp
+
+    pred_part_pp = pred_dev_arr + c
+    pred_part = np.where(can_predict, np.clip(pred_part_pp / 100.0, 0.05, 0.98), np.nan)
+    pred_abst = np.where(can_predict, 1.0 - pred_part, np.nan)
+    pred_low = np.where(can_predict, np.clip(pred_abst - 1.645 * sigma_pp / 100.0, 0.0, 1.0), np.nan)
+    pred_high = np.where(can_predict, np.clip(pred_abst + 1.645 * sigma_pp / 100.0, 0.0, 1.0), np.nan)
 
     # Judicial election 2025 turnout
     pjf_part_map: dict[str, float] = {}
@@ -698,6 +744,11 @@ def build_model(
 
     mun_df["imputed_census"] = [imputed_census_map.get(m, False) for m in mun_ids]
 
+    # Structural model predictions & vulnerability
+    struct_pred_dev = predict(structural_model, feats_structural[structural_model.features], clip_range=None)
+    mun_df["struct_pred_dev_pp"] = struct_pred_dev
+    mun_df["vulnerability_pp"] = -struct_pred_dev
+
     # 5. State aggregation
     state_rows = []
     part_dip = part[(part["election"] == "DIP_FED") & (part["reliable"])].copy()
@@ -751,6 +802,18 @@ def build_model(
             st_dict["pred_low"] = float((muns_ent.loc[valid_preds, "pred_low"] * w_ln[valid_preds]).sum() / sum_w_ln)
             st_dict["pred_high"] = float((muns_ent.loc[valid_preds, "pred_high"] * w_ln[valid_preds]).sum() / sum_w_ln)
 
+        # State structural prediction & vulnerability (weighted by LN)
+        valid_struct = ~muns_ent["struct_pred_dev_pp"].isna() & (w_ln > 0)
+        if valid_struct.any():
+            sum_w_struct = w_ln[valid_struct].sum()
+            st_struct_dev = float((to_num(muns_ent["struct_pred_dev_pp"]) * w_ln[valid_struct]).sum() / sum_w_struct)
+            st_vuln = float((to_num(muns_ent["vulnerability_pp"]) * w_ln[valid_struct]).sum() / sum_w_struct)
+            st_dict["struct_pred_dev_pp"] = st_struct_dev
+            st_dict["vulnerability_pp"] = st_vuln
+        else:
+            st_dict["struct_pred_dev_pp"] = np.nan
+            st_dict["vulnerability_pp"] = np.nan
+
         # State trend & volatility
         valid_trends = ~muns_ent["trend_pp"].isna() & (w_ln > 0)
         if valid_trends.any():
@@ -791,11 +854,41 @@ def build_model(
     else:
         units_df["risk_score"] = np.nan
         units_df["category"] = "sin_dato"
+        units_df["r_abs"] = np.nan
+        units_df["r_vuln"] = 0.5
+        units_df["r_trend"] = 0.5
+        units_df["r_vol"] = 0.5
 
     # Municipalities with missing pred_abstention must have category = 'sin_dato'
     missing_pred = units_df["pred_abstention"].isna()
     units_df.loc[missing_pred, "risk_score"] = np.nan
     units_df.loc[missing_pred, "category"] = "sin_dato"
+    units_df.loc[missing_pred, "r_abs"] = np.nan
+
+    # 6.1 Prioritization & Expected Abstention (§12.3)
+    pred_abs_series = to_num(units_df["pred_abstention"])
+    ln_series = to_num(units_df["lista_nominal"])
+    has_abs_ln = pred_abs_series.notna() & ln_series.notna() & (ln_series > 0)
+    abst_esp_vals = np.where(has_abs_ln, np.round(pred_abs_series * ln_series), np.nan)
+    units_df["abstencion_esperada"] = pd.Series(abst_esp_vals, index=units_df.index, dtype="Int64")
+
+    prioridad_series = pd.Series(pd.NA, index=units_df.index, dtype="Int64")
+    for lvl in ["mun", "state"]:
+        mask = (
+            (units_df["level"] == lvl)
+            & units_df["category"].isin(["rojo", "naranja"])
+            & units_df["abstencion_esperada"].notna()
+        )
+        if mask.any():
+            sub_indices = units_df.loc[mask].sort_values(
+                by=["abstencion_esperada", "id"], ascending=[False, True]
+            ).index
+            prioridad_series.loc[sub_indices] = pd.Series(
+                range(1, len(sub_indices) + 1), index=sub_indices, dtype="Int64"
+            )
+    units_df["prioridad"] = prioridad_series
+
+    units_df = units_df[UNITS_COLUMNS]
 
     # 7. Feature contributions & drivers (structural model)
     mun_contribs = contributions_structural(structural_model, feats_structural, features=structural_model.features)
@@ -877,6 +970,9 @@ def build_model(
         "coefficients": structural_coef_list,
         "forecast_coefficients": forecast_coef_list,
         "structural_r2": round(structural_model.cv_r2, 4),
+        "structural_r2_within_state": round(structural_model.r2_within_state, 4),
+        "structural_r2_state_cv": round(structural_model.r2_state_cv, 4),
+        "between_state_share": round(structural_model.between_state_share, 4),
         "lambda": float(lam),
         "sigma_pp": round(sigma_pp, 2),
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -884,7 +980,8 @@ def build_model(
         "candidates": candidates,
         "selected_model": selected_model,
         "national_level_assumption": round(nat_assumption, 2),
-        "offset_pp": round(offset_pp, 2),
+        "calibration_pp": round(calibration_pp, 4),
+        "offset_pp": round(calibration_pp, 4),
         "reliability_rule": "reliable = (ns_rate <= 0.5) and (participacion >= 0.02)",
         "excluded_unreliable": excluded_unreliable,
         "drivers_low_confidence": drivers_low_conf,
@@ -896,14 +993,15 @@ def build_model(
     model_dict = final_ridge.to_dict() if final_ridge is not None else {}
     model_dict["selected_model"] = selected_model
     model_dict["national_level_assumption"] = round(nat_assumption, 2)
-    model_dict["offset_pp"] = round(offset_pp, 2)
+    model_dict["calibration_pp"] = round(calibration_pp, 4)
+    model_dict["offset_pp"] = round(calibration_pp, 4)
     model_dict["structural"] = structural_model.to_dict()
     (b_dir / "model.json").write_text(json.dumps(model_dict, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # 9. Print build summary
     print("\n" + "=" * 70)
     print("ATALAYA · Modelo de Participación Relativa")
-    print(f"Año objetivo: {t_year} | Nivel nacional supuesto: {nat_assumption:.2f} % | Offset: {offset_pp:+.2f} pp")
+    print(f"Año objetivo: {t_year} | Nivel nacional supuesto: {nat_assumption:.2f} % | Calibración: {calibration_pp:+.2f} pp")
     print("=" * 70)
 
     # Print candidates table

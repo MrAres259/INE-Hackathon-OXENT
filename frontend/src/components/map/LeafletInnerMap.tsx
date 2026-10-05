@@ -137,23 +137,31 @@ export function LeafletInnerMap() {
     const entId = feature?.properties?.id ?? feature?.id;
     const name = feature?.properties?.name ?? `Estado ${entId}`;
     const item = riskById.get(entId);
-    const part = item?.last_participation !== null ? formatPct(item?.last_participation) : "—";
-    const predAbs = item?.pred_abstention !== null ? formatPct(item?.pred_abstention) : "—";
+    const isUnreliable = !item || item.category === "sin_dato" || item.pred_abstention === null || item.reliable === false;
+    const predAbsHtml = isUnreliable
+      ? `<span class="text-amber-600 font-semibold">Sin información confiable</span>`
+      : `<span class="font-semibold text-slate-900">${formatPct(item?.pred_abstention)}</span>`;
     const catLabel = item ? getCategoryLabel(item.category) : "Sin dato";
 
     let deltaHtml = "";
-    if (item?.delta_vs_base_pp !== undefined && item?.delta_vs_base_pp !== null) {
+    if (!isUnreliable && item?.delta_vs_base_pp !== undefined && item?.delta_vs_base_pp !== null) {
       const deltaColor = getDeltaAbstentionHex(item.delta_vs_base_pp);
       const deltaText = formatDeltaPp(item.delta_vs_base_pp);
       deltaHtml = `<div class="text-slate-600">Cambio vs base: <span class="font-semibold" style="color: ${deltaColor}">${deltaText}</span> <span class="text-[10px] text-slate-500">(negativo = menos abstención)</span></div>`;
+    }
+
+    let warningHtml = "";
+    if (item?.ns_rate !== undefined && item?.ns_rate !== null && item.ns_rate > 0.3) {
+      warningHtml = `<div class="text-[10px] text-amber-700">Registros no especificados: ${(item.ns_rate * 100).toFixed(1)}%</div>`;
     }
 
     // Bind tooltip
     layer.bindTooltip(
       `<div class="font-sans text-xs">
         <div class="font-bold text-slate-900">${name}</div>
-        <div class="text-slate-600">Abstención 2027: <span class="font-semibold text-slate-900">${predAbs}</span></div>
+        <div class="text-slate-600">Abstención 2027: ${predAbsHtml}</div>
         ${deltaHtml}
+        ${warningHtml}
         <div class="text-slate-600">Semáforo: <span class="font-semibold">${catLabel}</span></div>
         <div class="text-[10px] text-slate-400 mt-0.5">Clic para explorar municipios</div>
       </div>`,
@@ -200,21 +208,30 @@ export function LeafletInnerMap() {
     const cvegeo = feature?.properties?.id ?? feature?.id;
     const name = feature?.properties?.name ?? `Municipio ${cvegeo}`;
     const item = riskById.get(cvegeo);
-    const predAbs = item?.pred_abstention !== null ? formatPct(item?.pred_abstention) : "—";
+    const isUnreliable = !item || item.category === "sin_dato" || item.pred_abstention === null || item.reliable === false;
+    const predAbsHtml = isUnreliable
+      ? `<span class="text-amber-600 font-semibold">Sin información confiable</span>`
+      : `<span class="font-semibold text-slate-900">${formatPct(item?.pred_abstention)}</span>`;
     const catLabel = item ? getCategoryLabel(item.category) : "Sin dato";
 
     let deltaHtml = "";
-    if (item?.delta_vs_base_pp !== undefined && item?.delta_vs_base_pp !== null) {
+    if (!isUnreliable && item?.delta_vs_base_pp !== undefined && item?.delta_vs_base_pp !== null) {
       const deltaColor = getDeltaAbstentionHex(item.delta_vs_base_pp);
       const deltaText = formatDeltaPp(item.delta_vs_base_pp);
       deltaHtml = `<div class="text-slate-600">Cambio vs base: <span class="font-semibold" style="color: ${deltaColor}">${deltaText}</span> <span class="text-[10px] text-slate-500">(negativo = menos abstención)</span></div>`;
     }
 
+    let warningHtml = "";
+    if (item?.ns_rate !== undefined && item?.ns_rate !== null && item.ns_rate > 0.3) {
+      warningHtml = `<div class="text-[10px] text-amber-700">Registros no especificados: ${(item.ns_rate * 100).toFixed(1)}%</div>`;
+    }
+
     layer.bindTooltip(
       `<div class="font-sans text-xs">
         <div class="font-bold text-slate-900">${name}</div>
-        <div class="text-slate-600">Abstención 2027: <span class="font-semibold text-slate-900">${predAbs}</span></div>
+        <div class="text-slate-600">Abstención 2027: ${predAbsHtml}</div>
         ${deltaHtml}
+        ${warningHtml}
         <div class="text-slate-600">Semáforo: <span class="font-semibold">${catLabel}</span></div>
       </div>`,
       { sticky: true, className: "atalaya-map-tooltip" }

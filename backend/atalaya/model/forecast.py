@@ -93,6 +93,10 @@ class StructuralModel:
     intercept: float
     lam: float
     cv_r2: float = 0.0
+    r2_random: float = 0.0
+    r2_within_state: float = 0.0
+    r2_state_cv: float = 0.0
+    between_state_share: float = 0.0
 
     def to_dict(self) -> dict:
         """Serialize structural model parameters to dictionary."""
@@ -105,6 +109,10 @@ class StructuralModel:
             "intercept": round(self.intercept, 4),
             "lambda": float(self.lam),
             "cv_r2": round(self.cv_r2, 4),
+            "r2_random": round(self.r2_random, 4),
+            "r2_within_state": round(self.r2_within_state, 4),
+            "r2_state_cv": round(self.r2_state_cv, 4),
+            "between_state_share": round(self.between_state_share, 4),
         }
 
 
@@ -511,8 +519,8 @@ def fit_structural(
 ) -> StructuralModel:
     """Fit cross-sectional Ridge model explaining average intermediate deviation or turnout.
 
-    Uses 5-fold cross-validation grouped by cve_ent (int(cve_ent) % 5) to evaluate
-    and select optimal lambda (or evaluate given lambda).
+    Uses 5-fold cross-validation with random splits (seed=42) as primary structural_r2.
+    Also computes within-state R², state-clustered CV R², and between-state variance share.
     """
     if isinstance(lam, pd.Series):
         folds_by = lam
@@ -564,42 +572,30 @@ def fit_structural(
             intercept=float(np.mean(y_clean)) if len(y_clean) > 0 else 0.0,
             lam=float(lam) if lam is not None else 10.0,
             cv_r2=0.0,
+            r2_random=0.0,
+            r2_within_state=0.0,
+            r2_state_cv=0.0,
+            between_state_share=0.0,
         )
 
-    if f_series is None:
-        if "cve_ent" in X_clean.columns:
-            f_series = X_clean["cve_ent"]
-        elif "cvegeo" in X_clean.columns:
-            f_series = X_clean["cvegeo"].astype(str).str[:2]
-        elif len(X_clean) > 0 and len(str(X_clean.index[0])) >= 2:
-            f_series = pd.Series(X_clean.index.astype(str).str[:2], index=X_clean.index)
-        else:
-            f_series = pd.Series(np.arange(len(X_clean)) % 5, index=X_clean.index)
+    N = len(X_clean)
 
-    def _fold_for_val(val: Any) -> int:
-        try:
-            return int(val) % 5
-        except (ValueError, TypeError):
-            try:
-                return int(str(val)[:2]) % 5
-            except (ValueError, TypeError):
-                return hash(str(val)) % 5
-
-    fold_ids = np.array([_fold_for_val(v) for v in f_series.values])
-    unique_folds = np.unique(fold_ids)
-    if len(unique_folds) < 2 and len(X_clean) >= 5:
-        fold_ids = np.arange(len(X_clean)) % 5
-        unique_folds = np.unique(fold_ids)
+    # 1. Random 5-fold CV with fixed seed (42)
+    rng = np.random.default_rng(42)
+    perm = rng.permutation(N)
+    random_fold_ids = np.empty(N, dtype=int)
+    random_fold_ids[perm] = np.arange(N) % 5
+    unique_random_folds = np.unique(random_fold_ids)
 
     candidates = [float(lam)] if lam is not None else [float(g) for g in grid]
     best_lam = candidates[0]
-    best_r2 = -float("inf")
+    best_r2_random = -float("inf")
 
     for cand in candidates:
-        oof_preds = np.full(len(X_clean), np.nan, dtype=float)
-        for k in unique_folds:
-            val_idx = np.where(fold_ids == k)[0]
-            train_idx = np.where(fold_ids != k)[0]
+        oof_preds = np.full(N, np.nan, dtype=float)
+        for k in unique_random_folds:
+            val_idx = np.where(random_fold_ids == k)[0]
+            train_idx = np.where(random_fold_ids != k)[0]
             if len(val_idx) == 0 or len(train_idx) < 3:
                 continue
             X_tr = X_clean.iloc[train_idx][feature_names]
@@ -619,12 +615,91 @@ def fit_structural(
         else:
             r2 = 0.0
 
-        if r2 > best_r2:
-            best_r2 = r2
+        if r2 > best_r2_random:
+            best_r2_random = r2
             best_lam = cand
 
-    if best_r2 == -float("inf"):
-        best_r2 = 0.0
+    if best_r2_random == -float("inf"):
+        best_r2_random = 0.0
+
+    # 2. State decomposition & between_state_share
+    if f_series is not None:
+        state_series = f_series
+    elif "cve_ent" in X_clean.columns:
+        state_series = X_clean["cve_ent"]
+    elif "cvegeo" in X_clean.columns:
+        state_series = X_clean["cvegeo"].astype(str).str[:2]
+    elif len(X_clean) > 0 and len(str(X_clean.index[0])) >= 2:
+        state_series = pd.Series(X_clean.index.astype(str).str[:2], index=X_clean.index)
+    else:
+        state_series = pd.Series(np.arange(N) % 5, index=X_clean.index)
+
+    y_vals = y_clean.values.astype(float)
+    y_mean_all = float(np.mean(y_vals))
+    ss_tot_all = float(np.sum((y_vals - y_mean_all) ** 2))
+
+    state_means = y_clean.groupby(state_series.values).transform("mean").values.astype(float)
+    ss_between = float(np.sum((state_means - y_mean_all) ** 2))
+    between_state_share = float(np.clip(ss_between / ss_tot_all, 0.0, 1.0)) if ss_tot_all > 1e-12 else 0.0
+
+    # 3. structural_r2_within_state (target demeaned by state)
+    y_within = y_vals - state_means
+    oof_within = np.full(N, np.nan, dtype=float)
+    for k in unique_random_folds:
+        val_idx = np.where(random_fold_ids == k)[0]
+        train_idx = np.where(random_fold_ids != k)[0]
+        if len(val_idx) == 0 or len(train_idx) < 3:
+            continue
+        X_tr = X_clean.iloc[train_idx][feature_names]
+        y_tr = y_within[train_idx]
+        X_val = X_clean.iloc[val_idx][feature_names]
+
+        fold_ridge = fit_ridge(X_tr, y_tr, lam=best_lam, is_deviation=True)
+        oof_within[val_idx] = predict(fold_ridge, X_val, clip_range=None)
+
+    eval_w = ~np.isnan(oof_within)
+    if eval_w.sum() >= 5:
+        ss_res_w = float(np.sum((y_within[eval_w] - oof_within[eval_w]) ** 2))
+        ss_tot_w = float(np.sum((y_within[eval_w] - np.mean(y_within[eval_w])) ** 2))
+        r2_within = 1.0 - (ss_res_w / ss_tot_w) if ss_tot_w > 1e-12 else 0.0
+    else:
+        r2_within = 0.0
+
+    # 4. structural_r2_state_cv (grouped by state)
+    def _fold_for_val(val: Any) -> int:
+        try:
+            return int(val) % 5
+        except (ValueError, TypeError):
+            try:
+                return int(str(val)[:2]) % 5
+            except (ValueError, TypeError):
+                return hash(str(val)) % 5
+
+    state_fold_ids = np.array([_fold_for_val(v) for v in state_series.values])
+    unique_state_folds = np.unique(state_fold_ids)
+    oof_state = np.full(N, np.nan, dtype=float)
+
+    if len(unique_state_folds) >= 2:
+        for k in unique_state_folds:
+            val_idx = np.where(state_fold_ids == k)[0]
+            train_idx = np.where(state_fold_ids != k)[0]
+            if len(val_idx) == 0 or len(train_idx) < 3:
+                continue
+            X_tr = X_clean.iloc[train_idx][feature_names]
+            y_tr = y_clean.iloc[train_idx]
+            X_val = X_clean.iloc[val_idx][feature_names]
+
+            fold_ridge = fit_ridge(X_tr, y_tr, lam=best_lam, is_deviation=True)
+            oof_state[val_idx] = predict(fold_ridge, X_val, clip_range=None)
+
+        eval_s = ~np.isnan(oof_state)
+        if eval_s.sum() >= 5:
+            ss_res_s = float(np.sum((y_vals[eval_s] - oof_state[eval_s]) ** 2))
+            r2_state = 1.0 - (ss_res_s / ss_tot_all) if ss_tot_all > 1e-12 else 0.0
+        else:
+            r2_state = 0.0
+    else:
+        r2_state = 0.0
 
     full_ridge = fit_ridge(X_clean[feature_names], y_clean, lam=best_lam, is_deviation=True)
     return StructuralModel(
@@ -635,7 +710,11 @@ def fit_structural(
         coef=full_ridge.coef,
         intercept=full_ridge.intercept,
         lam=best_lam,
-        cv_r2=float(best_r2),
+        cv_r2=float(best_r2_random),
+        r2_random=float(best_r2_random),
+        r2_within_state=float(r2_within),
+        r2_state_cv=float(r2_state),
+        between_state_share=float(between_state_share),
     )
 
 

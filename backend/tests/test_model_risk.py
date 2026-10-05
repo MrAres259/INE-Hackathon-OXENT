@@ -19,24 +19,33 @@ def test_category_for_thresholds():
 
 
 def test_compute_risk_weights_and_ranks():
-    # 2 units in same level
+    # 2 units in same level with vulnerability
     df = pd.DataFrame({
         "id": ["01", "02"],
         "level": ["mun", "mun"],
-        "pred_abstention": [0.3, 0.7],  # ranks: 0.5, 1.0
-        "trend_pp": [-1.0, 1.0],        # -trend: [1.0, -1.0] => ranks: [1.0, 0.5]
-        "volatility_pp": [2.0, 4.0],    # ranks: [0.5, 1.0]
+        "pred_abstention": [0.3, 0.7],    # ranks: 0.5, 1.0
+        "vulnerability_pp": [5.0, 10.0],  # ranks: 0.5, 1.0
+        "trend_pp": [-1.0, 1.0],          # -trend: [1.0, -1.0] => ranks: [1.0, 0.5]
+        "volatility_pp": [2.0, 4.0],      # ranks: [0.5, 1.0]
     })
     res = compute_risk(df)
-    # Unit 0: r_abs=0.5, r_trend=1.0, r_vol=0.5
-    # score = 100 * (0.6*0.5 + 0.25*1.0 + 0.15*0.5) = 100 * (0.30 + 0.25 + 0.075) = 62.5
-    assert np.isclose(res.loc[0, "risk_score"], 62.5)
+    # Unit 0: r_abs=0.5, r_vuln=0.5, r_trend=1.0, r_vol=0.5
+    # score = 100 * (0.50*0.5 + 0.20*0.5 + 0.15*1.0 + 0.15*0.5) = 100 * (0.25 + 0.10 + 0.15 + 0.075) = 57.5
+    assert np.isclose(res.loc[0, "risk_score"], 57.5)
     assert res.loc[0, "category"] == "naranja"
+    assert res.loc[0, "r_abs"] == 0.5
+    assert res.loc[0, "r_vuln"] == 0.5
+    assert res.loc[0, "r_trend"] == 1.0
+    assert res.loc[0, "r_vol"] == 0.5
 
-    # Unit 1: r_abs=1.0, r_trend=0.5, r_vol=1.0
-    # score = 100 * (0.6*1.0 + 0.25*0.5 + 0.15*1.0) = 100 * (0.60 + 0.125 + 0.15) = 87.5
-    assert np.isclose(res.loc[1, "risk_score"], 87.5)
+    # Unit 1: r_abs=1.0, r_vuln=1.0, r_trend=0.5, r_vol=1.0
+    # score = 100 * (0.50*1.0 + 0.20*1.0 + 0.15*0.5 + 0.15*1.0) = 100 * (0.50 + 0.20 + 0.075 + 0.15) = 92.5
+    assert np.isclose(res.loc[1, "risk_score"], 92.5)
     assert res.loc[1, "category"] == "rojo"
+    assert res.loc[1, "r_abs"] == 1.0
+    assert res.loc[1, "r_vuln"] == 1.0
+    assert res.loc[1, "r_trend"] == 0.5
+    assert res.loc[1, "r_vol"] == 1.0
 
 
 def test_compute_risk_by_level():

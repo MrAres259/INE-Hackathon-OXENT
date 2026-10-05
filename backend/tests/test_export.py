@@ -46,6 +46,7 @@ EXPECTED_SHEETS = [
     "LEEME",
     "diccionario",
     "semaforo_ponderado",
+    "priorizacion",
     "municipios",
     "estados",
     "participacion_historica",
@@ -79,6 +80,13 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
             "pred_high": 0.48,
             "trend_pp": -1.2,
             "volatility_pp": 2.5,
+            "vulnerability_pp": -1.2,
+            "r_abs": 0.6,
+            "r_vuln": 0.4,
+            "r_trend": 0.5,
+            "r_vol": 0.3,
+            "abstencion_esperada": 22000,
+            "prioridad": 1,
             "risk_score": 62.5,
             "category": "naranja",
             "coverage_ln": 0.95,
@@ -126,6 +134,13 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
             "pred_high": 0.55,
             "trend_pp": -2.0,
             "volatility_pp": 3.0,
+            "vulnerability_pp": 1.5,
+            "r_abs": 0.8,
+            "r_vuln": 0.7,
+            "r_trend": 0.6,
+            "r_vol": 0.4,
+            "abstencion_esperada": 15000,
+            "prioridad": 2,
             "risk_score": 78.0,
             "category": "rojo",
             "coverage_ln": 0.92,
@@ -173,6 +188,13 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
             "pred_high": 0.59,
             "trend_pp": 0.5,
             "volatility_pp": 1.8,
+            "vulnerability_pp": -0.8,
+            "r_abs": 0.4,
+            "r_vuln": 0.3,
+            "r_trend": 0.2,
+            "r_vol": 0.2,
+            "abstencion_esperada": 21600,
+            "prioridad": None,
             "risk_score": 42.0,
             "category": "amarillo",
             "coverage_ln": 0.90,
@@ -220,6 +242,13 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
             "pred_high": 0.5063,
             "trend_pp": -1.5,
             "volatility_pp": 2.7,
+            "vulnerability_pp": -0.2,
+            "r_abs": 0.65,
+            "r_vuln": 0.45,
+            "r_trend": 0.5,
+            "r_vol": 0.35,
+            "abstencion_esperada": 37000,
+            "prioridad": 1,
             "risk_score": 68.3,
             "category": "naranja",
             "coverage_ln": 0.94,
@@ -264,6 +293,13 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
             "pred_high": 0.59,
             "trend_pp": 0.5,
             "volatility_pp": 1.8,
+            "vulnerability_pp": -0.8,
+            "r_abs": 0.4,
+            "r_vuln": 0.3,
+            "r_trend": 0.2,
+            "r_vol": 0.2,
+            "abstencion_esperada": 21600,
+            "prioridad": None,
             "risk_score": 42.0,
             "category": "amarillo",
             "coverage_ln": 0.90,
@@ -446,7 +482,33 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
         "nv": 2100,
         "ns": 100,
     }
-    profile_df = pd.DataFrame([base_profile_row] * n_profile_rows)
+    # Add an X gender row (should be dropped at municipal level)
+    x_row = {
+        "cvegeo": "01001",
+        "cve_ent": "01",
+        "year": 2024,
+        "election": "DIP_FED",
+        "age_group": "65+",
+        "sexo": "X",
+        "ln": 15,
+        "sv": 8,
+        "nv": 7,
+        "ns": 0,
+    }
+    # Add a small cell row (ln < 10, should be suppressed)
+    small_cell_row = {
+        "cvegeo": "01002",
+        "cve_ent": "01",
+        "year": 2024,
+        "election": "DIP_FED",
+        "age_group": "18-24",
+        "sexo": "H",
+        "ln": 8,
+        "sv": 4,
+        "nv": 4,
+        "ns": 0,
+    }
+    profile_df = pd.DataFrame([base_profile_row] * (n_profile_rows - 2) + [x_row, small_cell_row])
     write_parquet(profile_df, build_dir / "ccpc_profile_mun.parquet")
 
     # 6. metrics.json
@@ -456,6 +518,11 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
         "selected_model": "persist_l1",
         "national_level_assumption": 51.84,
         "offset_pp": 0.85,
+        "calibration_pp": 0.85,
+        "structural_r2": 0.55,
+        "structural_r2_within_state": 0.27,
+        "structural_r2_state_cv": -0.04,
+        "between_state_share": 0.47,
         "candidates": [
             {"name": "persist_l1", "mae_avg": 4.12, "spearman_avg": 0.82, "top20_hit_avg": 0.65},
             {"name": "mean_l1_l2", "mae_avg": 4.35, "spearman_avg": 0.80, "top20_hit_avg": 0.62},
@@ -484,7 +551,6 @@ def create_synthetic_build_data(build_dir: Path, n_profile_rows: int = 50005) ->
             {"key": "pct_18_24", "label": "Jóvenes de 18 a 24 años", "coef_pp_per_sd": -3.5},
             {"key": "graproes", "label": "Escolaridad promedio", "coef_pp_per_sd": 2.1},
         ],
-        "structural_r2": 0.55,
         "lambda": 10.0,
         "sigma_pp": 3.8,
         "generated_at": "2026-10-05T09:00:00Z",
@@ -725,3 +791,93 @@ def test_leeme_contents(tmp_path):
 
     # Comparative warning
     assert "El semáforo compara zonas entre sí; las cifras absolutas dependen del supuesto nacional." in content_text
+
+    # Privacy and calibration
+    assert "Calibración exacta de nivel" in content_text
+    assert "0.85" in content_text
+    assert "suprimido=True" in content_text
+
+
+def test_priorizacion_sheet_and_csv(tmp_path):
+    """Verify priorizacion sheet and CSV are created with top municipalities by prioridad."""
+    build_dir = tmp_path / "build"
+    out_dir = tmp_path / "deliverables"
+
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir)
+    assert exit_code == 0
+
+    # 1. In Excel
+    wb = openpyxl.load_workbook(out_dir / "base_datos_atalaya.xlsx")
+    assert "priorizacion" in wb.sheetnames
+    ws = wb["priorizacion"]
+    headers = [cell.value for cell in ws[1]]
+    expected_cols = [
+        "prioridad", "id", "name", "cve_ent", "nom_ent",
+        "lista_nominal", "abstencion_esperada", "category_base",
+        "category_intervencion", "palanca_recomendada",
+    ]
+    for ec in expected_cols:
+        assert ec in headers
+
+    # 2. In CSV
+    csv_path = out_dir / "csv/priorizacion.csv"
+    assert csv_path.is_file()
+    df_prio = pd.read_csv(csv_path, dtype={"id": str, "cve_ent": str}, encoding="utf-8-sig")
+    assert len(df_prio) == 2  # Only 01001 and 01002 had prioridad (rojo/naranja)
+    assert list(df_prio["prioridad"]) == [1, 2]
+    assert df_prio["id"].tolist() == ["01001", "01002"]
+    assert "palanca_recomendada" in df_prio.columns
+
+
+def test_perfil_privacy_rules(tmp_path):
+    """Verify privacy rules in perfil_edad_sexo: municipal 'X' dropped, small cells (ln < 10) suppressed."""
+    build_dir = tmp_path / "build"
+    out_dir = tmp_path / "deliverables"
+
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir)
+    assert exit_code == 0
+
+    csv_path = out_dir / "csv/perfil_edad_sexo.csv"
+    assert csv_path.is_file()
+    df_perfil = pd.read_csv(csv_path, dtype={"cvegeo": str, "cve_ent": str}, encoding="utf-8-sig")
+
+    assert "suprimido" in df_perfil.columns
+
+    # Check nonbinary 'X' was dropped (all rows are municipal)
+    x_rows = df_perfil[df_perfil["sexo"].astype(str).str.upper() == "X"]
+    assert len(x_rows) == 0
+
+    # Check small cell row (cvegeo 01002 had ln = 8)
+    small_rows = df_perfil[df_perfil["cvegeo"] == "01002"]
+    assert len(small_rows) > 0
+    for _, r in small_rows.iterrows():
+        assert bool(r["suprimido"]) is True
+        assert pd.isna(r["ln"])
+        assert pd.isna(r["sv"])
+        assert pd.isna(r["participacion"])
+
+
+def test_export_new_model_columns(tmp_path):
+    """Verify vulnerability_pp, abstencion_esperada, prioridad, and r_* in municipios and estados."""
+    build_dir = tmp_path / "build"
+    out_dir = tmp_path / "deliverables"
+
+    create_synthetic_build_data(build_dir, n_profile_rows=50005)
+    exit_code = export_deliverables(build_dir=build_dir, out_dir=out_dir)
+    assert exit_code == 0
+
+    df_mun = pd.read_csv(out_dir / "csv/municipios.csv", dtype={"id": str, "cve_ent": str}, encoding="utf-8-sig")
+    df_st = pd.read_csv(out_dir / "csv/estados.csv", dtype={"id": str}, encoding="utf-8-sig")
+
+    for col in ["vulnerability_pp", "abstencion_esperada", "prioridad", "r_abs", "r_vuln", "r_trend", "r_vol"]:
+        assert col in df_mun.columns, f"Missing {col} in municipios.csv"
+        assert col in df_st.columns, f"Missing {col} in estados.csv"
+
+    # Check values for 01001
+    r_01001 = df_mun[df_mun["id"] == "01001"].iloc[0]
+    assert r_01001["abstencion_esperada"] == 22000
+    assert r_01001["prioridad"] == 1
+    assert r_01001["vulnerability_pp"] == -1.2
+    assert r_01001["r_abs"] == 0.6

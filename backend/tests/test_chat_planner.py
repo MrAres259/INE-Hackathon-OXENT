@@ -261,3 +261,40 @@ def test_planner_judicial_question_sets_pjf():
     assert spec_fed.election == "DIP_FED"
     assert spec_fed.year == 2024
 
+
+def test_planner_prioridad_and_abstencion_esperada_questions():
+    """Verify rule-based planner parses questions for resource prioritization, expected abstainers, and structural vulnerability."""
+    # 1. Prioritization -> ranking by prioridad asc
+    spec1, method1 = plan("¿Dónde priorizar recursos?")
+    assert method1 == "rules"
+    assert spec1.intent == "ranking"
+    assert spec1.metric == "prioridad"
+    assert spec1.order == "asc"
+
+    spec1b, _ = plan("¿Dónde conviene priorizar recursos en Oaxaca?")
+    assert spec1b.intent == "ranking"
+    assert spec1b.metric == "prioridad"
+    assert spec1b.order == "asc"
+    assert spec1b.filters.get("cve_ent") == "20"
+
+    # 2. Expected abstainers -> ranking by abstencion_esperada desc
+    spec2, method2 = plan("¿Qué municipios tienen más abstencionistas esperados?")
+    assert method2 == "rules"
+    assert spec2.intent == "ranking"
+    assert spec2.metric == "abstencion_esperada"
+    assert spec2.order == "desc"
+
+    spec2b, _ = plan("Municipios con mayor abstención esperada en Chiapas")
+    assert spec2b.intent == "ranking"
+    assert spec2b.metric == "abstencion_esperada"
+    assert spec2b.order == "desc"
+    assert spec2b.filters.get("cve_ent") == "07"
+
+    # 3. Structural vulnerability -> ranking by vulnerability_pp desc
+    spec3, method3 = plan("¿Qué municipios tienen mayor vulnerabilidad estructural?")
+    assert method3 == "rules"
+    assert spec3.intent == "ranking"
+    assert spec3.metric == "vulnerability_pp"
+    assert spec3.order == "desc"
+
+

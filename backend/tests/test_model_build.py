@@ -195,10 +195,37 @@ def test_build_model_full_pipeline(tmp_path):
     assert metrics["selected_model"] in ["persist_l1", "persist_l2", "mean_l1_l2", "ridge"]
     assert "national_level_assumption" in metrics
     assert metrics["national_level_assumption"] > 0
+    assert "calibration_pp" in metrics
     assert "offset_pp" in metrics
+    assert metrics["calibration_pp"] == metrics["offset_pp"]
+    assert "structural_r2_within_state" in metrics
+    assert "structural_r2_state_cv" in metrics
+    assert "between_state_share" in metrics
     assert "reliability_rule" in metrics
     assert "excluded_unreliable" in metrics
     assert "drivers_low_confidence" in metrics
+
+    # 4. Verify exact calibration: municipal weighted participation = national_level_assumption ± 0.01 pp
+    mun_preds = mun_rows.dropna(subset=["pred_participation", "lista_nominal"])
+    assert len(mun_preds) > 0
+    weighted_part = np.average(mun_preds["pred_participation"], weights=mun_preds["lista_nominal"])
+    target_part = metrics["national_level_assumption"] / 100.0
+    assert abs(weighted_part - target_part) <= 0.0001, f"Weighted participation {weighted_part*100:.4f}% deviates from assumption {target_part*100:.4f}%"
+
+    # 5. Verify vulnerability_pp, abstencion_esperada, prioridad, and risk components
+    for _, r in mun_rows.iterrows():
+        if pd.notna(r["struct_pred_dev_pp"]):
+            assert r["vulnerability_pp"] == pytest.approx(-r["struct_pred_dev_pp"], abs=1e-5)
+        if pd.notna(r["pred_abstention"]) and pd.notna(r["lista_nominal"]):
+            assert r["abstencion_esperada"] == int(round(r["pred_abstention"] * r["lista_nominal"]))
+        if r["category"] in ["rojo", "naranja"]:
+            assert pd.notna(r["prioridad"]) and r["prioridad"] >= 1
+        else:
+            assert pd.isna(r["prioridad"])
+        assert 0.0 <= r["r_abs"] <= 1.0
+        assert 0.0 <= r["r_vuln"] <= 1.0
+        assert 0.0 <= r["r_trend"] <= 1.0
+        assert 0.0 <= r["r_vol"] <= 1.0
 
 
 def test_build_model_fallback_model_when_missing_lags(tmp_path):

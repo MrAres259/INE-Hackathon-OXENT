@@ -1,27 +1,27 @@
 # ATALAYA — Riesgo de abstención en México
 
-> **Fuente de verdad del proyecto.** Explica para qué sirve la app, cómo está construida y qué módulo implementa cada funcionalidad. Si el código y este documento discrepan, se corrige el que esté mal.
->
-> Estado al 2026-10-04: Olas 1, 2 y 2-fix completas y auditadas (commits `1470d37`, `ca48fa4`, `604115c`). **Pendiente Ola 3:** corrida con datos reales, mapas reales, carga al clúster CSS. Ver [§10](#10-estado-actual-y-pendientes).
+> **Fuente de verdad del proyecto.** Describe para qué sirve la app, cómo está construida y qué módulo implementa cada funcionalidad, tal como está hoy. Si el código y este documento discrepan, se corrige el que esté mal.
 
 ---
 
 ## 1. Propósito
 
-Hackathon INE — **Reto 2: Predicción y escenarios de riesgo de abstención** (analítica predictiva, sin datos personales).
+Propuesta para el **Hackathon INE 2026 «Hackea la participación: Datos que construyen democracia»**, **Reto 2: Predicción y escenarios de riesgo de abstención** (analítica predictiva, sin datos personales).
 
-**Pregunta guía:** *¿Qué zonas podrían presentar mayor abstención en el futuro si no se interviene?*
-**Para qué le sirve al INE:** planeación anticipada y priorización estratégica de recursos.
+- **Pregunta guía:** *¿Qué zonas podrían presentar mayor abstención en el futuro si no se interviene?*
+- **Para qué le sirve al INE:** planeación anticipada y priorización estratégica de recursos rumbo a la elección federal del **6 de junio de 2027**.
+- **Fuente obligatoria:** la convocatoria exige aprovechar la **Plataforma de Conteos Censales de Participación Ciudadana (CCPC) 2009–2024** del INE; ATALAYA la usa como fuente electoral única.
 
-ATALAYA es un tablero para personal del INE que:
+ATALAYA es un tablero y un conjunto de entregables que:
 
-1. **Pronostica** la abstención de cada municipio y estado para la elección federal de **2027** (diputaciones federales), a partir de la participación histórica 2009–2024 y de variables sociodemográficas agregadas (INEGI Censo 2020, CONAPO marginación 2020).
-2. **Traduce el pronóstico a un semáforo** territorial fácil de leer: 🟢 verde, 🟡 amarillo, 🟠 naranja, 🔴 rojo, en un **mapa navegable** de México (estados → municipios, zoom/pan tipo Google Maps).
-3. **Simula escenarios**: *sin intervención* (base), *con intervención hipotética* (parametrizable) y *pesimista*. Muestra cuántas zonas cambian de color y cuántos votos se ganarían o perderían.
-4. **Propone recomendaciones preventivas** por zona, derivadas de los factores que más empujan su abstención.
-5. **Responde preguntas específicas** con un asistente conversacional (LLM GLM-5.2 en Huawei MaaS). Planea una consulta estructurada, la ejecuta sobre los datos (Huawei CSS/Elasticsearch o memoria) y redacta la respuesta citando fuente y año. **Nunca inventa cifras.**
+1. **Pronostica** la abstención de los **2,478 municipios** (Marco Geoestadístico INEGI 2024) y de los 32 estados para 2027.
+2. **Clasifica** cada zona en un **semáforo** 🟢 verde · 🟡 amarillo · 🟠 naranja · 🔴 rojo que combina tendencia histórica y vulnerabilidad sociodemográfica, visible en un **mapa navegable** (país → estado → municipio).
+3. **Simula escenarios**: *base* (sin intervención), *intervención* hipotética parametrizable y *pesimista*.
+4. **Prioriza recursos** por **abstención esperada** (personas que se espera no voten) y propone **recomendaciones preventivas** por zona.
+5. **Responde preguntas** con un asistente conversacional (GLM-5.2 en Huawei MaaS) que consulta los datos (Huawei CSS/Elasticsearch o memoria) y nunca inventa cifras.
+6. **Genera los entregables del reto**: reporte metodológico (PDF), presentación ejecutiva (PDF), mapa de escenarios (GeoJSON) y base de datos anonimizada (XLSX/CSV).
 
-**Principios:** solo datos **agregados** (municipio o mayor, nunca padrón nominativo); todo flujo con LLM tiene **respaldo determinista**; la app funciona **sin conexión** al clúster.
+**Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; funciona sin conexión al clúster.
 
 ---
 
@@ -30,130 +30,119 @@ ATALAYA es un tablero para personal del INE que:
 ```mermaid
 flowchart LR
   subgraph RAW["data/raw (descargas oficiales)"]
-    INE["INE SICEE<br/>DIP_FED_AAAA.csv/xlsx"]
+    CCPC["INE CCPC 2009–2024<br/>+ judicial 2025 (zips)"]
     ITER["INEGI ITER 2020"]
     IMM["CONAPO IMM 2020"]
-    SHP["INEGI Marco Geo 2020<br/>00ent / 00mun"]
+    SHP["INEGI MG 2024<br/>00ent / 00mun"]
   end
-  subgraph ING["backend/atalaya/ingest"]
-    R[ine_results] --> CW[crosswalk]
-    I[inegi_iter] --> F[features]
-    C[conapo] --> F
-    F --> CW
-  end
-  subgraph MOD["backend/atalaya/model"]
-    B[build: pronóstico + perfil estructural] --> RK[risk: semáforo]
-    SC[scenarios] --> RK
-    RC[recommend]
-  end
-  INE --> R
-  ITER --> I
-  IMM --> C
-  CW -->|participation.parquet| B
-  F -->|features.parquet| B
-  B -->|units / drivers / metrics| ST[(store: PandasStore o EsStore)]
+  SHP --> GEO["tools/geo<br/>(mapshaper)"]
+  GEO -->|public/geo/*.json| WEB
+  GEO -->|geo_*_catalog.csv| CW
+  CCPC --> CC[ingest/ccpc] --> CW[ingest/crosswalk]
+  ITER --> IT[ingest/inegi_iter] --> FE[ingest/features]
+  IMM --> CO[ingest/conapo] --> FE
+  CW --> CF[ingest/ccpc_features]
+  CW -->|participation| MB
+  FE --> MB[model/build]
+  CF --> MB
+  MB --> RK[model/risk] 
+  MB -->|units, drivers, metrics| ST[(store<br/>PandasStore / EsStore)]
   ST -->|load.py| CSS[(Huawei CSS<br/>Elasticsearch 7.10)]
   ST --> API[FastAPI :8001]
-  SC --> API
-  RC --> API
+  SC[model/scenarios] --> API
+  RC[model/recommend] --> API
   CHAT[chat: guard → planner → executor → writer] --> API
-  LLM[(GLM-5.2<br/>Huawei MaaS)] -.-> CHAT
-  SHP --> GEO[tools/geo: mapshaper] -->|public/geo/*.json| WEB
-  API -->|/api/*| WEB[Next.js :3000<br/>mapa + panel + asistente]
+  LLM[(GLM-5.2<br/>MaaS)] -.-> CHAT
+  API -->|/api/*| WEB[Next.js :3000]
+  MB --> EX[export] --> DEL[deliverables/]
+  MB --> REP[report: reporte + presentación] --> DEL
 ```
 
 | Capa | Tecnología | Ubicación |
 |---|---|---|
 | Ingesta y modelo | Python 3.12, pandas, numpy (sin scikit-learn) | `backend/atalaya/ingest`, `backend/atalaya/model` |
 | Almacén de consulta | `PandasStore` (parquet en memoria) / `EsStore` (Huawei CSS = Elasticsearch 7.10.2) | `backend/atalaya/store.py` |
-| API | FastAPI + SSE (`sse-starlette`) | `backend/atalaya/api` |
-| Asistente | GLM-5.2 vía MaaS (API compatible con OpenAI) + reglas deterministas | `backend/atalaya/chat`, `backend/atalaya/llm.py` |
+| API | FastAPI + SSE | `backend/atalaya/api` |
+| Asistente | Reglas deterministas + GLM-5.2 vía MaaS (API compatible OpenAI) | `backend/atalaya/chat`, `backend/atalaya/llm.py` |
+| Entregables | openpyxl, GeoJSON, SVG en Python, PDF con Chrome/Edge headless | `backend/atalaya/export.py`, `backend/atalaya/report` |
 | Frontend | Next.js 16, React 19, Tailwind 4, Leaflet/react-leaflet | `frontend/src` |
-| Geografía | mapshaper (Node), shapefiles INEGI → GeoJSON simplificado | `tools/geo` |
+| Geografía | mapshaper (Node) | `tools/geo` |
 | Orquestación | PowerShell 5.1 | `scripts/*.ps1` |
 
-Puertos: backend **8001**, frontend **3000**.
-
 ---
 
-## 3. Datos: fuentes y flujo
+## 3. Datos
 
-### 3.1 Fuentes (el usuario las coloca en `data/raw/`; nombres obligatorios)
+### 3.1 Fuentes (`data/raw/`, no versionado; cómo obtenerlas en `README.md`)
 
-| Carpeta | Archivo | Origen | Uso |
-|---|---|---|---|
-| `data/raw/ine/` | `DIP_FED_<AAAA>.<csv\|xlsx\|xls\|zip>` (2009…2024); opcional `PRES_*`, `SEN_*`, `PJF_2025` | INE **SICEE** (sicee.ine.mx), nivel municipio | Serie de participación |
-| `data/raw/inegi/` | `iter_00_cpv2020_csv.zip` (o `.csv`) | INEGI Censo 2020, ITER nacional | Variables sociodemográficas |
-| `data/raw/conapo/` | `IMM_2020.<csv\|xlsx>` | CONAPO Índice de marginación municipal 2020 | Marginación, analfabetismo, ingresos |
-| `data/raw/geo/` | `00ent.*`, `00mun.*` (shp, shx, dbf, prj, cpg) | INEGI Marco Geoestadístico 2020 | Polígonos del mapa |
-
-El **año y tipo de elección** se leen del nombre del archivo (regex `(DIP_FED|PRES|SEN|PJF)_(\d{4})`).
-
-### 3.2 Claves geográficas
-
-- `cve_ent` (2 dígitos) — INE e INEGI comparten numeración de estados.
-- `cvegeo` (5 dígitos = `cve_ent + cve_mun`) — **ID canónico de municipio** en modelo, mapa y API.
-- El INE numera municipios distinto que INEGI: el **crosswalk** los une por nombre normalizado (ver §4.1).
-- ID de región en la API: `"07"` = estado, `"07101"` = municipio.
-
-### 3.3 Artefactos (`data/build/`, no versionados)
-
-| Archivo | Lo produce | Contenido |
+| Carpeta | Contenido | Uso |
 |---|---|---|
-| `participation_ine.parquet` | `ingest/ine_results.py` | Participación por municipio **INE** × elección × año |
-| `inegi_mun.parquet` | `ingest/inegi_iter.py` | Indicadores ITER por municipio |
-| `conapo_mun.parquet` | `ingest/conapo.py` | Marginación CONAPO por municipio |
-| `features.parquet` | `ingest/features.py` | Unión INEGI + CONAPO por `cvegeo` |
-| `crosswalk.parquet`, `crosswalk_unmatched.csv` | `ingest/crosswalk.py` | Mapeo INE→INEGI y pendientes de revisión |
-| `participation.parquet` | `ingest/crosswalk.py` | **Tabla canónica** de participación por `cvegeo` |
-| `units.parquet` | `model/build.py` | Una fila por municipio y por estado con features, pronóstico, riesgo y semáforo |
-| `drivers.parquet` | `model/build.py` | Top 5 factores por unidad (pp de abstención) |
-| `metrics.json`, `model.json` | `model/build.py` | Backtests, coeficientes, lambda, R² estructural |
+| `data/raw/ccpc/` | `DatosAbiertos_DECEyEC_ConteosCensales{2009,2012,2015,2018,2021,2024}.zip`, `…ConteosCensalesPJ2025.zip`, manual oficial | Participación por **sección × sexo × edad** (LN, SV, NV, NS) |
+| `data/raw/inegi/` | `iter_00_cpv2020_csv.zip` | Población, edad, escolaridad, lengua indígena, servicios, internet, ruralidad |
+| `data/raw/conapo/` | `IMM_2020.csv` | Marginación, analfabetismo, ingresos |
+| `data/raw/geo/` | `00ent.*`, `00mun.*` (MG 2024, Lambert ITRF2008, latin-1) | Polígonos del mapa y catálogo canónico de municipios |
 
-Datos versionados curados a mano: `data/seed/states.csv` (32 estados + alias como CDMX/Edomex), `data/seed/variables.csv` (catálogo de 21 variables para el asistente), `data/seed/recommendations.csv` (10 reglas de recomendación), `data/seed/mun_crosswalk_overrides.csv` (correcciones manuales del crosswalk).
+### 3.2 Definiciones clave
+
+- **Participación CCPC = SV / (SV + NV)**: SV = registros con marca de voto, NV = sin marca, NS = no especificados (cuadernillo no disponible), excluidos. Reproduce el tablero oficial: nacional 44.06 / 62.08 / 47.07 / 62.37 / 51.84 / 59.67 % (2009–2024); judicial 2025 = 13.0 %.
+- **Confiabilidad:** un municipio-año es confiable si `ns_rate = NS/LN ≤ 0.5` y participación ≥ 2 %; entre 0.3 y 0.5 es de baja confianza. Los no confiables (210 municipio-años federales) no se usan en el modelo y se muestran como "sin información confiable", nunca como 0 %.
+- **Unidad canónica:** `cvegeo` (5 dígitos) del MG 2024; estado = `cve_ent`. El crosswalk INE→INEGI cubre el **100 %** de la lista nominal en todos los años.
+- **Privacidad:** celdas edad × sexo con LN < 10 se suprimen (`suprimido=true`, conteos y tasa nulos); el sexo no binario solo se publica a nivel estatal y nacional.
+
+### 3.3 Artefactos (`data/build/`, regenerables, no versionados)
+
+| Archivo | Productor | Contenido |
+|---|---|---|
+| `participation_ine.parquet`, `ccpc_profile.parquet`, `ccpc_seccion.parquet` | `ingest/ccpc.py` | Agregados CCPC por municipio INE, por edad × sexo y por sección |
+| `geo_mun_catalog.csv`, `geo_ent_catalog.csv` | `tools/geo/build_geo.mjs` | Catálogo canónico MG 2024 |
+| `inegi_mun.parquet`, `conapo_mun.parquet`, `features.parquet` | `ingest/inegi_iter.py`, `conapo.py`, `features.py` | Variables sociodemográficas por `cvegeo` (2,478 filas; `new_since_2020` para municipios recientes) |
+| `crosswalk.parquet`, `crosswalk_unmatched.csv` | `ingest/crosswalk.py` | Mapeo INE→INEGI (override → exacto → variantes → fuzzy) |
+| `participation.parquet` | `ingest/crosswalk.py` | **Tabla canónica**: `cvegeo × año × elección` con LN, SV, NV, NS, `ns_rate`, `reliable`, `low_confidence` |
+| `ccpc_profile_mun.parquet`, `ccpc_seccion_mun.parquet` | `ingest/crosswalk.py` | Perfil y secciones con `cvegeo` |
+| `ccpc_features.parquet` | `ingest/ccpc_features.py` | Indicadores CCPC por municipio **y estado** (desde sumas) y elección: `pct_ln_18_34`, `part_18_34`, `gap_youth_pp`, `gap_sexo_pp`, `pct_ln_rural`, `ns_rate` |
+| `units.parquet`, `drivers.parquet`, `metrics.json`, `model.json` | `model/build.py` | Pronóstico, semáforo, componentes, prioridad, factores y métricas |
+
+Datos curados versionados en `data/seed/`: `states.csv` (estados y alias), `variables.csv` (catálogo para el asistente), `recommendations.csv` (reglas), `mun_crosswalk_overrides.csv`, `concurrencia_gubernatura.csv` (gubernaturas concurrentes 2009–2027; 17 en 2027).
 
 ---
 
-## 4. Funcionalidades → módulos y código
+## 4. Funcionalidades → módulos
 
-### 4.1 Ingesta robusta de Excel/CSV oficiales
+### 4.1 Ingesta
 
 | Qué hace | Dónde |
 |---|---|
-| Lectura de `.csv/.txt/.xlsx/.xls/.zip` con detección de codificación (utf-8-sig → cp1252 → latin-1, decodificador incremental), separador (`, \| ; \t`) y **fila de encabezado** (busca alias en las primeras 30 filas); normalización de columnas y nombres | `ingest/common.py` → `read_table`, `norm_col`, `norm_name`, `pick_col`, `to_num`, `zpad` |
-| Resultados INE: descubre archivos por nombre, resuelve columnas por alias (ID/nombre de entidad y municipio, lista nominal, votos totales), excluye voto en el extranjero y totales, agrega a municipio, `participacion = votos/lista` recortada a ≤1 | `ingest/ine_results.py` → `discover_files`, `resolve_municipio_columns`, `get_entity_series`, `process_file`, `ingest_ine_results` |
-| ITER: lee solo las columnas necesarias (archivo ~1.6 GB), filas municipales (`LOC=0`) y `pct_rural` desde localidades < 2,500 hab. | `ingest/inegi_iter.py` → `process_inegi_iter` |
-| CONAPO: `CVE_MUN` de 5 o 3 dígitos, grado de marginación normalizado | `ingest/conapo.py` → `process_conapo`, `normalize_gm` |
-| Variables por municipio (`pct_18_24`, `graproes`, `pct_hli`, `pct_internet`, `pct_rural`, `pct_analfabeta`, `im_2020`, …) | `ingest/features.py` → `process_features` |
-| Crosswalk INE↔INEGI dentro de cada estado: override → exacto → variantes (quita "Heroica Ciudad de", `GRAL`↔`GENERAL`…) → fuzzy (`difflib` ≥ 0.88 con margen 0.03) → no mapeado (CSV para revisión). Reporta % de lista nominal cubierta | `ingest/crosswalk.py` → `strip_variants`, `load_overrides`, `process_crosswalk` |
+| Lectura robusta CSV/XLSX/ZIP (codificación, separador, fila de encabezado, normalización) | `ingest/common.py` → `read_table`, `norm_name`, `norm_col`, `pick_col`, `to_num`, `zpad`, `write_parquet` |
+| CCPC: recorre los 32 CSV de cada zip con tipos fijos, agrega y descarta (≈ 9.8 M filas/año, ~11 s/año) | `ingest/ccpc.py` |
+| Indicadores CCPC por municipio y estado | `ingest/ccpc_features.py` |
+| ITER con `usecols` (nunca carga las 286 columnas); CONAPO con `CVE_MUN` sin cero inicial | `ingest/inegi_iter.py`, `ingest/conapo.py` |
+| Universo MG 2024 + unión ITER/CONAPO | `ingest/features.py` |
+| Crosswalk y tablas canónicas con confiabilidad | `ingest/crosswalk.py` |
+| (Heredado, fuera del pipeline) resultados SICEE | `ingest/ine_results.py` |
 
-### 4.2 Modelo de riesgo (explicable, sin datos personales)
+### 4.2 Modelo de riesgo
 
-Dos modelos con propósitos distintos, ambos **ridge en forma cerrada con numpy**:
+**Pronóstico — participación relativa.** El nivel nacional cambia mucho entre elecciones y no es predecible con datos municipales, así que el modelo predice la **desviación** de cada municipio respecto a la media de la elección (`dev = 100·participación − media municipal`), usando solo municipio-años confiables (`model/panel.py`).
 
-| Modelo | Objetivo | Predictores | Para qué se usa | Dónde |
-|---|---|---|---|---|
-| **Pronóstico** | participación DIP_FED en el año T | `lag1` (elección anterior, tipo opuesto), `lag2` (elección del mismo tipo, T−6), `pres` (año presidencial) + 11 features estandarizadas | `pred_participation`/`pred_abstention` 2027 e intervalo | `model/forecast.py` → `fit_ridge`, `predict`; `model/panel.py` → `training_rows` |
-| **Perfil estructural** | participación promedio en elecciones intermedias | las 11 features | **Explicar**: drivers por zona y coeficientes de Metodología | `model/forecast.py` → `fit_structural`, `contributions_structural`; `model/panel.py` → `intermediate_turnout` |
+- **Candidatos** (`model/forecast.py`): `persist_l1` (desviación de la elección anterior), `persist_l2`, `mean_l1_l2` y `ridge` (rezagos + concurrencia con gubernatura + variables sociodemográficas y CCPC del año previo).
+- **Backtest honesto:** entrena con T ≤ 2018 → prueba 2021; T ≤ 2021 → prueba 2024. Métricas: MAE (pp), RMSE, Spearman y acierto en el 20 % de mayor abstención. **Se elige el candidato de menor MAE promedio.**
+- **Resultado actual:** gana `persist_l1` (MAE 5.95 / 6.05 pp; Spearman 0.84 / 0.81; acierto top-20 % 0.68 / 0.70). Los modelos con concurrencia y sociodemográficas no lo superan (el efecto de la concurrencia varía entre elecciones). Municipios sin rezago usan el siguiente candidato disponible (`fallback_model`).
+- **Nivel 2027:** supuesto explícito = participación SV/(SV+NV) de la última intermedia confiable (2021, **51.84 %**); el pronóstico se **calibra** para que su agregado ponderado por LN sea exactamente ese nivel (`calibration_pp`). El semáforo compara zonas entre sí; el supuesto mueve el nivel absoluto, no el orden.
+- **Intervalo:** ± 1.645·σ de los residuales del fold 2024.
 
-¿Por qué dos? En el pronóstico, los rezagos absorben el nivel de cada municipio y las features quedan con coeficiente ≈ 0, así que no explican nada. El perfil estructural aísla la asociación entre características del territorio y participación.
+**Perfil estructural — vulnerabilidad sociodemográfica.** Ridge de la desviación promedio en intermedias sobre variables de INEGI, CONAPO y CCPC. R² en validación cruzada aleatoria **0.32** (0.31 dentro de cada estado); el 47 % de la variación es entre estados, por lo que la validación que deja estados completos fuera da −0.08 (también se reporta). De aquí salen:
+- `vulnerability_pp` (abstención relativa que predice el perfil de la zona),
+- los **factores** por zona (`drivers.parquet`, contribución en pp a la abstención) y los coeficientes que muestra Metodología.
 
-- **Features:** `pct_18_24, pct_65ymas, graproes, pct_hli, pct_sin_servsalud, pct_internet, pct_rural, pct_analfabeta, pct_po2sm, coverage_ln` (lista nominal / población 18+), `log_pob_18ymas`. Imputación con medianas de entrenamiento.
-- **Backtest honesto:** entrena con T ≤ 2018 → prueba 2021; T ≤ 2021 → prueba 2024. MAE/RMSE en pp, Spearman y comparación contra **persistencia** (repetir la elección anterior del mismo tipo). Lambda elegida con el fold 2021 (`select_lambda`); R² del perfil estructural por validación cruzada agrupada por estado.
-- **Tendencia y volatilidad** por unidad: OLS `participación ~ 1 + k + pres` (`panel.unit_trend`).
-- **Intervalo:** `pred_abstention ± 1.645·σ` (σ = residuales del último fold).
-- **Nivel estatal:** agregación ponderada por lista nominal (`model/build.py`).
-- CLI: `python -m atalaya.model.build` → `units.parquet`, `drivers.parquet`, `metrics.json`, `model.json`.
+**CLI:** `python -m atalaya.model.build [--national-level X]`.
 
-> Resultado en datos sintéticos de auditoría (2,400 municipios): MAE 2.6 pp vs 3.3 pp de persistencia, Spearman 0.92. El perfil estructural recuperó los efectos plantados (escolaridad +2.5 pp/DE, jóvenes −1.3 pp/DE). **Pendiente validar con datos reales.**
-
-### 4.3 Semáforo de riesgo
+### 4.3 Semáforo
 
 `model/risk.py` → `compute_risk`, `rescore`, `category_for`.
 
-- `risk_score = 100 · (0.60·rango(abstención pronosticada) + 0.25·rango(−tendencia) + 0.15·rango(volatilidad))`, con rangos percentiles **dentro de cada nivel** (municipios contra municipios, estados contra estados).
-- 🔴 rojo ≥ 75 · 🟠 naranja ≥ 55 · 🟡 amarillo ≥ 35 · 🟢 verde < 35 · ⚪ `sin_dato`.
-- `rescore` evalúa un escenario **contra la distribución base**, para que los cambios de color sean comparables.
+`risk_score = 100 · (0.50·rango(abstención pronosticada) + 0.20·rango(vulnerabilidad) + 0.15·rango(−tendencia) + 0.15·rango(volatilidad))`, rangos dentro de cada nivel. 🔴 ≥ 75 · 🟠 ≥ 55 · 🟡 ≥ 35 · 🟢 < 35 · ⚪ sin dato. Los componentes (`r_abs`, `r_vuln`, `r_trend`, `r_vol`) se guardan para explicar cada índice. `rescore` evalúa escenarios contra la distribución base.
+
+Estado actual (base): 297 municipios rojos (12.9 % de la LN), 756 naranjas (49.5 %), 742 amarillos (29.2 %), 678 verdes (8.3 %), 5 sin dato.
 
 ### 4.4 Escenarios
 
@@ -162,157 +151,161 @@ Dos modelos con propósitos distintos, ambos **ridge en forma cerrada con numpy*
 | Escenario | Parámetros | Efecto |
 |---|---|---|
 | `base` | — | Pronóstico sin intervención |
-| `intervencion` | `lever` (promoción del voto joven, casillas/traslado rurales, materiales en lenguas indígenas, campaña general), `targeting` (rojo / rojo+naranja / todos), `effect_pp` (0–10), `coverage` (0–100 %) | `Δ = effect·coverage·w`. El peso `w` es la variable de la palanca entre su P75 nacional, recortada a [0, 1.5]; vale 1 en campaña general. Tope de participación: 98 %. |
-| `pesimista` | `shock_pp` (0–5), `trend_amplifier` (0–100 %) | Caída general + acentuación de tendencias negativas |
+| `intervencion` | palanca (voto joven, casillas/traslado rurales, lenguas indígenas, campaña general), focalización (rojo / rojo+naranja / todos), efecto 0–10 pp, cobertura 0–100 % | `Δ = efecto · cobertura · peso`, peso = variable de la palanca / su P75 (tope 1.5; 1 en campaña general); tope 98 % |
+| `pesimista` | caída general 0–5 pp, acentuación de tendencias negativas | Empeora participación |
 
-Resumen: conteo por semáforo vs base, **votos adicionales/perdidos** (`Δparticipación × lista nominal`) y cambio promedio en abstención ponderado (negativo = mejora). Todos los supuestos se presentan como **hipotéticos**.
+Resumen: zonas por color vs base, LN por color, votos adicionales/perdidos (`Δparticipación × LN`), cambio promedio en abstención y abstención esperada por escenario.
 
-### 4.5 Recomendaciones preventivas
+### 4.5 Priorización y recomendaciones
 
-`model/recommend.py` → `build_reference`, `recommend`, con reglas en `data/seed/recommendations.csv`.
+- `abstencion_esperada = pred_abstention × lista_nominal`; `prioridad` = orden por abstención esperada dentro de zonas rojas y naranjas (encabezan Tijuana, Juárez, Puebla, León, Ecatepec).
+- `model/recommend.py` + `data/seed/recommendations.csv`: 10 reglas (voto joven, accesibilidad de casillas, lenguas indígenas, educación cívica visual, difusión no digital, diagnóstico de caída sostenida, monitoreo por volatilidad, personas mayores, credencialización, coordinación en alta marginación) activadas por percentiles nacionales y por los factores de la zona; máximo 4 por zona.
 
-10 reglas: voto joven, accesibilidad de casillas rurales, materiales en lenguas indígenas, educación cívica visual, difusión fuera de canales digitales, diagnóstico de caída sostenida, monitoreo por volatilidad, accesibilidad para personas mayores, credencialización y coordinación en alta marginación. Se activan por percentiles nacionales (p. ej. `pct_18_24 ≥ P75`) o porque la variable es un **driver** que sube la abstención. Los textos llevan las cifras de la zona; la prioridad depende del semáforo. Máximo 4 por zona.
+### 4.6 Privacidad
 
-### 4.6 Almacén de consulta y Huawei CSS
+`atalaya/privacy.py` → `suppress_small_cells` (LN < 10), `drop_nonbinary_below_state`. Se aplica en la API, el asistente y los entregables.
 
-`store.py` → `DataStore` (protocolo), `PandasStore`, `EsStore`, `get_store`.
+### 4.7 Almacén de consulta y Huawei CSS
 
-- Interfaz: `units`, `unit`, `participation`, `search_units` (fuzzy por nombre y alias), `search_catalog`, `top`, `aggregate`, `correlation`, `drivers`, `metrics`, `stats`.
-- `units` incluye columnas anchas `part_dip_<año>` / `abst_dip_<año>`, para que las correlaciones participación × variable se resuelvan en un solo índice.
-- **En CSS**: índices con prefijo `atalaya-` (`units`, `participation`, `catalog`, plantillas *legacy* en `schema.py`). `search_units` usa `multi_match` con `fuzziness`, `aggregate` usa agregaciones `terms/avg/percentiles` y **`correlation` usa `matrix_stats`**: la correlación se calcula dentro del clúster.
-- `get_store()`: `ATALAYA_STORE=auto` usa CSS si responde en ≤ 3 s y existe `atalaya-units`; si no, cae a memoria.
-- Carga: `python -m atalaya.load [--dry-run]` (`load.py` → `prepare_*_docs`, `validate_docs`). Solo borra o recrea índices `atalaya-*`.
-- Cliente y conexión: `es_client.py` (`get_es`, `ping_es`, `ensure_templates`, `bulk_index`); diagnóstico: `backend/scripts/check_cluster.py`.
+`store.py` → `DataStore`, `PandasStore`, `EsStore`, `get_store`.
 
-### 4.7 Asistente conversacional
+- Interfaz: `units`, `unit`, `participation`, `profile`, `search_units` (fuzzy y alias), `search_catalog`, `top`, `aggregate`, `correlation`, `drivers`, `metrics`, `stats`.
+- `units` incluye columnas anchas `part_dip_<año>`/`abst_dip_<año>` para resolver correlaciones en un solo índice; métricas CCPC por año desde `ccpc_features`. Año por defecto: último federal (la judicial 2025 solo si se pide).
+- **En CSS** (`schema.py`, plantillas legacy, prefijo `atalaya-`): índices `units`, `participation`, `catalog`, `profile`; búsqueda fuzzy con `multi_match`, agregaciones `terms/avg/percentiles` y **correlación con `matrix_stats`** dentro del clúster.
+- `get_store()`: `ATALAYA_STORE=auto` usa CSS si responde en ≤ 3 s y existe `atalaya-units`; si no, memoria. Carga: `python -m atalaya.load [--dry-run]`. Diagnóstico: `backend/scripts/check_cluster.py`.
 
-`api/chat.py` (`POST /api/chat`, SSE) orquesta el paquete `chat/`:
+### 4.8 Asistente conversacional
+
+`api/chat.py` (`POST /api/chat`, SSE) orquesta `chat/`:
 
 | Paso | Qué hace | Dónde |
 |---|---|---|
-| 1. Guardia | Rechaza sin LLM las solicitudes de datos personales (CURP, clave de elector, domicilios) y las de preferencias por partido o candidato | `chat/guard.py` → `check` |
-| 2. Plan | Primero **reglas** (año, estados/municipios vía `search_units`, intent por palabras clave, métrica vía catálogo); si no hay confianza, LLM con `chat_json` → `QuerySpec`. Si falla, vuelve a reglas | `chat/planner.py` → `plan`; `chat/spec.py` → `QuerySpec`, `DataResult` |
-| 3. Ejecución | Sin LLM, sobre el store: ranking, lookup, compare, trend, correlation (r, n, fuerza y tabla por quintiles; "correlación no implica causalidad"), scenario (`simulate`), explain_unit (drivers + recomendaciones), catalog | `chat/executor.py` → `execute` |
-| 4. Redacción | LLM en streaming (≤ 120 palabras, solo cifras de la tabla, cita fuente y año). Si el LLM falla o lo bloquea el auditor de contenido, usa una plantilla determinista y marca `degraded` | `chat/writer.py` → `stream_answer`, `fallback_text` |
+| Guardia | Rechaza sin LLM peticiones de datos personales y de preferencias partidistas | `chat/guard.py` |
+| Plan | Reglas primero (años, estados/municipios, intent, métrica del catálogo; perfil por edad, juvenil, género, judicial, priorización); LLM (`chat_json`) solo si hace falta; respaldo a reglas | `chat/planner.py`, `chat/spec.py` |
+| Ejecución | Sobre el store, sin LLM: ranking, lookup, compare, trend, correlation (r, n, quintiles), profile, scenario, explain_unit, catalog; aplica privacidad; los datos censales siempre se fechan en 2020 | `chat/executor.py` |
+| Redacción | LLM en streaming (≤ 120 palabras, solo cifras de la tabla, fuente y año); si falla o lo bloquea el auditor de contenido, plantilla determinista (`degraded`) | `chat/writer.py` |
 
-Eventos SSE: `plan` → `data` (tabla + fuente) → `token`… → `done {sources, degraded}` (o `error`).
-Cliente LLM: `llm.py` (`chat`, `chat_stream`, `chat_json`): reintentos, `thinking` desactivado (~4 s por respuesta corta) y detección del auditor de contenido de MaaS (HTTP 403, `content_filter`, aviso anexado al final).
+Eventos: `plan` → `data` → `token`… → `done {sources, degraded}`. Cliente LLM: `llm.py` (reintentos, razonamiento desactivado ≈ 4 s, detección del auditor de MaaS).
 
-### 4.8 API REST
+### 4.9 API REST
 
-`api/main.py` (app, CORS, warmup en segundo plano, incluye el router de chat si existe), `api/routes.py` (endpoints), `api/deps.py` (caches de units, simulaciones LRU y referencia de recomendaciones).
+`api/main.py` (app, CORS, warmup), `api/routes.py`, `api/deps.py` (caches).
 
 | Método | Ruta | Devuelve |
 |---|---|---|
-| GET | `/api/health` | estado, store (`es`/`memory`), LLM, warmup, conteos |
-| GET | `/api/meta` | año objetivo, años, estados, definición de escenarios y categorías |
-| GET | `/api/risk?level=state\|mun&ent=&scenario=` | `RiskItem[]` para colorear el mapa |
-| POST | `/api/scenario/simulate` | items + resumen del escenario (422 si los parámetros son inválidos) |
-| GET | `/api/region/{id}?scenario=` | detalle: serie histórica, features vs mediana nacional, drivers, escenarios, recomendaciones |
-| GET | `/api/ranking?level=&ent=&scenario=&limit=` | zonas ordenadas por `risk_score` |
-| GET | `/api/metrics` | backtests, coeficientes estructurales y de pronóstico, fuentes |
-| POST | `/api/admin/reload` | recarga el store tras reconstruir datos |
+| GET | `/api/health` | estado, store, LLM, conteos |
+| GET | `/api/meta` | año objetivo, años, estados, escenarios, categorías, fuentes de datos |
+| GET | `/api/risk?level&ent&scenario` | zonas con pronóstico, semáforo, vulnerabilidad, abstención esperada, prioridad |
+| POST | `/api/scenario/simulate` | items + resumen (422 con mensaje si los parámetros son inválidos) |
+| GET | `/api/region/{id}?scenario` | serie (con `reliable`, `ns_rate`, judicial aparte), variables vs mediana, factores, componentes del índice, escenarios, recomendaciones, perfil CCPC 2009 vs 2024 (protegido), judicial 2025 |
+| GET | `/api/ranking?level&ent&scenario&limit&sort=risk\|abstencion_esperada\|prioridad` | ranking |
+| GET | `/api/metrics` | candidatos, modelo elegido, backtests, supuesto nacional, calibración, R² estructurales, confiabilidad |
+| POST | `/api/admin/reload` | recarga datos |
 | POST | `/api/chat` | SSE del asistente |
 
-Documentación interactiva: `http://localhost:8001/docs`.
+### 4.10 Frontend
 
-### 4.9 Frontend
-
-UX deliberadamente simple: un experto de diseño rehará la UI. La lógica de datos está separada de la presentación.
+UI deliberadamente simple (será rediseñada por un experto); lógica separada de presentación.
 
 | Funcionalidad | Dónde |
 |---|---|
-| Estado global (escenario y parámetros, nivel, estado y región seleccionados, simulación, salud de la API) | `src/lib/state.tsx` → `AtalayaProvider`, `useAtalaya` |
-| Cliente API + parser SSE + respaldo a mocks **solo** ante fallo de red, 5xx o endpoint inexistente | `src/lib/api.ts` → `getHealth`, `getMeta`, `getRisk`, `simulateScenario`, `getRegion`, `getRanking`, `getMetrics`, `streamChat`, `parseSSEChunk` |
-| Carga de GeoJSON con contrato del pipeline (`id/name/ent`) y adaptador de `index.json` | `src/lib/geo.ts` → `toIndexItems`, `fetch*` |
-| Mapa: estados coloreados por semáforo → clic o zoom → municipios del estado; tooltip, vuelta a nacional al alejar | `src/components/map/RiskMap.tsx` (carga dinámica sin SSR), `LeafletInnerMap.tsx` |
-| Leyenda con conteos, breadcrumb México › Estado › Municipio, buscador de zonas | `Legend.tsx`, `Breadcrumb.tsx`, `RegionSearch.tsx` |
-| Barra superior: selector de escenario, banner sin datos / datos de demostración | `src/components/layout/TopBar.tsx` |
-| Controles de intervención generados desde `Meta.scenarios[].params` + resumen con signo | `src/components/layout/ScenarioControls.tsx` |
-| Panel Detalle (semáforo, intervalo, tendencia, serie histórica, features, drivers, recomendaciones) | `src/components/panel/RegionDetailPanel.tsx`, `src/components/viz/Sparkline.tsx` |
-| Ranking con filtro y exportación CSV en el navegador | `src/components/panel/RankingTable.tsx` |
-| Asistente: streaming, tabla con fuente, "Cómo lo calculé", aviso `degraded`, detener, contexto de región | `src/components/panel/ChatPanel.tsx` |
-| Página de metodología (fuentes, backtests vs persistencia, coeficientes, supuestos, limitaciones) | `src/app/metodologia/page.tsx` |
-| Mocks deterministas para demo sin backend (`NEXT_PUBLIC_MOCK=1`) | `src/lib/mocks/*` |
+| Estado global (escenario, nivel, selección, simulación, salud) | `src/lib/state.tsx` |
+| Cliente API + SSE; mocks solo ante fallo de red | `src/lib/api.ts`, `src/lib/mocks/*` |
+| GeoJSON del pipeline (`id/name/ent`) e índice | `src/lib/geo.ts` |
+| Mapa: estados → municipios, tooltip, leyenda con zonas y % de LN, buscador, breadcrumb | `src/components/map/*` |
+| Selector de escenario y controles generados desde `Meta` | `src/components/layout/TopBar.tsx`, `ScenarioControls.tsx` |
+| Detalle: semáforo, intervalo, serie (cortes por datos no confiables, judicial aparte), componentes del índice, perfil edad × sexo (celdas protegidas), indicadores CCPC, factores, recomendaciones, prioridad | `src/components/panel/RegionDetailPanel.tsx`, `src/components/viz/Sparkline.tsx` |
+| Ranking ordenable (riesgo, abstención esperada, prioridad) y exportación CSV | `src/components/panel/RankingTable.tsx` |
+| Asistente con streaming, tabla y fuente | `src/components/panel/ChatPanel.tsx` |
+| Metodología: candidatos y backtests, supuesto nacional, R², confiabilidad, privacidad, fuentes | `src/app/metodologia/page.tsx` |
 
-### 4.10 Pipeline geográfico
+### 4.11 Entregables (`deliverables/`, generados)
 
-`tools/geo/build_geo.mjs` (mapshaper): reproyecta INEGI (Lambert ITRF2008) a WGS84 y simplifica (estados 2 %, municipios 4 %). Genera `frontend/public/geo/states.json`, `mun/<cve_ent>.json` (uno por estado) e `index.json` (bbox y centroides). Límites de tamaño: estados ≤ 1.5 MB, cada estado ≤ 800 KB.
+| Entregable | Comando | Contenido |
+|---|---|---|
+| Base de datos anonimizada `base_datos_atalaya.xlsx` + `csv/` | `python -m atalaya.export` | Hojas `LEEME`, `diccionario`, `semaforo_ponderado`, `priorizacion`, `municipios`, `estados`, `participacion_historica`, `perfil_edad_sexo` (protegido), `drivers`, `recomendaciones`, `metricas_modelo`. Valida antes de exportar |
+| Mapa de escenarios `mapa_escenarios_{municipal,estatal}.geojson` | `python -m atalaya.export` | Semáforo y abstención por escenario, factor y recomendación principal |
+| Reporte metodológico `reporte_metodologico.{html,pdf}` (14 pp.) | `python -m atalaya.report.build_report` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, limitaciones |
+| Presentación ejecutiva `presentacion_ejecutiva.{html,pdf}` (10 diapositivas) | `python -m atalaya.report.build_slides` | Mensajes clave con mapas y gráficas |
+
+Gráficas en SVG generado en Python (`report/charts.py`: choropleth, líneas, barras) y PDF con Chrome/Edge headless (`html_to_pdf`).
+
+### 4.12 Pipeline geográfico
+
+`tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe `frontend/public/geo/states.json`, `mun/<cve_ent>.json`, `index.json` (versionados, ≈ 4.6 MB) y los catálogos geo.
 
 ---
 
 ## 5. Cómo correrlo
 
 ```powershell
-# 1. Pipeline completo (ingesta → modelo → validación; -Load sube a CSS, -Geo genera mapas)
-powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-Load] [-Geo] [-SkipModel]
-
-# 2. Demo (API :8001 + web :3000, procesos desacoplados, PIDs en data/cache/*.pid)
-powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1        # -Mock: solo frontend con datos de demostración
+# Pipeline completo: geo → CCPC → INEGI/CONAPO → features → crosswalk → CCPC features → modelo → export → validación
+powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-SkipGeo] [-SkipModel] [-SkipExport] [-Load]
+# Reporte y presentación (después del pipeline)
+cd backend; python -m atalaya.report.build_report; python -m atalaya.report.build_slides
+# Demo (API :8001 + web :3000; PIDs en data/cache/*.pid)
+powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1      # -Mock: solo frontend con datos de demostración
 powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
-
-# 3. Pruebas
-cd backend;  python -m pytest -q                 # 133 pruebas, sin red
-cd frontend; npm run typecheck; npm test; npm run build
+# Pruebas (sin red; una guardia impide que escriban en datos reales)
+cd backend;  python -m pytest -q          # 203 pruebas
+cd frontend; npm run typecheck; npm test; npm run build   # 47 pruebas
 cd tools/geo; npm test
 ```
 
-Configuración: `backend/.env` (no versionado; plantilla en `backend/.env.example`): `ES_URL`, `ES_USERNAME`, `ES_PASSWORD`, `ES_INSECURE`, `MAAS_API_KEY`, `MAAS_BASE_URL`, `MAAS_MODEL=glm-5.2`, `ATALAYA_INDEX_PREFIX=atalaya-`, `ATALAYA_STORE=auto|es|memory`, `ATALAYA_LLM_ENABLED`, `ATALAYA_TARGET_YEAR=2027`.
+`build_all.ps1` termina con un resumen de validación y falla si la participación nacional 2024 no está en 59.6–59.7 %.
+
+Configuración: `backend/.env` (plantilla `backend/.env.example`): `ES_URL`, `ES_USERNAME`, `ES_PASSWORD`, `ES_INSECURE`, `MAAS_API_KEY`, `MAAS_BASE_URL`, `MAAS_MODEL=glm-5.2`, `ATALAYA_INDEX_PREFIX=atalaya-`, `ATALAYA_STORE=auto|es|memory`, `ATALAYA_LLM_ENABLED`, `ATALAYA_TARGET_YEAR=2027`.
 
 ---
 
 ## 6. Estructura del repositorio
 
 ```
-backend/
-  atalaya/
-    config.py  es_client.py  llm.py  schema.py  store.py  load.py
-    ingest/    common · ine_results · inegi_iter · conapo · features · crosswalk
-    model/     panel · forecast · build · risk · scenarios · recommend
-    api/       main · routes · deps · chat
-    chat/      spec · guard · planner · executor · writer
-  scripts/     check_cluster.py · smoke_llm.py
-  tests/       133 pruebas offline (conftest bloquea el cliente ES)
-frontend/src/  app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,mocks}
-tools/geo/     build_geo.mjs (mapshaper) + pruebas
-data/seed/     states · variables · recommendations · mun_crosswalk_overrides
-scripts/       build_all · start_demo · stop_demo · run-safe
-AGENTS.md · .agent-guard.json   reglas y guard para agentes automatizados
+backend/atalaya/
+  config.py  es_client.py  llm.py  schema.py  store.py  load.py  privacy.py  export.py
+  ingest/   common · ccpc · ccpc_features · inegi_iter · conapo · features · crosswalk · ine_results (heredado)
+  model/    panel · forecast · build · risk · scenarios · recommend
+  api/      main · routes · deps · chat
+  chat/     spec · guard · planner · executor · writer
+  report/   charts · build_report · build_slides · templates/ · slides_templates/
+backend/scripts/   check_cluster.py · smoke_llm.py · validate_build.py
+backend/tests/     203 pruebas offline
+frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,mocks}
+frontend/public/geo/   capas GeoJSON generadas (versionadas)
+tools/geo/         build_geo.mjs + pruebas
+data/seed/         catálogos y reglas curadas
+scripts/           build_all · start_demo · stop_demo · run-safe
+AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 ```
 
 ---
 
-## 7. Garantías de privacidad y de veracidad
+## 7. Garantías de privacidad y veracidad
 
-- Solo información **agregada y disociada** (municipio, estado). No se procesa padrón nominativo; el asistente rechaza solicitudes de datos personales.
-- El asistente **no** analiza preferencias políticas, partidos ni candidatos.
-- Toda cifra del asistente sale de la tabla del executor; el LLM solo planea y redacta. Sin LLM, la app responde con plantillas deterministas.
-- Escenarios e impactos de intervención se presentan como **supuestos hipotéticos**; el pronóstico se muestra con intervalo.
-
----
-
-## 8. Limitaciones conocidas
-
-- Variables sociodemográficas **estáticas** (Censo 2020) usadas para todos los años.
-- Municipios creados después de 2020 se agregan a su municipio padre mediante overrides del crosswalk.
-- La predicción supone continuidad institucional (la elección judicial 2025 se excluye del modelo).
-- Correlación ≠ causalidad: los drivers son asociaciones estructurales, no efectos causales.
+- Solo información **agregada y disociada**; supresión de celdas con menos de 10 personas; sexo no binario solo a nivel estatal/nacional; el asistente rechaza solicitudes de datos personales.
+- Sin análisis de preferencias políticas, partidos ni candidaturas.
+- Toda cifra del asistente y de los entregables se calcula de los artefactos; el LLM solo planea y redacta.
+- Los escenarios se presentan como **supuestos hipotéticos**; el nivel nacional 2027 es un **supuesto explícito**; el pronóstico lleva intervalo.
 
 ---
 
-## 9. Forma de trabajo (desarrollo por olas)
+## 8. Limitaciones
 
-El código lo implementan agentes Gemini en paralelo (máximo 5 por ola), con propiedad de archivos disjunta, a partir de planes en `temp/atalaya/` (local, no versionado). El arquitecto audita cada ola (pruebas completas + corrida de punta a punta con datos sintéticos), escribe planes de corrección y hace los commits. Los agentes no usan git ni escriben reportes. Sus comandos pasan por el hook `agent-guard` (`AGENTS.md`, `.agent-guard.json`).
+- La persistencia relativa gana porque las condiciones de cada elección (concurrencias locales, contexto) cambian; el modelo no anticipa choques locales nuevos.
+- Variables censales estáticas (2020); municipios creados después de 2020 usan imputación por mediana estatal (`imputed_census`) y solo tienen historia desde que existen.
+- Municipio-años con muchos registros no especificados quedan fuera del modelo.
+- Los factores son asociaciones estructurales (R² ≈ 0.3), no efectos causales.
+- El clúster Huawei CSS solo es accesible desde la VPC; fuera de ella la app usa el almacén en memoria con el mismo comportamiento.
 
 ---
 
-## 10. Estado actual y pendientes
+## 9. Estado actual
 
-**Hecho y auditado:** ingesta robusta, crosswalk, pronóstico + perfil estructural con backtests, semáforo, 3 escenarios, recomendaciones, store dual memoria/CSS, API completa, asistente con guardia/reglas/LLM/respaldo, frontend conectado a la API, pipeline geo y scripts de demo.
+**Funcional y probado con datos reales:** ingesta CCPC/INEGI/CONAPO, crosswalk al 100 %, modelo con backtest y selección honesta, semáforo con vulnerabilidad, escenarios, priorización, recomendaciones, privacidad, API, asistente, frontend con mapas reales, exportación y generación de reporte y presentación.
 
-**Pendiente (Ola 3):**
-1. Recibir los datos reales en `data/raw/` y ajustar la lectura a sus encabezados; llenar overrides del crosswalk (meta: ≥ 99 % de lista nominal cubierta por año); validar cifras nacionales (p. ej. DIP_FED 2021 ≈ 52–53 %).
-2. Generar mapas reales con `tools/geo` y verificar en navegador el drill-down con polígonos INEGI (hoy el frontend usa geometría de demostración).
-3. Cargar a Huawei CSS desde una máquina con acceso a la VPC y probar `EsStore` (desde la VM de desarrollo el clúster no responde).
-4. Bugs menores detectados: `start_demo.ps1` aborta si encuentra una demo previa cuyo proceso ya terminó (`taskkill` + `$ErrorActionPreference="Stop"` en PS 5.1); el asistente puede atribuir un dato del Censo 2020 al año mencionado en la pregunta.
-5. Rediseño visual del frontend (experto de UI).
+**Pendiente:**
+1. Corregir contenido de reporte y presentación: unificar todas las cifras desde una sola fuente (hay inconsistencias entre ambos y frases no respaldadas por parámetros), ajustar texto que se desborda en diapositivas, presentar los documentos como propuesta del equipo (no como documento institucional) y completar `[Nombre del equipo]` / `[URL del repositorio]`.
+2. Ajustar la regla de recomendaciones activadas por factores para que exija que el valor de la variable esté del lado desfavorable (hoy puede sugerir "difusión no digital" a municipios con buen acceso a internet).
+3. Verificar en navegador real que el mapa pinta polígonos y teselas (en capturas headless aparece vacío aunque el DOM contiene las capas).
+4. Cargar a Huawei CSS desde una máquina dentro de la VPC y probar `EsStore` con datos reales.
+5. Rediseño visual del frontend.

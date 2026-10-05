@@ -562,3 +562,95 @@ def test_executor_2027_national_level_assumption_fact(mock_store):
     assert not res_lookup.empty
     assert any(expected_fact in f for f in res_lookup.facts)
 
+
+def test_executor_ranking_prioridad_and_abstencion_esperada(mock_store):
+    """Verify executor handles rankings by prioridad (asc) and abstencion_esperada (desc)."""
+    build_dir = mock_store.build_dir
+    units_df = pd.DataFrame([
+        {
+            "id": "07101", "level": "mun", "cve_ent": "07", "cvegeo": "07101", "name": "Municipio Alfa",
+            "category": "rojo", "prioridad": 2, "abstencion_esperada": 45000, "risk_score": 82.0, "lista_nominal": 80000,
+        },
+        {
+            "id": "07102", "level": "mun", "cve_ent": "07", "cvegeo": "07102", "name": "Municipio Beta",
+            "category": "rojo", "prioridad": 1, "abstencion_esperada": 90000, "risk_score": 85.0, "lista_nominal": 150000,
+        },
+        {
+            "id": "07103", "level": "mun", "cve_ent": "07", "cvegeo": "07103", "name": "Municipio Gamma",
+            "category": "naranja", "prioridad": 3, "abstencion_esperada": 30000, "risk_score": 62.0, "lista_nominal": 60000,
+        },
+    ])
+    units_df.to_parquet(build_dir / "units.parquet", index=False)
+    mock_store.reload()
+
+    # 1. Prioridad ranking (ascending)
+    spec_prio = QuerySpec(intent="ranking", level="mun", metric="prioridad", order="asc")
+    res_prio = execute(spec_prio)
+    assert not res_prio.empty
+    assert res_prio.rows[0][1] == "Municipio Beta"  # prioridad 1
+    assert "#1" in res_prio.rows[0][3]
+    assert res_prio.rows[1][1] == "Municipio Alfa"  # prioridad 2
+    assert "#2" in res_prio.rows[1][3]
+    assert res_prio.rows[2][1] == "Municipio Gamma"  # prioridad 3
+    assert "#3" in res_prio.rows[2][3]
+    assert any("rojo y naranja" in f and "abstención esperada" in f for f in res_prio.facts)
+
+    # 2. Abstencion esperada ranking (descending)
+    spec_abs = QuerySpec(intent="ranking", level="mun", metric="abstencion_esperada", order="desc")
+    res_abs = execute(spec_abs)
+    assert not res_abs.empty
+    assert res_abs.rows[0][1] == "Municipio Beta"  # 90,000
+    assert "90,000" in res_abs.rows[0][3]
+    assert res_abs.rows[1][1] == "Municipio Alfa"  # 45,000
+    assert "45,000" in res_abs.rows[1][3]
+    assert res_abs.rows[2][1] == "Municipio Gamma"  # 30,000
+    assert "30,000" in res_abs.rows[2][3]
+
+
+def test_executor_profile_privacy_and_suppression(mock_store):
+    """Verify executor drops nonbinary records at municipal level and masks small cells (LN < 10) with N/D."""
+    build_dir = mock_store.build_dir
+    prof_data = [
+        # Mun 07101
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "H", "ln": 500, "sv": 300, "nv": 200, "ns": 0, "participacion": 0.60},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "M", "ln": 6, "sv": 3, "nv": 3, "ns": 0, "participacion": 0.50},  # small cell
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "X", "ln": 2, "sv": 1, "nv": 1, "ns": 0, "participacion": 0.50},  # nonbinary
+        # State Chiapas (another mun)
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "election": "DIP_FED", "age_group": "18-24", "sexo": "X", "ln": 15, "sv": 8, "nv": 7, "ns": 0, "participacion": 0.53},
+    ]
+    pd.DataFrame(prof_data).to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+    mock_store.reload()
+
+    # 1. Municipal query
+    spec_mun = QuerySpec(intent="profile", level="mun", unit_ids=["07101"], year=2024)
+    res_mun = execute(spec_mun)
+    assert not res_mun.empty
+
+    # No sexo="X" in rows
+    sexes = [row[1] for row in res_mun.rows]
+    assert "X" not in sexes
+
+    # LN < 10 cell shows N/D
+    m_row = next(row for row in res_mun.rows if row[0] == "18-24" and row[1] == "M")
+    assert m_row[2] == "N/D"  # ln
+    assert m_row[3] == "N/D"  # sv
+    assert m_row[4] == "N/D"  # nv
+    assert m_row[5] == "N/D"  # part
+
+    # Regular cell has formatted values
+    h_row = next(row for row in res_mun.rows if row[0] == "18-24" and row[1] == "H")
+    assert h_row[2] == "500"
+    assert h_row[3] == "300"
+    assert h_row[5] == "60.0%"
+
+    # Warning fact is present
+    assert any("Algunas celdas se protegen por tener menos de 10 personas." in f for f in res_mun.facts)
+
+    # 2. State query
+    spec_st = QuerySpec(intent="profile", level="state", unit_ids=["07"], year=2024)
+    res_st = execute(spec_st)
+    assert not res_st.empty
+    st_sexes = [row[1] for row in res_st.rows]
+    assert "X" in st_sexes
+
+

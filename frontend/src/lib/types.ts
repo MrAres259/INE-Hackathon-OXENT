@@ -20,6 +20,16 @@ export type RiskItem = {
   risk_score: number | null; // 0..100
   category: Category;
   delta_vs_base_pp?: number | null; // solo si scenario != base (negativo = menos abstención)
+  // Optional prioritization and 4 risk score components (Ola 4)
+  vulnerability_pp?: number | null;
+  abstencion_esperada?: number | null;
+  prioridad?: number | null;
+  r_abs?: number | null;
+  r_vuln?: number | null;
+  r_trend?: number | null;
+  r_vol?: number | null;
+  reliable?: boolean | null;
+  ns_rate?: number | null;
 };
 
 export type Feature = {
@@ -49,8 +59,20 @@ export type Recommendation = {
 export type SeriesPoint = {
   year: number;
   election: string;
-  participation: number;
+  participation: number | null;
   lista_nominal: number;
+  reliable?: boolean | null;
+  low_confidence?: boolean | null;
+  ns_rate?: number | null;
+};
+
+export type ProfilePoint = {
+  year: number;
+  age_group: string;
+  sexo: string; // 'H' | 'M' | 'X'
+  ln: number | null;
+  participation: number | null;
+  suprimido?: boolean;
 };
 
 export type RegionDetail = RiskItem & {
@@ -64,6 +86,19 @@ export type RegionDetail = RiskItem & {
     category: Category;
   }[];
   recommendations: Recommendation[];
+  // CCPC profile, PJ 2025, CCPC features & census flags (Ola 3/4)
+  profile?: ProfilePoint[];
+  profile_pj?: ProfilePoint[];
+  pj_2025?: { participation: number | null } | null;
+  part_pj_2025?: number | null;
+  ccpc?: {
+    pct_ln_18_34?: number | null;
+    part_18_34?: number | null;
+    gap_youth_pp?: number | null;
+    gap_sexo_pp?: number | null;
+    pct_ln_rural?: number | null;
+  } | null;
+  imputed_census?: boolean | null;
 };
 
 export type ScenarioParam = {
@@ -85,6 +120,14 @@ export type ScenarioDef = {
   params: ScenarioParam[];
 };
 
+export type MetaDataSource = {
+  name: string;
+  url?: string;
+  file?: string;
+  rows?: number;
+  years?: number[];
+};
+
 export type Meta = {
   target_year: number;
   years: number[];
@@ -93,6 +136,7 @@ export type Meta = {
   categories: { id: Category; label: string; color: string; rule: string }[];
   store: "es" | "memory";
   llm: boolean;
+  data_sources?: MetaDataSource[];
 };
 
 export type ScenarioRequest = {
@@ -125,7 +169,25 @@ export type Backtest = {
   baseline_mae_pp?: number;
   rmse_pp: number;
   spearman: number;
+  top20_hit?: number;
   n: number;
+};
+
+export type CandidateFold = {
+  train_until: number;
+  test_year: number;
+  mae_pp: number;
+  rmse_pp: number;
+  spearman: number;
+  top20_hit?: number;
+  n: number;
+  baseline_mae_pp?: number;
+};
+
+export type CandidateModel = {
+  name: string;
+  folds: CandidateFold[];
+  mean_mae_pp?: number;
 };
 
 export type ModelMetrics = {
@@ -134,9 +196,19 @@ export type ModelMetrics = {
   backtests: Backtest[];
   coefficients: { key: string; label: string; coef_pp_per_sd: number }[];
   structural_r2?: number | null;
+  structural_r2_within_state?: number | null;
+  between_state_share?: number | null;
+  calibration_pp?: number | null;
   forecast_coefficients?: { key: string; label: string; coef_pp_per_sd: number }[] | null;
   generated_at: string;
-  data_sources: { name: string; file: string; rows: number }[];
+  data_sources: { name: string; file?: string; url?: string; rows?: number; years?: number[] }[];
+  candidates?: CandidateModel[];
+  selected_model?: string;
+  national_level_assumption?: number | null;
+  offset_pp?: number | null;
+  reliability_rule?: string | null;
+  excluded_unreliable?: Record<string, number> | null;
+  drivers_low_confidence?: boolean | null;
 };
 
 export type HealthResponse = {

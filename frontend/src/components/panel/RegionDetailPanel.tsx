@@ -1,7 +1,9 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useAtalaya } from "@/lib/state";
+import { getMetrics } from "@/lib/api";
+import type { ModelMetrics } from "@/lib/types";
 import {
   formatPct,
   formatPp,
@@ -12,6 +14,8 @@ import {
   getCategoryColor,
   getCategoryLabel,
   CATEGORY_COLORS,
+  formatSuppressed,
+  getAbstencionEsperada,
 } from "@/lib/format";
 import { Sparkline } from "@/components/viz/Sparkline";
 
@@ -26,6 +30,13 @@ export function RegionDetailPanel() {
     scenario,
     simulationResult,
   } = useAtalaya();
+
+  const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
+  const [profileYear, setProfileYear] = useState<number | null>(null);
+
+  useEffect(() => {
+    getMetrics().then((m) => setMetrics(m)).catch(() => {});
+  }, []);
 
   // If loading
   if (loadingDetail) {
@@ -153,15 +164,46 @@ export function RegionDetailPanel() {
   const catColor = getCategoryColor(selectedDetail.category);
   const catLabel = getCategoryLabel(selectedDetail.category);
   const isTrendNegative = (selectedDetail.trend_pp ?? 0) < 0;
+  const abstEsperada = getAbstencionEsperada(selectedDetail);
+
+  // Profile data for CCPC Age & Sex
+  const profileYears = selectedDetail.profile
+    ? Array.from(new Set(selectedDetail.profile.map((p) => p.year))).sort((a, b) => b - a)
+    : [];
+  const activeYear = profileYear ?? (profileYears.length > 0 ? profileYears[0] : null);
+  const activeProfile = selectedDetail.profile
+    ? selectedDetail.profile.filter((p) => p.year === activeYear)
+    : [];
+  const ageGroups = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"];
 
   return (
     <div className="space-y-6">
       {/* Header & Badges */}
       <div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
-            {selectedDetail.level === "state" ? "Entidad Federativa" : "Municipio"} · Clave {selectedDetail.id}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+              {selectedDetail.level === "state" ? "Entidad Federativa" : "Municipio"} · Clave {selectedDetail.id}
+            </span>
+            {selectedDetail.imputed_census && (
+              <span
+                className="text-[10px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-800/80 px-2 py-0.5 rounded-full flex items-center gap-1"
+                title="Datos de censo estimados o imputados desde municipio de origen"
+              >
+                <span>⚠️</span>
+                <span>Censo imputado</span>
+              </span>
+            )}
+            {metrics?.drivers_low_confidence && (
+              <span
+                className="text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded-full flex items-center gap-1"
+                title="El perfil explicativo presenta menor ajuste en modelos agrupados por estado"
+              >
+                <span>ℹ️</span>
+                <span>Factores con baja confianza</span>
+              </span>
+            )}
+          </div>
           {selectedDetail.parent && (
             <button
               type="button"
@@ -178,8 +220,15 @@ export function RegionDetailPanel() {
           )}
         </div>
         <h2 className="text-xl font-extrabold text-white mt-1.5">{selectedDetail.name}</h2>
-        <div className="text-xs text-slate-400 mt-0.5">
-          Lista nominal estimada: <span className="font-semibold text-white">{formatInt(selectedDetail.lista_nominal)}</span> electores
+        <div className="text-xs text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>
+            Lista nominal: <strong className="text-white">{formatInt(selectedDetail.lista_nominal)}</strong> electores
+          </span>
+          {selectedDetail.prioridad !== undefined && selectedDetail.prioridad !== null && (
+            <span className="text-emerald-400 font-semibold">
+              · Prioridad #{selectedDetail.prioridad}
+            </span>
+          )}
         </div>
       </div>
 
@@ -239,6 +288,36 @@ export function RegionDetailPanel() {
         </div>
       </div>
 
+      {/* Abstención Esperada (personas que se espera no voten) y Prioridad */}
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-800">
+          <span className="text-slate-400 block text-[10px] uppercase font-bold">Personas que se espera no voten</span>
+          <span className="text-lg font-black text-rose-400 mt-0.5 block font-mono">
+            {formatInt(abstEsperada)}
+          </span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">
+            Abstención esperada 2027
+          </span>
+        </div>
+        <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-800">
+          <span className="text-slate-400 block text-[10px] uppercase font-bold">Atención Estratégica</span>
+          <div className="mt-0.5">
+            {selectedDetail.prioridad !== undefined && selectedDetail.prioridad !== null ? (
+              <span className="text-lg font-black text-emerald-400 font-mono">
+                #{selectedDetail.prioridad}
+              </span>
+            ) : selectedDetail.category === "rojo" || selectedDetail.category === "naranja" ? (
+              <span className="text-xs font-bold text-amber-400">Atención prioritaria</span>
+            ) : (
+              <span className="text-xs font-medium text-slate-400">Riesgo moderado/bajo</span>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-400 mt-0.5 block">
+            Prioridad en zonas rojas/naranjas
+          </span>
+        </div>
+      </div>
+
       {/* Secondary Metrics: Last Participation & Trend */}
       <div className="grid grid-cols-2 gap-3 text-xs">
         <div className="bg-slate-800/40 p-2.5 rounded-lg border border-slate-800">
@@ -261,6 +340,256 @@ export function RegionDetailPanel() {
           </div>
         </div>
       </div>
+
+      {/* Bloque: Por qué este nivel de riesgo (4 componentes 50/20/15/15) */}
+      <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+            Por qué este nivel de riesgo
+          </h3>
+          <span className="text-[10px] text-slate-400 font-mono">Pesos del Semáforo</span>
+        </div>
+
+        <div className="space-y-2">
+          {/* r_abs (50%) */}
+          <div>
+            <div className="flex justify-between text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px]">Pronóstico de abstención (50%)</span>
+              <span className="font-mono font-bold text-white text-[11px]">
+                {selectedDetail.r_abs !== undefined && selectedDetail.r_abs !== null
+                  ? `${(selectedDetail.r_abs <= 1 ? selectedDetail.r_abs * 100 : selectedDetail.r_abs).toFixed(1)} pts`
+                  : selectedDetail.pred_abstention !== null
+                  ? formatPct(selectedDetail.pred_abstention)
+                  : "—"}
+              </span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-1.5 rounded-full bg-rose-500"
+                style={{
+                  width: `${Math.min(100, Math.max(0, (selectedDetail.r_abs !== null && selectedDetail.r_abs !== undefined ? (selectedDetail.r_abs <= 1 ? selectedDetail.r_abs * 100 : selectedDetail.r_abs) : (selectedDetail.pred_abstention ? selectedDetail.pred_abstention * 100 : 50))))}%`,
+                }}
+              ></div>
+            </div>
+          </div>
+
+          {/* r_vuln (20%) */}
+          <div>
+            <div className="flex justify-between text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px]">Vulnerabilidad sociodemográfica (20%)</span>
+              <span className="font-mono font-bold text-white text-[11px]">
+                {selectedDetail.r_vuln !== undefined && selectedDetail.r_vuln !== null
+                  ? `${(selectedDetail.r_vuln <= 1 ? selectedDetail.r_vuln * 100 : selectedDetail.r_vuln).toFixed(1)} pts`
+                  : selectedDetail.vulnerability_pp !== undefined && selectedDetail.vulnerability_pp !== null
+                  ? formatPp(selectedDetail.vulnerability_pp)
+                  : "—"}
+              </span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-1.5 rounded-full bg-amber-500"
+                style={{
+                  width: `${Math.min(100, Math.max(0, (selectedDetail.r_vuln !== null && selectedDetail.r_vuln !== undefined ? (selectedDetail.r_vuln <= 1 ? selectedDetail.r_vuln * 100 : selectedDetail.r_vuln) : 50)))}%`,
+                }}
+              ></div>
+            </div>
+          </div>
+
+          {/* r_trend (15%) */}
+          <div>
+            <div className="flex justify-between text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px]">Tendencia histórica de caída (15%)</span>
+              <span className="font-mono font-bold text-white text-[11px]">
+                {selectedDetail.r_trend !== undefined && selectedDetail.r_trend !== null
+                  ? `${(selectedDetail.r_trend <= 1 ? selectedDetail.r_trend * 100 : selectedDetail.r_trend).toFixed(1)} pts`
+                  : formatPp(selectedDetail.trend_pp)}
+              </span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-1.5 rounded-full bg-sky-500"
+                style={{
+                  width: `${Math.min(100, Math.max(0, (selectedDetail.r_trend !== null && selectedDetail.r_trend !== undefined ? (selectedDetail.r_trend <= 1 ? selectedDetail.r_trend * 100 : selectedDetail.r_trend) : 50)))}%`,
+                }}
+              ></div>
+            </div>
+          </div>
+
+          {/* r_vol (15%) */}
+          <div>
+            <div className="flex justify-between text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px]">Volatilidad histórica (15%)</span>
+              <span className="font-mono font-bold text-white text-[11px]">
+                {selectedDetail.r_vol !== undefined && selectedDetail.r_vol !== null
+                  ? `${(selectedDetail.r_vol <= 1 ? selectedDetail.r_vol * 100 : selectedDetail.r_vol).toFixed(1)} pts`
+                  : "—"}
+              </span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-1.5 rounded-full bg-purple-500"
+                style={{
+                  width: `${Math.min(100, Math.max(0, (selectedDetail.r_vol !== null && selectedDetail.r_vol !== undefined ? (selectedDetail.r_vol <= 1 ? selectedDetail.r_vol * 100 : selectedDetail.r_vol) : 50)))}%`,
+                }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Frase explicativa */}
+        <p className="text-[11px] text-slate-300 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800 leading-relaxed">
+          {selectedDetail.r_vuln && selectedDetail.r_vuln > 70
+            ? "La vulnerabilidad estructural sociodemográfica (marginación y perfil poblacional) es el factor dominante en el nivel de riesgo de esta zona frente al promedio nacional."
+            : isTrendNegative
+            ? "La persistente tendencia a la baja en la participación electoral histórica amplifica la alerta del semáforo hacia 2027."
+            : "El semáforo combina la inercia proyectada de abstención (50%), la vulnerabilidad del censo (20%) y la dinámica histórica de volatilidad y tendencia."}
+        </p>
+      </div>
+
+      {/* Indicadores CCPC y Judicial 2025 */}
+      <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+            Indicadores CCPC (INE) y Judicial 2025
+          </h3>
+          <span className="text-[10px] text-slate-400">Conteos Censales</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+            <span className="text-[10px] text-slate-400 block">Jóvenes (18–34) en Lista</span>
+            <span className="font-mono font-bold text-white text-xs mt-0.5 block">
+              {formatPct(selectedDetail.ccpc?.pct_ln_18_34)}
+            </span>
+          </div>
+          <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+            <span className="text-[10px] text-slate-400 block">Part. Jóvenes (18–34)</span>
+            <span className="font-mono font-bold text-white text-xs mt-0.5 block">
+              {formatPct(selectedDetail.ccpc?.part_18_34)}
+            </span>
+          </div>
+          <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+            <span className="text-[10px] text-slate-400 block">Brecha Juvenil vs Promedio</span>
+            <span className="font-mono font-bold text-amber-400 text-xs mt-0.5 block">
+              {formatPp(selectedDetail.ccpc?.gap_youth_pp)}
+            </span>
+          </div>
+          <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+            <span className="text-[10px] text-slate-400 block">Brecha Género (Mujeres − Hombres)</span>
+            <span className="font-mono font-bold text-sky-400 text-xs mt-0.5 block">
+              {formatPp(selectedDetail.ccpc?.gap_sexo_pp)}
+            </span>
+          </div>
+          <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+            <span className="text-[10px] text-slate-400 block">Lista Nominal Rural</span>
+            <span className="font-mono font-bold text-white text-xs mt-0.5 block">
+              {formatPct(selectedDetail.ccpc?.pct_ln_rural)}
+            </span>
+          </div>
+          <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+            <span className="text-[10px] text-slate-400 block">Participación Judicial 2025</span>
+            <span className="font-mono font-bold text-amber-300 text-xs mt-0.5 block">
+              {formatPct(selectedDetail.pj_2025?.participation ?? selectedDetail.part_pj_2025)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Bloque: Participación por edad y sexo (CCPC) */}
+      {selectedDetail.profile && selectedDetail.profile.length > 0 && (
+        <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                Participación por Edad y Sexo (CCPC)
+              </h3>
+              <p className="text-[10px] text-slate-400">Comparativa mujeres vs hombres</p>
+            </div>
+
+            {/* Year Selector Tabs */}
+            {profileYears.length > 1 && (
+              <div className="inline-flex rounded-lg p-0.5 bg-slate-900 border border-slate-800 text-[10px]">
+                {profileYears.map((yr) => (
+                  <button
+                    key={yr}
+                    type="button"
+                    onClick={() => setProfileYear(yr)}
+                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                      activeYear === yr ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    {yr}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Age Group Bars */}
+          <div className="space-y-2 pt-1">
+            {ageGroups.map((grp) => {
+              const rowM = activeProfile.find((r) => r.age_group === grp && r.sexo === "M");
+              const rowH = activeProfile.find((r) => r.age_group === grp && r.sexo === "H");
+              const suppM = formatSuppressed(rowM ?? {});
+              const suppH = formatSuppressed(rowH ?? {});
+
+              return (
+                <div key={grp} className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 space-y-1.5">
+                  <div className="text-[11px] font-bold text-slate-200 flex items-center justify-between">
+                    <span>Grupo {grp} años</span>
+                  </div>
+
+                  {/* Mujeres */}
+                  <div className="text-[10px]">
+                    <div className="flex justify-between items-center text-slate-300 mb-0.5">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-purple-400 inline-block"></span>
+                        <span>Mujeres</span>
+                      </span>
+                      {suppM ? (
+                        <span className="text-amber-400 font-semibold italic text-[9px]">{suppM}</span>
+                      ) : (
+                        <span className="font-mono font-bold text-white">{formatPct(rowM?.participation)}</span>
+                      )}
+                    </div>
+                    {!suppM && rowM?.participation !== null && rowM?.participation !== undefined && (
+                      <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                        <div
+                          className="h-1 rounded-full bg-purple-400"
+                          style={{ width: `${Math.min(100, Math.max(0, rowM.participation * 100))}%` }}
+                        ></div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Hombres */}
+                  <div className="text-[10px]">
+                    <div className="flex justify-between items-center text-slate-300 mb-0.5">
+                      <span className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-sky-400 inline-block"></span>
+                        <span>Hombres</span>
+                      </span>
+                      {suppH ? (
+                        <span className="text-amber-400 font-semibold italic text-[9px]">{suppH}</span>
+                      ) : (
+                        <span className="font-mono font-bold text-white">{formatPct(rowH?.participation)}</span>
+                      )}
+                    </div>
+                    {!suppH && rowH?.participation !== null && rowH?.participation !== undefined && (
+                      <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                        <div
+                          className="h-1 rounded-full bg-sky-400"
+                          style={{ width: `${Math.min(100, Math.max(0, rowH.participation * 100))}%` }}
+                        ></div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Scenario Comparisons */}
       {selectedDetail.scenarios && selectedDetail.scenarios.length > 0 && (
@@ -326,29 +655,15 @@ export function RegionDetailPanel() {
       <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-            Serie Histórica (DIP_FED 2009–2024)
+            Serie Histórica CCPC (DIP_FED 2009–2024)
           </h3>
-          <span className="text-[10px] text-slate-400">INE SICEE</span>
+          <span className="text-[10px] text-slate-400">INE CCPC</span>
         </div>
         <Sparkline
           series={selectedDetail.series}
           predParticipation={selectedDetail.pred_participation}
           targetYear={2027}
         />
-        <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 border-t border-slate-800 pt-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full border border-sky-400 bg-sky-600"></span>
-            <span>Elección Presidencial</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-            <span>Intermedia</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Pronóstico 2027</span>
-          </div>
-        </div>
       </div>
 
       {/* Risk Drivers (Divergent Bar Chart) */}

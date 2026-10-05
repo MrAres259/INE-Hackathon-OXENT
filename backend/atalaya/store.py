@@ -18,6 +18,47 @@ from atalaya.config import BUILD_DIR, SEED_DIR, get_settings, index_name
 from atalaya.es_client import get_es, ping_es
 from atalaya.ingest.common import norm_name, zpad
 
+try:
+    from atalaya.privacy import MIN_CELL, drop_nonbinary_below_state, suppress_small_cells
+except ImportError:
+    MIN_CELL = 10
+
+    def suppress_small_cells(
+        df: pd.DataFrame,
+        *,
+        count_cols=("ln", "sv", "nv", "ns"),
+        rate_cols=("participacion",),
+        base_col="ln",
+        threshold=MIN_CELL,
+    ) -> pd.DataFrame:
+        out = df.copy()
+        if out.empty or base_col not in out.columns:
+            out["suprimido"] = False
+            return out
+        mask = pd.to_numeric(out[base_col], errors="coerce").fillna(0) < threshold
+        out["suprimido"] = mask
+        for c in count_cols:
+            if c in out.columns:
+                out.loc[mask, c] = np.nan
+        for c in rate_cols:
+            if c in out.columns:
+                out.loc[mask, c] = np.nan
+        return out
+
+    def drop_nonbinary_below_state(
+        df: pd.DataFrame,
+        *,
+        level_col="level",
+        sexo_col="sexo",
+    ) -> pd.DataFrame:
+        if df.empty:
+            return df.copy()
+        out = df.copy()
+        if level_col in out.columns and sexo_col in out.columns:
+            mask_drop = (out[level_col] == "mun") & (out[sexo_col].astype(str).str.upper() == "X")
+            out = out[~mask_drop].reset_index(drop=True)
+        return out
+
 logger = logging.getLogger(__name__)
 
 SPANISH_STOPWORDS = {
@@ -225,7 +266,7 @@ class PandasStore:
                 }
 
                 # Sum counts
-                for c in ["pob_tot", "pob_18ymas", "lista_nominal"]:
+                for c in ["pob_tot", "pob_18ymas", "lista_nominal", "abstencion_esperada"]:
                     if c in group.columns:
                         s = pd.to_numeric(group[c], errors="coerce").fillna(0).sum()
                         row[c] = s if s > 0 else np.nan
@@ -236,7 +277,8 @@ class PandasStore:
                     "pct_internet", "pct_rural", "pct_analfabeta", "pct_po2sm", "im_2020",
                     "last_participation", "pred_participation", "pred_abstention",
                     "pred_low", "pred_high", "trend_pp", "volatility_pp", "risk_score",
-                    "part_pj_2025", "part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last"
+                    "part_pj_2025", "part_18_34_last", "gap_youth_pp_last", "gap_sexo_pp_last", "pct_ln_rural_last",
+                    "vulnerability_pp", "r_abs", "r_vuln", "r_trend", "r_vol"
                 ]
                 for c in prop_cols:
                     if c in group.columns:
@@ -273,6 +315,26 @@ class PandasStore:
             cond = (p18 > 0).fillna(False).to_numpy(dtype=bool)
             with np.errstate(divide="ignore", invalid="ignore"):
                 df["coverage_ln"] = np.where(cond, np.clip((ln / p18).astype(float), 0.0, 1.2), np.nan)
+
+        # Derive abstencion_esperada if missing
+        if "abstencion_esperada" not in df.columns and "pred_abstention" in df.columns and "lista_nominal" in df.columns:
+            pred_abs = pd.to_numeric(df["pred_abstention"], errors="coerce")
+            ln = pd.to_numeric(df["lista_nominal"], errors="coerce")
+            cond_abs = pred_abs.notna() & ln.notna()
+            with np.errstate(divide="ignore", invalid="ignore"):
+                df["abstencion_esperada"] = np.where(cond_abs, np.round(pred_abs * ln), np.nan)
+
+        # Derive prioridad if missing
+        if "prioridad" not in df.columns:
+            df["prioridad"] = np.nan
+            if "abstencion_esperada" in df.columns and "category" in df.columns:
+                for lvl in ["mun", "state"]:
+                    mask_lvl = (df["level"] == lvl) if "level" in df.columns else pd.Series(True, index=df.index)
+                    mask_target = mask_lvl & df["category"].isin(["rojo", "naranja"]) & df["abstencion_esperada"].notna()
+                    if mask_target.any():
+                        sub_abs = df.loc[mask_target, "abstencion_esperada"]
+                        ranks = sub_abs.rank(ascending=False, method="min")
+                        df.loc[mask_target, "prioridad"] = ranks
 
         # Pivot participation (DIP_FED) to part_dip_<year> and abst_dip_<year> for mun and state
         part_df = self._get_participation()
@@ -898,25 +960,29 @@ class PandasStore:
 
             sum_cols = [c for c in ["ln", "sv", "nv", "ns"] if c in sub.columns]
             grouped = sub.groupby(["year", "age_group", "sexo"], as_index=False)[sum_cols].sum()
-            sv_col = grouped["sv"] if "sv" in grouped.columns else 0
-            nv_col = grouped["nv"] if "nv" in grouped.columns else 0
+            grouped["level"] = "state"
+            sv_col = pd.to_numeric(grouped["sv"], errors="coerce").fillna(0) if "sv" in grouped.columns else 0
+            nv_col = pd.to_numeric(grouped["nv"], errors="coerce").fillna(0) if "nv" in grouped.columns else 0
             denom = sv_col + nv_col
             with np.errstate(divide="ignore", invalid="ignore"):
                 grouped["participacion"] = np.where(denom > 0, np.clip(sv_col / denom, 0.0, 1.0), np.nan)
 
+            grouped = suppress_small_cells(grouped, base_col="ln")
             grouped = grouped.sort_values(by=["year", "age_group", "sexo"], ascending=True)
             results = []
             for _, r in grouped.iterrows():
+                is_sup = bool(r.get("suprimido", False))
                 p = r.get("participacion")
                 results.append({
                     "year": int(r["year"]),
                     "age_group": str(r["age_group"]),
                     "sexo": str(r["sexo"]),
-                    "ln": int(r.get("ln", 0)),
-                    "sv": int(r.get("sv", 0)),
-                    "nv": int(r.get("nv", 0)),
-                    "ns": int(r.get("ns", 0)),
-                    "participacion": round(float(p), 6) if pd.notna(p) else None,
+                    "ln": None if is_sup else int(r.get("ln", 0)),
+                    "sv": None if is_sup else int(r.get("sv", 0)),
+                    "nv": None if is_sup else int(r.get("nv", 0)),
+                    "ns": None if is_sup else int(r.get("ns", 0)),
+                    "participacion": None if is_sup else (round(float(p), 6) if pd.notna(p) else None),
+                    "suprimido": is_sup,
                 })
             return results
         else:
@@ -931,21 +997,39 @@ class PandasStore:
             if sub.empty:
                 return []
 
+            sub = sub.copy()
+            sub["level"] = "mun"
+            sub = drop_nonbinary_below_state(sub, level_col="level", sexo_col="sexo")
+            if sub.empty:
+                return []
+
+            sv_col = pd.to_numeric(sub["sv"], errors="coerce").fillna(0) if "sv" in sub.columns else pd.Series(0, index=sub.index)
+            nv_col = pd.to_numeric(sub["nv"], errors="coerce").fillna(0) if "nv" in sub.columns else pd.Series(0, index=sub.index)
+            denom = sv_col + nv_col
+            if "participacion" not in sub.columns:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    sub["participacion"] = np.where(denom > 0, np.clip(sv_col / denom, 0.0, 1.0), np.nan)
+            else:
+                cond = (denom > 0).to_numpy(dtype=bool)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    sub["participacion"] = np.where(cond, np.clip(sv_col / denom, 0.0, 1.0), sub["participacion"])
+
+            sub = suppress_small_cells(sub, base_col="ln")
             sub = sub.sort_values(by=["year", "age_group", "sexo"], ascending=True)
             results = []
             for _, r in sub.iterrows():
-                sv = float(r.get("sv", 0))
-                nv = float(r.get("nv", 0))
-                part = sv / (sv + nv) if (sv + nv) > 0 else (r.get("participacion") if "participacion" in r else None)
+                is_sup = bool(r.get("suprimido", False))
+                p = r.get("participacion")
                 results.append({
                     "year": int(r["year"]),
                     "age_group": str(r["age_group"]),
                     "sexo": str(r["sexo"]),
-                    "ln": int(r.get("ln", 0)),
-                    "sv": int(sv),
-                    "nv": int(nv),
-                    "ns": int(r.get("ns", 0)),
-                    "participacion": round(float(part), 6) if (part is not None and pd.notna(part)) else None,
+                    "ln": None if is_sup else int(r.get("ln", 0)),
+                    "sv": None if is_sup else int(r.get("sv", 0)),
+                    "nv": None if is_sup else int(r.get("nv", 0)),
+                    "ns": None if is_sup else int(r.get("ns", 0)),
+                    "participacion": None if is_sup else (round(float(p), 6) if (p is not None and pd.notna(p)) else None),
+                    "suprimido": is_sup,
                 })
             return results
 
@@ -1230,19 +1314,29 @@ class EsStore:
         try:
             resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
             hits = resp.get("hits", {}).get("hits", [])
+            if not hits:
+                return []
+            rows = [h["_source"] for h in hits]
+            df = pd.DataFrame(rows)
+            uid_str = str(unit_id).strip()
+            is_state = len(uid_str) == 2 or uid_str in [f"{i:02d}" for i in range(1, 33)]
+            df["level"] = "state" if is_state else "mun"
+            df = drop_nonbinary_below_state(df, level_col="level", sexo_col="sexo")
+            df = suppress_small_cells(df, base_col="ln")
             results = []
-            for h in hits:
-                src = h["_source"]
-                p = src.get("participacion")
+            for _, r in df.iterrows():
+                is_sup = bool(r.get("suprimido", False))
+                p = r.get("participacion")
                 results.append({
-                    "year": int(src.get("year", 0)),
-                    "age_group": str(src.get("age_group", "")),
-                    "sexo": str(src.get("sexo", "")),
-                    "ln": int(src.get("ln", 0)),
-                    "sv": int(src.get("sv", 0)),
-                    "nv": int(src.get("nv", 0)),
-                    "ns": int(src.get("ns", 0)),
-                    "participacion": round(float(p), 6) if p is not None else None,
+                    "year": int(r.get("year", 0)),
+                    "age_group": str(r.get("age_group", "")),
+                    "sexo": str(r.get("sexo", "")),
+                    "ln": None if is_sup else int(r.get("ln", 0)),
+                    "sv": None if is_sup else int(r.get("sv", 0)),
+                    "nv": None if is_sup else int(r.get("nv", 0)),
+                    "ns": None if is_sup else int(r.get("ns", 0)),
+                    "participacion": None if is_sup else (round(float(p), 6) if p is not None else None),
+                    "suprimido": is_sup,
                 })
             return results
         except Exception as e:

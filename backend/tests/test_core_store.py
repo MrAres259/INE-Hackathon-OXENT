@@ -443,3 +443,67 @@ def test_store_ccpc_features_state_and_mun(tmp_path: Path):
     assert agg[0]["value"] == 0.50
 
 
+def test_store_profile_privacy_and_suppression(tmp_path: Path):
+    """Verify PandasStore.profile drops nonbinary 'X' for municipal queries and suppresses cells with LN < 10."""
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    states_df = pd.DataFrame([
+        {"cve_ent": "07", "name": "Chiapas", "iso": "MX-CHP", "aliases": "CHIS"},
+    ])
+    states_df.to_csv(seed_dir / "states.csv", index=False)
+
+    prof_df = pd.DataFrame([
+        # Mun 07101
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "H", "ln": 100, "sv": 60, "nv": 40, "ns": 0, "participacion": 0.60},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "M", "ln": 7, "sv": 4, "nv": 3, "ns": 0, "participacion": 0.57},
+        {"cvegeo": "07101", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "X", "ln": 2, "sv": 1, "nv": 1, "ns": 0, "participacion": 0.50},
+        # Mun 07102 (adds to state Chiapas 07)
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "age_group": "18-24", "sexo": "X", "ln": 15, "sv": 8, "nv": 7, "ns": 0, "participacion": 0.53},
+        {"cvegeo": "07102", "cve_ent": "07", "year": 2024, "age_group": "65+", "sexo": "X", "ln": 4, "sv": 2, "nv": 2, "ns": 0, "participacion": 0.50},
+    ])
+    prof_df.to_parquet(build_dir / "ccpc_profile_mun.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+
+    # 1. Municipal query
+    mun_prof = store.profile("07101", year=2024)
+    # sexo="X" dropped
+    sexes = [r["sexo"] for r in mun_prof]
+    assert "X" not in sexes
+
+    # LN < 10 suppressed
+    m_cell = next(r for r in mun_prof if r["sexo"] == "M")
+    assert m_cell["suprimido"] is True
+    assert m_cell["ln"] is None
+    assert m_cell["sv"] is None
+    assert m_cell["nv"] is None
+    assert m_cell["participacion"] is None
+
+    # Normal cell intact
+    h_cell = next(r for r in mun_prof if r["sexo"] == "H")
+    assert h_cell["suprimido"] is False
+    assert h_cell["ln"] == 100
+    assert h_cell["participacion"] == 0.60
+
+    # 2. State query
+    state_prof = store.profile("07", year=2024)
+    # State retains sexo="X"
+    state_sexes = [r["sexo"] for r in state_prof]
+    assert "X" in state_sexes
+
+    # 18-24 X cell: sum LN = 17 >= 10 -> not suppressed
+    x_18 = next(r for r in state_prof if r["sexo"] == "X" and r["age_group"] == "18-24")
+    assert x_18["suprimido"] is False
+    assert x_18["ln"] == 17
+
+    # 65+ X cell: sum LN = 4 < 10 -> suppressed
+    x_65 = next(r for r in state_prof if r["sexo"] == "X" and r["age_group"] == "65+")
+    assert x_65["suprimido"] is True
+    assert x_65["ln"] is None
+    assert x_65["participacion"] is None
+
+
+

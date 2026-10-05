@@ -9,10 +9,55 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from atalaya.chat.spec import DataResult, QuerySpec
+from atalaya.chat.spec import CORE_CATALOG_KEYS, DataResult, QuerySpec, get_catalog_keys
 from atalaya.config import BUILD_DIR, SEED_DIR
 from atalaya.ingest.common import zpad
 from atalaya.store import get_store
+
+# Ensure W4-A final metric keys are recognized by QuerySpec validator
+CORE_CATALOG_KEYS.update({"prioridad", "abstencion_esperada", "vulnerability_pp"})
+get_catalog_keys.cache_clear()
+
+try:
+    from atalaya.privacy import MIN_CELL, drop_nonbinary_below_state, suppress_small_cells
+except ImportError:
+    MIN_CELL = 10
+
+    def suppress_small_cells(
+        df: pd.DataFrame,
+        *,
+        count_cols=("ln", "sv", "nv", "ns"),
+        rate_cols=("participacion",),
+        base_col="ln",
+        threshold=MIN_CELL,
+    ) -> pd.DataFrame:
+        out = df.copy()
+        if out.empty or base_col not in out.columns:
+            out["suprimido"] = False
+            return out
+        mask = pd.to_numeric(out[base_col], errors="coerce").fillna(0) < threshold
+        out["suprimido"] = mask
+        for c in count_cols:
+            if c in out.columns:
+                out.loc[mask, c] = np.nan
+        for c in rate_cols:
+            if c in out.columns:
+                out.loc[mask, c] = np.nan
+        return out
+
+    def drop_nonbinary_below_state(
+        df: pd.DataFrame,
+        *,
+        level_col="level",
+        sexo_col="sexo",
+    ) -> pd.DataFrame:
+        if df.empty:
+            return df.copy()
+        out = df.copy()
+        if level_col in out.columns and sexo_col in out.columns:
+            mask_drop = (out[level_col] == "mun") & (out[sexo_col].astype(str).str.upper() == "X")
+            out = out[~mask_drop].reset_index(drop=True)
+        return out
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +137,30 @@ def get_variable_meta(key: str) -> dict[str, str]:
             "unit": "proporción",
             "level": "mun|state",
         }
+    elif key == "prioridad":
+        return {
+            "label_es": "Prioridad de intervención",
+            "description": "Lugar de prioridad para asignación de recursos según volumen de abstención esperada y riesgo",
+            "source": "ATALAYA · Priorización de recursos 2027",
+            "unit": "posición",
+            "level": "mun|state",
+        }
+    elif key == "abstencion_esperada":
+        return {
+            "label_es": "Abstencionistas esperados",
+            "description": "Número estimado de personas inscritas que no acudirían a votar en 2027",
+            "source": "ATALAYA · Pronóstico 2027",
+            "unit": "personas",
+            "level": "mun|state",
+        }
+    elif key == "vulnerability_pp":
+        return {
+            "label_es": "Vulnerabilidad estructural",
+            "description": "Abstención relativa predicha por el perfil sociodemográfico municipal",
+            "source": "ATALAYA · Perfil estructural",
+            "unit": "pp",
+            "level": "mun|state",
+        }
 
     return {
         "label_es": key.replace("_", " ").title(),
@@ -108,8 +177,12 @@ def format_value(key: str, val: Any) -> str:
         return "N/D"
 
     if isinstance(val, (int, float, np.number)):
+        if key == "prioridad":
+            return f"#{int(round(float(val)))}"
+        elif key == "vulnerability_pp":
+            return f"{float(val):+.1f} pp"
         # Proportions 0..1
-        if (
+        elif (
             key in ("participacion", "abstencion", "pred_abstention", "pred_participation", "pred_low", "pred_high")
             or key.startswith("pct_")
             or key.startswith("part_")
@@ -122,7 +195,7 @@ def format_value(key: str, val: Any) -> str:
         elif key == "volatility_pp":
             return f"{float(val):.1f} pp"
         # Counts
-        elif key in ("lista_nominal", "votos_totales", "pob_tot", "pob_18ymas", "votos_adicionales", "ln", "sv", "nv", "ns"):
+        elif key in ("abstencion_esperada", "lista_nominal", "votos_totales", "pob_tot", "pob_18ymas", "votos_adicionales", "ln", "sv", "nv", "ns"):
             return f"{int(round(float(val))):,}"
         # Indices and grades
         elif key in ("risk_score", "im_2020", "graproes"):
@@ -240,17 +313,23 @@ def _execute_ranking(spec: QuerySpec, store: Any) -> DataResult:
         top1 = valid_results[0]
         top1_name = top1.get("name") or top1.get("id")
         top1_ent = get_state_name(top1.get("cve_ent"))
-        facts.append(
-            f"Top 1: {top1_name} ({top1_ent}) con {label.lower()} de {format_value(spec.metric, top1.get('value'))}."
-        )
-        vals = [float(r["value"]) for r in valid_results if r.get("value") is not None]
-        mean_v = sum(vals) / len(vals)
-        facts.append(
-            f"Promedio del grupo ({len(valid_results)} unidades): {format_value(spec.metric, mean_v)}."
-        )
-        facts.append(
-            f"Rango de valores: de {format_value(spec.metric, min(vals))} a {format_value(spec.metric, max(vals))}."
-        )
+        if spec.metric == "prioridad":
+            facts.append(
+                f"Top 1: {top1_name} ({top1_ent}) con {label.lower()} {format_value(spec.metric, top1.get('value'))}."
+            )
+            facts.append("Se priorizan los municipios en semáforo rojo y naranja con mayor volumen de abstención esperada.")
+        else:
+            facts.append(
+                f"Top 1: {top1_name} ({top1_ent}) con {label.lower()} de {format_value(spec.metric, top1.get('value'))}."
+            )
+            vals = [float(r["value"]) for r in valid_results if r.get("value") is not None]
+            mean_v = sum(vals) / len(vals)
+            facts.append(
+                f"Promedio del grupo ({len(valid_results)} unidades): {format_value(spec.metric, mean_v)}."
+            )
+            facts.append(
+                f"Rango de valores: de {format_value(spec.metric, min(vals))} a {format_value(spec.metric, max(vals))}."
+            )
         if omitted > 0:
             facts.append(f"Se omitieron {omitted} unidades sin dato.")
     else:
@@ -438,22 +517,46 @@ def _execute_profile(spec: QuerySpec, store: Any, region_id: str | None = None) 
                 dip_years = [int(r["year"]) for r in raw_profile if "year" in r and r["year"] is not None and int(r["year"]) <= 2024]
                 eff_year = max(dip_years) if dip_years else 2024
         filtered = [r for r in raw_profile if int(r.get("year", 0)) == int(eff_year)]
+
+        # Drop non-binary below state
+        is_mun = (len(str(target_id)) > 2) or (spec.level == "mun") or (unit and unit.get("level") == "mun")
+        if is_mun:
+            filtered = [r for r in filtered if str(r.get("sexo", "")).upper() != "X"]
+
         filtered.sort(key=lambda r: (str(r.get("age_group", "")), str(r.get("sexo", ""))))
 
+        has_suppressed = False
         for r in filtered:
             ag = str(r.get("age_group", ""))
             sx = str(r.get("sexo", ""))
-            ln_str = format_value("lista_nominal", r.get("ln"))
-            sv_str = format_value("votos_totales", r.get("sv"))
-            nv_str = format_value("votos_totales", r.get("nv"))
-            part_str = format_value("participacion", r.get("participacion"))
+            raw_ln = r.get("ln")
+            is_sup = bool(r.get("suprimido", False)) or (raw_ln is not None and pd.notna(raw_ln) and float(raw_ln) < 10)
+            if is_sup:
+                has_suppressed = True
+                ln_str = "N/D"
+                sv_str = "N/D"
+                nv_str = "N/D"
+                part_str = "N/D"
+            else:
+                ln_str = format_value("lista_nominal", r.get("ln"))
+                sv_str = format_value("votos_totales", r.get("sv"))
+                nv_str = format_value("votos_totales", r.get("nv"))
+                part_str = format_value("participacion", r.get("participacion"))
             rows.append([ag, sx, ln_str, sv_str, nv_str, part_str])
 
         location_desc = f"{zona} ({estado})" if estado and estado != zona else zona
         facts.append(
             f"Perfil de participación ciudadana por grupo de edad y sexo en {location_desc} para {eff_year} (CCPC)."
         )
-        valid_parts = [r for r in filtered if r.get("participacion") is not None and pd.notna(r.get("participacion"))]
+        if has_suppressed:
+            facts.append("Algunas celdas se protegen por tener menos de 10 personas.")
+
+        valid_parts = [
+            r for r in filtered
+            if not (bool(r.get("suprimido", False)) or (r.get("ln") is not None and pd.notna(r.get("ln")) and float(r.get("ln")) < 10))
+            and r.get("participacion") is not None
+            and pd.notna(r.get("participacion"))
+        ]
         if valid_parts:
             top_g = max(valid_parts, key=lambda x: float(x["participacion"]))
             bot_g = min(valid_parts, key=lambda x: float(x["participacion"]))

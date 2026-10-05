@@ -19,6 +19,7 @@ from atalaya.ingest.common import read_parquet, to_num, zpad
 from atalaya.model.forecast import BASE_FEATURES, CCPC_FEATURES
 from atalaya.model.recommend import build_reference, recommend
 from atalaya.model.scenarios import simulate
+from atalaya.privacy import drop_nonbinary_below_state, suppress_small_cells
 
 
 CATEGORIES = ["verde", "amarillo", "naranja", "rojo", "sin_dato"]
@@ -97,6 +98,7 @@ def create_leeme_dataframe(metrics_data: dict | None = None) -> pd.DataFrame:
     sel_model = m.get("selected_model", "persist_l1 (fallback)")
     nat_level = m.get("national_level_assumption", 51.84)
     offset = m.get("offset_pp", m.get("offset", "N/D"))
+    calib = m.get("calibration_pp", offset)
 
     lines = [
         ("PROYECTO", "ATALAYA — Predicción y Escenarios de Riesgo de Abstención Electoral en México"),
@@ -105,7 +107,9 @@ def create_leeme_dataframe(metrics_data: dict | None = None) -> pd.DataFrame:
         ("FECHA DE GENERACIÓN", now_str),
         (
             "AVISO DE PRIVACIDAD Y ÉTICA",
-            "Datos estrictamente agregados a nivel municipal y estatal. No contiene datos personales ni registros del padrón electoral nominativo.",
+            "Datos estrictamente agregados a nivel municipal y estatal. No contiene datos personales ni registros del padrón electoral nominativo. "
+            "Reglas de privacidad estadística: (1) Supresión de celdas demográficas con lista nominal < 10 (conteo y tasa vacíos con suprimido=True). "
+            "(2) El sexo no binario ('X') se reporta exclusivamente a nivel estatal y nacional, eliminándose de la desagregación municipal para salvaguardar la confidencialidad.",
         ),
         (
             "DESCRIPCIÓN GENERAL",
@@ -149,7 +153,7 @@ def create_leeme_dataframe(metrics_data: dict | None = None) -> pd.DataFrame:
         ("SUPUESTO DE NIVEL NACIONAL 2027", ""),
         (
             "Supuesto nacional",
-            f"Nivel nacional supuesto para la intermedia 2027: {nat_level}% (basado en la última intermedia federal comparable de 2021 = 51.84%). Offset histórico de intermedias: {offset} pp.",
+            f"Nivel nacional supuesto para la intermedia 2027: {nat_level}% (basado en la última intermedia federal comparable de 2021 = 51.84%). Offset histórico de intermedias: {offset} pp. Calibración exacta de nivel: {calib} pp.",
         ),
         (
             "ADVERTENCIA METODOLÓGICA",
@@ -198,23 +202,42 @@ def create_leeme_dataframe(metrics_data: dict | None = None) -> pd.DataFrame:
 def create_dictionary_dataframe() -> pd.DataFrame:
     """Create data dictionary catalog for all sheets."""
     dic_rows = [
+        # priorizacion
+        ("priorizacion", "prioridad", "Orden de prioridad de intervención (1 = mayor abstención esperada en zonas críticas rojo/naranja)", "entero", "ATALAYA Priorización"),
+        ("priorizacion", "id", "Clave geoestadística única del municipio (CVEGEO, 5 dígitos)", "clave", "INEGI 2024"),
+        ("priorizacion", "name", "Nombre oficial del municipio", "texto", "INEGI 2024"),
+        ("priorizacion", "cve_ent", "Clave de entidad federativa (2 dígitos)", "clave", "INEGI/INE"),
+        ("priorizacion", "nom_ent", "Nombre de la entidad federativa", "texto", "INEGI 2024"),
+        ("priorizacion", "lista_nominal", "Número de electores en lista nominal", "personas", "INE CCPC"),
+        ("priorizacion", "abstencion_esperada", "Número proyectado de electores que no votarían en 2027 (pred_abstention * lista_nominal)", "personas", "ATALAYA Modelo"),
+        ("priorizacion", "category_base", "Categoría del semáforo de riesgo en escenario base", "categoría", "ATALAYA Modelo"),
+        ("priorizacion", "category_intervencion", "Categoría del semáforo bajo escenario de intervención", "categoría", "ATALAYA Modelo"),
+        ("priorizacion", "palanca_recomendada", "Palanca institucional preventiva prioritaria recomendada", "texto", "ATALAYA Reglas"),
+
         # municipios
         ("municipios", "id", "Clave geoestadística única del municipio (CVEGEO, 5 dígitos)", "clave", "INEGI 2024"),
         ("municipios", "cve_ent", "Clave de entidad federativa (2 dígitos)", "clave", "INEGI/INE"),
         ("municipios", "name", "Nombre oficial del municipio", "texto", "INEGI 2024"),
         ("municipios", "lista_nominal", "Número de ciudadanos en lista nominal de electores (última elección)", "personas", "INE CCPC"),
+        ("municipios", "abstencion_esperada", "Número proyectado de electores que no votarían en 2027", "personas", "ATALAYA Modelo"),
+        ("municipios", "prioridad", "Ranking de prioridad de intervención (1 = mayor abstención en zonas críticas)", "entero", "ATALAYA Priorización"),
         ("municipios", "last_year", "Año de la última elección federal de diputaciones registrada", "año", "INE CCPC"),
         ("municipios", "last_reliable_year", "Último año con datos de participación confiables (ns_rate <= 0.5)", "año", "ATALAYA"),
         ("municipios", "last_participation", "Participación observada en la última elección federal", "proporción (0-1)", "INE CCPC"),
         ("municipios", "pred_participation_base", "Participación estimada para 2027 en escenario base", "proporción (0-1)", "ATALAYA Modelo"),
         ("municipios", "pred_abstention_base", "Abstención pronosticada para 2027 en escenario base (1 - participación)", "proporción (0-1)", "ATALAYA Modelo"),
         ("municipios", "pred_dev_pp", "Desviación pronosticada de participación respecto a la media nacional", "puntos porcentuales", "ATALAYA Modelo"),
+        ("municipios", "vulnerability_pp", "Vulnerabilidad estructural sociodemográfica (-struct_pred_dev_pp)", "puntos porcentuales", "ATALAYA Modelo"),
         ("municipios", "fallback_model", "Modelo econométrico alternativo utilizado por rezagos incompletos", "texto", "ATALAYA Modelo"),
         ("municipios", "gov_2027", "Indicador si la entidad tiene elección de gubernatura en 2027 (1=Sí, 0=No)", "binario", "INE Calendario"),
         ("municipios", "pred_low_base", "Límite inferior del intervalo de confianza al 90% para abstención 2027", "proporción (0-1)", "ATALAYA Modelo"),
         ("municipios", "pred_high_base", "Límite superior del intervalo de confianza al 90% para abstención 2027", "proporción (0-1)", "ATALAYA Modelo"),
         ("municipios", "trend_pp", "Tendencia histórica relativa de participación por elección federal", "puntos porcentuales", "ATALAYA Modelo"),
         ("municipios", "volatility_pp", "Volatilidad cíclica histórica de la participación", "puntos porcentuales", "ATALAYA Modelo"),
+        ("municipios", "r_abs", "Componente relativo de abstención en índice de riesgo (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
+        ("municipios", "r_vuln", "Componente relativo de vulnerabilidad sociodemográfica (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
+        ("municipios", "r_trend", "Componente relativo de deterioro de tendencia histórica (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
+        ("municipios", "r_vol", "Componente relativo de volatilidad histórica (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
         ("municipios", "risk_score_base", "Índice sintético de riesgo de abstención (0-100)", "índice", "ATALAYA Modelo"),
         ("municipios", "category_base", "Categoría del semáforo de riesgo en escenario base", "categoría", "ATALAYA Modelo"),
         ("municipios", "pred_abstention_intervencion", "Abstención estimada 2027 bajo escenario de intervención", "proporción (0-1)", "ATALAYA Modelo"),
@@ -251,14 +274,21 @@ def create_dictionary_dataframe() -> pd.DataFrame:
         ("estados", "id", "Clave de entidad federativa (2 dígitos)", "clave", "INEGI/INE"),
         ("estados", "name", "Nombre de la entidad federativa", "texto", "INEGI 2024"),
         ("estados", "lista_nominal", "Lista nominal total agregada estatal", "personas", "INE CCPC"),
+        ("estados", "abstencion_esperada", "Número proyectado de electores que no votarían en 2027", "personas", "ATALAYA Modelo"),
+        ("estados", "prioridad", "Ranking de prioridad de intervención estatal dentro de rojo/naranja", "entero", "ATALAYA Priorización"),
         ("estados", "last_year", "Año de la última elección federal", "año", "INE CCPC"),
         ("estados", "last_participation", "Participación observada estatal última elección", "proporción (0-1)", "INE CCPC"),
         ("estados", "pred_participation_base", "Participación estimada estatal 2027 escenario base", "proporción (0-1)", "ATALAYA Modelo"),
         ("estados", "pred_abstention_base", "Abstención pronosticada estatal 2027 escenario base", "proporción (0-1)", "ATALAYA Modelo"),
+        ("estados", "vulnerability_pp", "Vulnerabilidad estructural sociodemográfica agregada ponderada por LN", "puntos porcentuales", "ATALAYA Modelo"),
         ("estados", "pred_low_base", "Límite inferior del intervalo de abstención estatal", "proporción (0-1)", "ATALAYA Modelo"),
         ("estados", "pred_high_base", "Límite superior del intervalo de abstención estatal", "proporción (0-1)", "ATALAYA Modelo"),
         ("estados", "trend_pp", "Tendencia histórica estatal de participación", "puntos porcentuales", "ATALAYA Modelo"),
         ("estados", "volatility_pp", "Volatilidad cíclica histórica estatal", "puntos porcentuales", "ATALAYA Modelo"),
+        ("estados", "r_abs", "Componente relativo de abstención estatal (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
+        ("estados", "r_vuln", "Componente relativo de vulnerabilidad estatal (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
+        ("estados", "r_trend", "Componente relativo de deterioro de tendencia estatal (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
+        ("estados", "r_vol", "Componente relativo de volatilidad estatal (0-1)", "proporción (0-1)", "ATALAYA Modelo"),
         ("estados", "risk_score_base", "Índice de riesgo estatal agregado", "índice", "ATALAYA Modelo"),
         ("estados", "category_base", "Semáforo de riesgo estatal", "categoría", "ATALAYA Modelo"),
         ("estados", "pred_abstention_intervencion", "Abstención estatal estimada en intervención", "proporción (0-1)", "ATALAYA Modelo"),
@@ -306,6 +336,7 @@ def create_dictionary_dataframe() -> pd.DataFrame:
         ("perfil_edad_sexo", "nv", "Votos sin marca en el grupo", "personas", "INE CCPC"),
         ("perfil_edad_sexo", "ns", "Condición no especificada", "personas", "INE CCPC"),
         ("perfil_edad_sexo", "participacion", "Participación del subgrupo SV / (SV + NV)", "proporción (0-1)", "INE CCPC"),
+        ("perfil_edad_sexo", "suprimido", "Indicador de celda suprimida por regla de privacidad (ln < 10)", "booleano", "ATALAYA Privacidad"),
 
         # drivers
         ("drivers", "id", "Clave geográfica de la unidad", "clave", "ATALAYA Modelo"),
@@ -450,6 +481,7 @@ def export_deliverables(
             top_driver_map[str(r["id"])] = str(r["label"])
 
     top_reco_map: dict[str, str] = {}
+    top_lever_map: dict[str, str] = {}
     reco_records: list[dict] = []
 
     # Recommendations for municipalities
@@ -465,6 +497,7 @@ def export_deliverables(
         recs = recommend(u_dict, u_drivers, reco_ref_mun)
         if recs:
             top_reco_map[u_id] = recs[0].get("title", "")
+            top_lever_map[u_id] = recs[0].get("lever", "")
         for idx_rc, rc in enumerate(recs[:4], start=1):
             reco_records.append({
                 "id": u_id,
@@ -650,18 +683,25 @@ def export_deliverables(
             "cve_ent": ent,
             "name": u.get("name", ""),
             "lista_nominal": round_val(b_r["lista_nominal"], 0) if b_r is not None else None,
+            "abstencion_esperada": round_val(u.get("abstencion_esperada"), 0),
+            "prioridad": round_val(u.get("prioridad"), 0),
             "last_year": round_val(b_r["last_year"], 0) if b_r is not None else None,
             "last_reliable_year": round_val(u.get("last_reliable_year"), 0),
             "last_participation": round_val(b_r["last_participation"], 4) if b_r is not None else None,
             "pred_participation_base": round_val(b_r["pred_participation"], 4) if b_r is not None else None,
             "pred_abstention_base": round_val(b_r["pred_abstention"], 4) if b_r is not None else None,
             "pred_dev_pp": round_val(u.get("pred_dev_pp"), 4),
+            "vulnerability_pp": round_val(u.get("vulnerability_pp"), 4),
             "fallback_model": str(u.get("fallback_model")) if pd.notna(u.get("fallback_model")) and u.get("fallback_model") else None,
             "gov_2027": gov_2027,
             "pred_low_base": round_val(b_r["pred_low"], 4) if b_r is not None else None,
             "pred_high_base": round_val(b_r["pred_high"], 4) if b_r is not None else None,
             "trend_pp": round_val(b_r["trend_pp"], 4) if b_r is not None else None,
             "volatility_pp": round_val(u.get("volatility_pp"), 4),
+            "r_abs": round_val(u.get("r_abs"), 4),
+            "r_vuln": round_val(u.get("r_vuln"), 4),
+            "r_trend": round_val(u.get("r_trend"), 4),
+            "r_vol": round_val(u.get("r_vol"), 4),
             "risk_score_base": round_val(b_r["risk_score"], 2) if b_r is not None else None,
             "category_base": str(b_r["category"]) if b_r is not None and pd.notna(b_r["category"]) else "sin_dato",
             "pred_abstention_intervencion": round_val(i_r["pred_abstention"], 4) if i_r is not None else None,
@@ -714,14 +754,21 @@ def export_deliverables(
             "id": sid,
             "name": u.get("name", ""),
             "lista_nominal": round_val(b_r["lista_nominal"], 0) if b_r is not None else None,
+            "abstencion_esperada": round_val(u.get("abstencion_esperada"), 0),
+            "prioridad": round_val(u.get("prioridad"), 0),
             "last_year": round_val(b_r["last_year"], 0) if b_r is not None else None,
             "last_participation": round_val(b_r["last_participation"], 4) if b_r is not None else None,
             "pred_participation_base": round_val(b_r["pred_participation"], 4) if b_r is not None else None,
             "pred_abstention_base": round_val(b_r["pred_abstention"], 4) if b_r is not None else None,
+            "vulnerability_pp": round_val(u.get("vulnerability_pp"), 4),
             "pred_low_base": round_val(b_r["pred_low"], 4) if b_r is not None else None,
             "pred_high_base": round_val(b_r["pred_high"], 4) if b_r is not None else None,
             "trend_pp": round_val(b_r["trend_pp"], 4) if b_r is not None else None,
             "volatility_pp": round_val(u.get("volatility_pp"), 4),
+            "r_abs": round_val(u.get("r_abs"), 4),
+            "r_vuln": round_val(u.get("r_vuln"), 4),
+            "r_trend": round_val(u.get("r_trend"), 4),
+            "r_vol": round_val(u.get("r_vol"), 4),
             "risk_score_base": round_val(b_r["risk_score"], 2) if b_r is not None else None,
             "category_base": str(b_r["category"]) if b_r is not None and pd.notna(b_r["category"]) else "sin_dato",
             "pred_abstention_intervencion": round_val(i_r["pred_abstention"], 4) if i_r is not None else None,
@@ -809,6 +856,9 @@ def export_deliverables(
         if "cvegeo" in df_perfil.columns:
             df_perfil["cvegeo"] = df_perfil["cvegeo"].astype(str).str.strip().apply(lambda v: zpad(str(v), 5))
 
+        # Privacy rule 1: Drop municipal nonbinary ('X')
+        df_perfil = drop_nonbinary_below_state(df_perfil)
+
         group_cols = [c for c in ["cvegeo", "cve_ent", "year", "election", "age_group", "sexo"] if c in df_perfil.columns]
         sum_cols = [c for c in ["ln", "sv", "nv", "ns"] if c in df_perfil.columns]
         if group_cols and sum_cols:
@@ -824,10 +874,19 @@ def export_deliverables(
             df_perfil["participacion"] = df_perfil["participacion"].apply(lambda v: round_val(v, 4))
         elif "participacion" in df_perfil.columns:
             df_perfil["participacion"] = df_perfil["participacion"].apply(lambda v: round_val(v, 4))
+
+        # Privacy rule 2: Suppress small cells (ln < 10)
+        df_perfil = suppress_small_cells(
+            df_perfil,
+            count_cols=("ln", "sv", "nv", "ns"),
+            rate_cols=("participacion",),
+            base_col="ln",
+            threshold=10,
+        )
     else:
         df_perfil = pd.DataFrame(columns=[
             "cvegeo", "cve_ent", "year", "election", "age_group", "sexo",
-            "ln", "sv", "nv", "ns", "participacion",
+            "ln", "sv", "nv", "ns", "participacion", "suprimido",
         ])
 
     # E. Drivers
@@ -844,11 +903,19 @@ def export_deliverables(
             metrics_records.append({"seccion": "modelo_seleccionado", "campo": "selected_model", "valor": metrics_data.get("selected_model"), "detalle": "Modelo ganador del torneo de candidatos"})
         if "national_level_assumption" in metrics_data:
             metrics_records.append({"seccion": "parametro", "campo": "national_level_assumption", "valor": metrics_data.get("national_level_assumption"), "detalle": "Nivel nacional supuesto para intermedia 2027 (%)"})
+        if "calibration_pp" in metrics_data:
+            metrics_records.append({"seccion": "parametro", "campo": "calibration_pp", "valor": metrics_data.get("calibration_pp"), "detalle": "Calibración aditiva cerrada para nivel nacional (pp)"})
         if "offset_pp" in metrics_data:
             metrics_records.append({"seccion": "parametro", "campo": "offset_pp", "valor": metrics_data.get("offset_pp"), "detalle": "Offset histórico de intermedias respecto a la media nacional (pp)"})
         metrics_records.append({"seccion": "parametro", "campo": "lambda", "valor": metrics_data.get("lambda"), "detalle": "Penalización ridge seleccionada"})
         metrics_records.append({"seccion": "parametro", "campo": "sigma_pp", "valor": metrics_data.get("sigma_pp"), "detalle": "Desviación estándar de residuales (pp)"})
-        metrics_records.append({"seccion": "parametro", "campo": "structural_r2", "valor": metrics_data.get("structural_r2"), "detalle": "R² en validación cruzada 5-fold"})
+        metrics_records.append({"seccion": "parametro", "campo": "structural_r2", "valor": metrics_data.get("structural_r2"), "detalle": "R² en validación cruzada 5-fold aleatoria"})
+        if "structural_r2_within_state" in metrics_data:
+            metrics_records.append({"seccion": "parametro", "campo": "structural_r2_within_state", "valor": metrics_data.get("structural_r2_within_state"), "detalle": "R² estructural dentro de estado"})
+        if "structural_r2_state_cv" in metrics_data:
+            metrics_records.append({"seccion": "parametro", "campo": "structural_r2_state_cv", "valor": metrics_data.get("structural_r2_state_cv"), "detalle": "R² estructural agrupado por entidad"})
+        if "between_state_share" in metrics_data:
+            metrics_records.append({"seccion": "parametro", "campo": "between_state_share", "valor": metrics_data.get("between_state_share"), "detalle": "Proporción de varianza explicada entre estados"})
         metrics_records.append({"seccion": "parametro", "campo": "generated_at", "valor": metrics_data.get("generated_at"), "detalle": "Fecha de calibración"})
 
         # Candidates tournament
@@ -916,7 +983,40 @@ def export_deliverables(
 
     df_semaforo_ponderado = pd.DataFrame(summary_rows)
 
-    # H. LEEME & Diccionario
+    # H. Priorización: Top 100 municipios por prioridad
+    prio_mask = mun_units_df["prioridad"].notna() & (pd.to_numeric(mun_units_df["prioridad"], errors="coerce") > 0)
+    prio_candidates = mun_units_df[prio_mask].sort_values("prioridad")
+    top_100_prio = prio_candidates.head(100)
+
+    prio_rows = []
+    for _, u in top_100_prio.iterrows():
+        mid = str(u["id"])
+        ent = zpad(str(u.get("cve_ent", mid[:2])), 2)
+        b_r = mb_idx.loc[mid] if mid in mb_idx.index else None
+        i_r = mi_idx.loc[mid] if mid in mi_idx.index else None
+
+        prio_rows.append({
+            "prioridad": int(u["prioridad"]),
+            "id": mid,
+            "name": u.get("name", ""),
+            "cve_ent": ent,
+            "nom_ent": u.get("nom_ent", ""),
+            "lista_nominal": round_val(b_r["lista_nominal"], 0) if b_r is not None else round_val(u.get("lista_nominal"), 0),
+            "abstencion_esperada": round_val(u.get("abstencion_esperada"), 0),
+            "category_base": str(b_r["category"]) if b_r is not None and pd.notna(b_r["category"]) else str(u.get("category", "sin_dato")),
+            "category_intervencion": str(i_r["category"]) if i_r is not None and pd.notna(i_r["category"]) else "sin_dato",
+            "palanca_recomendada": top_lever_map.get(mid, "campana_general"),
+        })
+
+    df_priorizacion = pd.DataFrame(prio_rows)
+    if df_priorizacion.empty:
+        df_priorizacion = pd.DataFrame(columns=[
+            "prioridad", "id", "name", "cve_ent", "nom_ent",
+            "lista_nominal", "abstencion_esperada", "category_base",
+            "category_intervencion", "palanca_recomendada",
+        ])
+
+    # I. LEEME & Diccionario
     df_leeme = create_leeme_dataframe(metrics_data)
     df_diccionario = create_dictionary_dataframe()
 
@@ -930,6 +1030,7 @@ def export_deliverables(
         ("LEEME", df_leeme),
         ("diccionario", df_diccionario),
         ("semaforo_ponderado", df_semaforo_ponderado),
+        ("priorizacion", df_priorizacion),
         ("municipios", df_municipios),
         ("estados", df_estados),
         ("participacion_historica", df_part_hist),

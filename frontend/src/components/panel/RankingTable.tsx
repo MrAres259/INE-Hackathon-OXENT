@@ -7,11 +7,15 @@ import type { RiskItem, Level } from "@/lib/types";
 import {
   formatPct,
   formatPp,
+  formatInt,
   formatDeltaPp,
   getDeltaAbstentionColorClass,
   getCategoryColor,
   getCategoryLabel,
   generateRankingCsv,
+  sortRankingItems,
+  getAbstencionEsperada,
+  type RankingSortKey,
 } from "@/lib/format";
 
 export function RankingTable() {
@@ -26,6 +30,7 @@ export function RankingTable() {
 
   const [level, setLevel] = useState<Level>(contextLevel);
   const [entFilter, setEntFilter] = useState<string>(selectedEnt ?? "");
+  const [sortBy, setSortBy] = useState<RankingSortKey>("risk");
   const [items, setItems] = useState<RiskItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -45,13 +50,12 @@ export function RankingTable() {
       if (level === "mun" && entFilter) {
         filtered = filtered.filter((item) => item.ent === entFilter);
       }
-      filtered.sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0));
-      setItems(filtered.slice(0, 20));
+      setItems(filtered.slice(0, 30));
       return;
     }
 
     setLoading(true);
-    getRanking(level, entFilter || undefined, scenario, 20)
+    getRanking(level, entFilter || undefined, scenario, 30)
       .then((res) => {
         const valid = res.items.filter((item) => item.category !== "sin_dato");
         setItems(valid);
@@ -60,13 +64,15 @@ export function RankingTable() {
       .finally(() => setLoading(false));
   }, [level, entFilter, scenario, simulationResult]);
 
+  const sortedItems = sortRankingItems(items, sortBy).slice(0, 20);
+
   const handleExportCsv = () => {
-    const csvContent = generateRankingCsv(items);
+    const csvContent = generateRankingCsv(sortedItems);
     const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `ranking_riesgo_atalaya_${level}_${scenario}.csv`);
+    link.setAttribute("download", `ranking_riesgo_atalaya_${level}_${scenario}_${sortBy}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -78,11 +84,11 @@ export function RankingTable() {
       {/* Header & Controls */}
       <div>
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-base font-bold text-white">Ranking de Riesgo 2027</h3>
+          <h3 className="text-base font-bold text-white">Ranking de Priorización 2027</h3>
           <button
             type="button"
             onClick={handleExportCsv}
-            disabled={items.length === 0}
+            disabled={sortedItems.length === 0}
             className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 disabled:opacity-50"
             title="Exportar listado actual a archivo CSV"
           >
@@ -93,7 +99,7 @@ export function RankingTable() {
           </button>
         </div>
         <p className="text-xs text-slate-400 mt-0.5">
-          Top 20 zonas con mayor índice de vulnerabilidad electoral. Clic en una fila para ubicarla en el mapa.
+          Top 20 zonas con mayor índice de vulnerabilidad y abstención potencial. Clic en una fila para ubicarla en el mapa.
         </p>
         {scenario !== "base" && (
           <p className="text-[11px] text-slate-400 mt-1">
@@ -102,47 +108,63 @@ export function RankingTable() {
         )}
       </div>
 
-      {/* Filter Toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg p-0.5 bg-slate-800 border border-slate-700 text-xs">
-          <button
-            type="button"
-            onClick={() => setLevel("state")}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-              level === "state"
-                ? "bg-slate-700 text-white shadow-xs"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Estados
-          </button>
-          <button
-            type="button"
-            onClick={() => setLevel("mun")}
-            className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-              level === "mun"
-                ? "bg-slate-700 text-white shadow-xs"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Municipios
-          </button>
+      {/* Filter & Sort Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg p-0.5 bg-slate-800 border border-slate-700 text-xs">
+            <button
+              type="button"
+              onClick={() => setLevel("state")}
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                level === "state"
+                  ? "bg-slate-700 text-white shadow-xs"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Estados
+            </button>
+            <button
+              type="button"
+              onClick={() => setLevel("mun")}
+              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                level === "mun"
+                  ? "bg-slate-700 text-white shadow-xs"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Municipios
+            </button>
+          </div>
+
+          {level === "mun" && meta?.states && (
+            <select
+              value={entFilter}
+              onChange={(e) => setEntFilter(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="">Todas las entidades</option>
+              {meta.states.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
-        {level === "mun" && meta?.states && (
+        {/* Order Selector */}
+        <div className="flex items-center gap-1.5 text-xs text-slate-300">
+          <span className="text-[11px] text-slate-400 hidden sm:inline">Ordenar por:</span>
           <select
-            value={entFilter}
-            onChange={(e) => setEntFilter(e.target.value)}
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as RankingSortKey)}
             className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           >
-            <option value="">Todas las entidades</option>
-            {meta.states.map((st) => (
-              <option key={st.id} value={st.id}>
-                {st.name}
-              </option>
-            ))}
+            <option value="risk">Índice de riesgo</option>
+            <option value="abstencion_esperada">Abstención esperada (personas)</option>
+            <option value="prioridad">Prioridad</option>
           </select>
-        )}
+        </div>
       </div>
 
       {/* Table */}
@@ -160,6 +182,9 @@ export function RankingTable() {
                   </div>
                 )}
               </th>
+              <th className="py-2.5 px-2 text-right" title="Personas que se espera no voten">
+                Abst. Esperada
+              </th>
               <th className="py-2.5 px-2 text-right">Riesgo</th>
               <th className="py-2.5 pr-3 pl-2 text-right">Semáforo</th>
             </tr>
@@ -167,20 +192,21 @@ export function RankingTable() {
           <tbody className="divide-y divide-slate-800/60 bg-slate-900/60">
             {loading ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400">
+                <td colSpan={6} className="py-6 text-center text-slate-400">
                   Cargando ranking...
                 </td>
               </tr>
-            ) : items.length === 0 ? (
+            ) : sortedItems.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400">
+                <td colSpan={6} className="py-6 text-center text-slate-400">
                   No se encontraron resultados
                 </td>
               </tr>
             ) : (
-              items.map((item, idx) => {
+              sortedItems.map((item, idx) => {
                 const catColor = getCategoryColor(item.category);
                 const catLabel = getCategoryLabel(item.category);
+                const abstEsperada = getAbstencionEsperada(item);
 
                 return (
                   <tr
@@ -195,8 +221,11 @@ export function RankingTable() {
                       <div className="font-semibold text-slate-200 group-hover:text-emerald-400 transition-colors">
                         {item.name}
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        Clave: {item.id}
+                      <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
+                        <span>Clave: {item.id}</span>
+                        {item.prioridad !== undefined && item.prioridad !== null && (
+                          <span className="text-emerald-400 font-semibold">· Prioridad #{item.prioridad}</span>
+                        )}
                       </div>
                     </td>
                     <td className="py-2 px-2 text-right font-mono font-bold text-white">
@@ -211,6 +240,10 @@ export function RankingTable() {
                           {formatDeltaPp(item.delta_vs_base_pp)}
                         </div>
                       )}
+                    </td>
+                    <td className="py-2 px-2 text-right font-mono text-slate-300">
+                      <div>{formatInt(abstEsperada)}</div>
+                      <div className="text-[9px] text-slate-400 font-normal">pers.</div>
                     </td>
                     <td className="py-2 px-2 text-right font-mono font-bold text-white">
                       {item.risk_score ?? "—"}

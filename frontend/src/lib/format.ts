@@ -93,6 +93,61 @@ export function hasProminentDrivers(
   return drivers.some((d) => Math.abs(d.contribution_pp) >= threshold);
 }
 
+export function formatSuppressed(item: {
+  suprimido?: boolean;
+  ln?: number | null;
+  participation?: number | null;
+}): string | null {
+  if (item.suprimido) {
+    return "dato protegido (menos de 10 personas)";
+  }
+  if (item.ln !== null && item.ln !== undefined && item.ln > 0 && item.ln < 10) {
+    return "dato protegido (menos de 10 personas)";
+  }
+  return null;
+}
+
+export function getAbstencionEsperada(item: RiskItem): number {
+  if (item.abstencion_esperada !== undefined && item.abstencion_esperada !== null) {
+    return Math.round(item.abstencion_esperada);
+  }
+  if (item.pred_abstention !== null && item.pred_abstention !== undefined && item.lista_nominal) {
+    return Math.round(item.pred_abstention * item.lista_nominal);
+  }
+  return 0;
+}
+
+export type RankingSortKey = "risk" | "abstencion_esperada" | "prioridad";
+
+export function sortRankingItems(items: RiskItem[], sortBy: RankingSortKey = "risk"): RiskItem[] {
+  const copy = [...items];
+  if (sortBy === "risk") {
+    return copy.sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0));
+  }
+  if (sortBy === "abstencion_esperada") {
+    return copy.sort((a, b) => getAbstencionEsperada(b) - getAbstencionEsperada(a));
+  }
+  if (sortBy === "prioridad") {
+    return copy.sort((a, b) => {
+      // If both have explicit prioridad, sort ascending by prioridad rank (1 is highest priority)
+      if (a.prioridad != null && b.prioridad != null) {
+        return a.prioridad - b.prioridad;
+      }
+      if (a.prioridad != null) return -1;
+      if (b.prioridad != null) return 1;
+
+      // Fallback: prioritize rojo/naranja zones, ordered by abstencion_esperada descending
+      const isCriticalA = a.category === "rojo" || a.category === "naranja";
+      const isCriticalB = b.category === "rojo" || b.category === "naranja";
+      if (isCriticalA && !isCriticalB) return -1;
+      if (!isCriticalA && isCriticalB) return 1;
+
+      return getAbstencionEsperada(b) - getAbstencionEsperada(a);
+    });
+  }
+  return copy;
+}
+
 export function escapeCsvField(field: string | number | null | undefined): string {
   if (field === null || field === undefined) return "";
   const str = String(field);
@@ -111,6 +166,8 @@ export function generateRankingCsv(items: RiskItem[]): string {
     "Lista Nominal",
     "Participación 2024 (%)",
     "Abstención Pronosticada 2027 (%)",
+    "Abstención Esperada (personas)",
+    "Prioridad",
     "Índice de Riesgo (0-100)",
     "Semáforo",
     "Tendencia (pp)",
@@ -125,6 +182,8 @@ export function generateRankingCsv(items: RiskItem[]): string {
     escapeCsvField(item.lista_nominal),
     escapeCsvField(item.last_participation !== null ? (item.last_participation * 100).toFixed(1) : ""),
     escapeCsvField(item.pred_abstention !== null ? (item.pred_abstention * 100).toFixed(1) : ""),
+    escapeCsvField(getAbstencionEsperada(item)),
+    escapeCsvField(item.prioridad !== undefined && item.prioridad !== null ? item.prioridad : ""),
     escapeCsvField(item.risk_score),
     escapeCsvField(getCategoryLabel(item.category)),
     escapeCsvField(item.trend_pp !== null ? item.trend_pp.toFixed(1) : ""),
