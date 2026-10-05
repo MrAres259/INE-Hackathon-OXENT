@@ -47,10 +47,14 @@ def create_synthetic_data(build_dir: Path) -> None:
 
     # Features
     feats_rows = []
+    mun_pct: dict[str, float] = {}
     for m in muns:
         ent = m[:2]
         pob_tot = int(np.random.randint(15000, 80000))
         pob_18 = int(pob_tot * 0.7)
+        # Mun 01001 has high youth population
+        p_18_24 = 0.28 if m == "01001" else float(np.random.uniform(0.12, 0.22))
+        mun_pct[m] = p_18_24
         feats_rows.append({
             "cvegeo": m,
             "cve_ent": ent,
@@ -59,7 +63,7 @@ def create_synthetic_data(build_dir: Path) -> None:
             "nom_mun": f"Municipio {m}",
             "pob_tot": pob_tot,
             "pob_18ymas": pob_18,
-            "pct_18_24": float(np.random.uniform(0.12, 0.22)),
+            "pct_18_24": p_18_24,
             "pct_65ymas": float(np.random.uniform(0.08, 0.15)),
             "graproes": float(np.random.uniform(8.0, 11.5)),
             "pct_hli": float(np.random.uniform(0.01, 0.05)),
@@ -74,16 +78,17 @@ def create_synthetic_data(build_dir: Path) -> None:
     feats_df = pd.DataFrame(feats_rows)
     write_parquet(feats_df, build_dir / "features.parquet")
 
-    # Participation
+    # Participation: pct_18_24 reduces participation
     years = [2009, 2012, 2015, 2018, 2021, 2024]
     part_rows = []
     for m in muns:
         ent = m[:2]
-        base_p = 0.48 if ent == "01" else 0.44
+        base_p = 0.48
+        m_pct = mun_pct[m]
         for yr in years:
             pres = 1 if yr in (2012, 2018, 2024) else 0
             ln = int(np.random.randint(10000, 50000))
-            turnout = base_p + 0.10 * pres + np.random.normal(0, 0.02)
+            turnout = base_p - 1.20 * (m_pct - 0.17) + 0.10 * pres + np.random.normal(0, 0.008)
             turnout = max(0.20, min(0.85, turnout))
             votos = int(round(ln * turnout))
             part_rows.append({
@@ -160,13 +165,24 @@ def test_build_model_full_pipeline(tmp_path):
     state_driver_counts = drivers_df[drivers_df["level"] == "state"]["id"].value_counts()
     assert (state_driver_counts <= 5).all()
 
+    # Driver #1 for municipality with high youth population (01001)
+    driver1_01001 = drivers_df[(drivers_df["id"] == "01001") & (drivers_df["rank"] == 1)].iloc[0]
+    assert driver1_01001["key"] == "pct_18_24"
+    assert driver1_01001["direction"] == "sube_abstencion"
+    assert abs(driver1_01001["contribution_pp"]) >= 0.5
+
     # 3. Verify metrics.json
     metrics_path = build_dir / "metrics.json"
     assert metrics_path.is_file()
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert metrics["target_year"] == 2027
     assert len(metrics["backtests"]) == 2
+    assert "coefficients" in metrics
+    assert "forecast_coefficients" in metrics
+    assert "structural_r2" in metrics
     assert len(metrics["coefficients"]) > 0
+    assert len(metrics["forecast_coefficients"]) > 0
+    assert metrics["structural_r2"] > 0
     assert metrics["lambda"] > 0
     assert metrics["sigma_pp"] > 0
     assert len(metrics["data_sources"]) == 2
@@ -179,6 +195,10 @@ def test_build_model_full_pipeline(tmp_path):
     assert "coef" in model_dict
     assert "intercept" in model_dict
     assert model_dict["target_year"] == 2027
+    assert "structural" in model_dict
+    assert "features" in model_dict["structural"]
+    assert "coef" in model_dict["structural"]
+    assert "cv_r2" in model_dict["structural"]
 
 
 def test_build_model_no_data_fallback(tmp_path):
@@ -206,3 +226,11 @@ def test_build_model_no_data_fallback(tmp_path):
     assert metrics_path.is_file()
     metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
     assert metrics["backtests"] == []
+    assert "forecast_coefficients" in metrics
+    assert "structural_r2" in metrics
+
+    model_path = build_dir / "model.json"
+    assert model_path.is_file()
+    model_dict = json.loads(model_path.read_text(encoding="utf-8"))
+    assert "structural" in model_dict
+

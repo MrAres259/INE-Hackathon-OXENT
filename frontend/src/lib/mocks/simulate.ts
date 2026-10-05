@@ -67,7 +67,7 @@ export function simulateMockScenario(req: ScenarioRequest): ScenarioResult {
     n_units: simulatedItems.length,
     by_category: byCategory,
     by_category_base: byCategoryBase,
-    votos_adicionales: Math.max(0, totalVotosAdicionales),
+    votos_adicionales: totalVotosAdicionales,
     mean_delta_pp: meanDelta,
   };
 

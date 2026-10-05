@@ -133,6 +133,8 @@ export type ModelMetrics = {
   train_years: number[];
   backtests: Backtest[];
   coefficients: { key: string; label: string; coef_pp_per_sd: number }[];
+  structural_r2?: number | null;
+  forecast_coefficients?: { key: string; label: string; coef_pp_per_sd: number }[] | null;
   generated_at: string;
   data_sources: { name: string; file: string; rows: number }[];
 };

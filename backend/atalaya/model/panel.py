@@ -236,3 +236,26 @@ def training_rows(
 
     res = pd.concat(dfs, ignore_index=True)
     return res
+
+
+def intermediate_turnout(
+    Y: pd.DataFrame,
+) -> pd.Series:
+    """Average turnout in percentage points for intermediate (non-presidential) DIP_FED years.
+
+    Calculates mean across non-presidential election years in Y for each municipality
+    with at least 1 available year. Converts to percentage points if values are proportions (<= 1.05).
+    """
+    if Y.empty:
+        return pd.Series(dtype=float)
+
+    inter_years = [y for y in Y.columns if not is_presidential(int(y))]
+    if not inter_years:
+        inter_years = list(Y.columns)
+
+    sub = Y[inter_years].apply(pd.to_numeric, errors="coerce")
+    vals_max = np.nanmax(sub.values) if len(sub) > 0 else 1.0
+    mult = 100.0 if vals_max <= 1.05 else 1.0
+
+    return (sub * mult).mean(axis=1, skipna=True).dropna()
+

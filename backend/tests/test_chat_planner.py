@@ -177,3 +177,23 @@ def test_planner_llm_fallback(monkeypatch):
     spec_fb2, method_fb2 = plan(ambiguous_query)
     assert method_fb2 == "rules"
     assert isinstance(spec_fb2, QuerySpec)
+
+
+def test_planner_multipart_question():
+    """Verify multipart questions with two metrics prioritize first part for lookup and set followup_hint."""
+    query = "¿Cuántos jóvenes hay en Nuevo León y cómo ha evolucionado su participación?"
+    res = plan(query)
+    spec, method = res
+
+    assert method == "rules"
+    assert res.followup_hint is not None
+    assert "Puedo responder la otra parte si la preguntas por separado." in res.followup_hint
+    assert spec.intent == "lookup"
+    assert spec.metric == "pct_18_24"
+    assert "19" in spec.unit_ids or spec.filters.get("cve_ent") == "19"
+    assert spec.level == "state"
+
+    # Also verify that when executed, executor appends followup_hint to facts
+    from atalaya.chat.executor import execute
+    data = execute(spec)
+    assert any("Puedo responder la otra parte si la preguntas por separado." in f for f in data.facts)

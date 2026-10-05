@@ -133,15 +133,67 @@ def format_value(key: str, val: Any) -> str:
     return str(val)
 
 
-def _resolve_sources(keys: list[str]) -> str:
-    """Build unified source citation string from list of variable keys."""
+def _resolve_sources(keys: list[str], spec: QuerySpec | None = None, store: Any = None) -> str:
+    """Build unified, deduplicated source citation string with effective year."""
+    eff_election = "Diputaciones federales"
+    if spec and spec.election:
+        if spec.election == "PRES":
+            eff_election = "Presidencia"
+        elif spec.election == "SEN":
+            eff_election = "Senadurías"
+        elif spec.election == "PJF":
+            eff_election = "Poder Judicial"
+
+    eff_year = None
+    if spec and spec.year:
+        eff_year = spec.year
+    else:
+        if store is not None:
+            try:
+                st = store.stats()
+                years = st.get("years")
+                if years:
+                    eff_year = max(years)
+            except Exception:
+                pass
+        if not eff_year:
+            eff_year = 2024
+
     sources: list[str] = []
+
+    def _add_source(s: str) -> None:
+        if s and s not in sources:
+            sources.append(s)
+
     for k in keys:
+        if not k:
+            continue
         meta = get_variable_meta(k)
-        src = meta.get("source", "").strip()
-        if src and src not in sources:
-            sources.append(src)
-    return "; ".join(sources) if sources else "INE · ATALAYA"
+        raw_src = meta.get("source", "").strip()
+
+        # Check for wide columns like part_dip_2021 or abst_dip_2021
+        if k.startswith("part_dip_") or k.startswith("abst_dip_"):
+            yr = k.split("_")[-1]
+            _add_source(f"INE · {eff_election} {yr}")
+            continue
+
+        if raw_src.startswith("INE ·") or raw_src.startswith("INEGI ·") or raw_src.startswith("CONAPO ·") or raw_src.startswith("ATALAYA ·"):
+            _add_source(raw_src)
+        elif raw_src == "INE":
+            _add_source(f"INE · {eff_election} {eff_year}")
+        elif raw_src == "INEGI":
+            _add_source("INEGI · Censo 2020")
+        elif raw_src == "CONAPO":
+            _add_source("CONAPO · Marginación 2020")
+        elif raw_src == "ATALAYA":
+            _add_source("ATALAYA · Pronóstico 2027 (con datos INE e INEGI)")
+        elif raw_src:
+            _add_source(raw_src)
+
+    if not sources:
+        return f"INE · {eff_election} {eff_year}"
+
+    return "; ".join(sources)
 
 
 def _execute_ranking(spec: QuerySpec, store: Any) -> DataResult:
@@ -154,17 +206,17 @@ def _execute_ranking(spec: QuerySpec, store: Any) -> DataResult:
     )
     valid_results = [r for r in results if r.get("value") is not None and not pd.isna(r.get("value"))]
 
-    # Calculate total units without data in this scope
     omitted = 0
-    try:
-        ent = spec.filters.get("cve_ent") if spec.filters else None
-        scope_units = store.units(level=spec.level, ent=ent)
-        if not scope_units.empty and spec.metric in scope_units.columns:
-            total_in_scope = len(scope_units)
-            valid_in_scope = int(pd.to_numeric(scope_units[spec.metric], errors="coerce").notna().sum())
-            omitted = max(0, total_in_scope - valid_in_scope)
-    except Exception:
-        omitted = 0
+    if valid_results:
+        try:
+            ent = spec.filters.get("cve_ent") if spec.filters else None
+            scope_units = store.units(level=spec.level, ent=ent)
+            if not scope_units.empty and spec.metric in scope_units.columns:
+                total_in_scope = len(scope_units)
+                valid_in_scope = int(pd.to_numeric(scope_units[spec.metric], errors="coerce").notna().sum())
+                omitted = max(0, total_in_scope - valid_in_scope)
+        except Exception:
+            omitted = 0
 
     meta = get_variable_meta(spec.metric)
     label = meta.get("label_es", spec.metric)
@@ -201,7 +253,7 @@ def _execute_ranking(spec: QuerySpec, store: Any) -> DataResult:
     return DataResult(
         columns=columns,
         rows=rows,
-        source=_resolve_sources([spec.metric]),
+        source=_resolve_sources([spec.metric], spec, store),
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -254,17 +306,18 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
                         elif f"pred_{spec.metric}" in u and pd.notna(u[f"pred_{spec.metric}"]):
                             val = u[f"pred_{spec.metric}"]
 
-                val_str = format_value(spec.metric, val)
-                rows.append([zona, nivel, estado, val_str])
-                
-                yr_text = f" en {spec.year}" if spec.year else ""
-                facts.append(
-                    f"La {label.lower()} en {zona} ({estado}){yr_text} fue de {val_str}."
-                )
+                if val is not None and not pd.isna(val):
+                    val_str = format_value(spec.metric, val)
+                    rows.append([zona, nivel, estado, val_str])
+                    
+                    yr_text = f" en {spec.year}" if spec.year else ""
+                    facts.append(
+                        f"La {label.lower()} en {zona} ({estado}){yr_text} fue de {val_str}."
+                    )
     else:
         ent = spec.filters.get("cve_ent")
         agg = store.aggregate(spec.metric, level=spec.level, filters=spec.filters, stat="avg")
-        if agg:
+        if agg and agg[0].get("value") is not None and not pd.isna(agg[0].get("value")):
             val = agg[0].get("value")
             zona = get_state_name(ent) if ent else "Nacional"
             nivel = "Estado" if spec.level == "state" else "Municipal"
@@ -272,10 +325,13 @@ def _execute_lookup(spec: QuerySpec, store: Any, region_id: str | None = None) -
             rows.append([zona, nivel, zona, val_str])
             facts.append(f"El promedio de {label.lower()} para {zona} ({nivel.lower()}) es de {val_str}.")
 
+    if not rows:
+        facts.append("No se encontraron registros para la consulta solicitada.")
+
     return DataResult(
         columns=columns,
         rows=rows,
-        source=_resolve_sources(sources),
+        source=_resolve_sources(sources, spec, store),
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -312,15 +368,16 @@ def _execute_compare(spec: QuerySpec, store: Any) -> DataResult:
                 if val is None and f"pred_{spec.metric}" in u and pd.notna(u[f"pred_{spec.metric}"]):
                     val = u[f"pred_{spec.metric}"]
 
-            zona = u.get("name") or uid
-            estado = get_state_name(u.get("cve_ent"))
-            val_str = format_value(spec.metric, val)
-            cat = str(u.get("category", "sin_dato")).capitalize()
-            row = [zona, estado, val_str]
-            if has_category:
-                row.append(cat)
-            rows.append(row)
-            units_data.append({"name": zona, "val": val, "val_str": val_str, "ent": estado, "cat": cat})
+            if val is not None and not pd.isna(val):
+                zona = u.get("name") or uid
+                estado = get_state_name(u.get("cve_ent"))
+                val_str = format_value(spec.metric, val)
+                cat = str(u.get("category", "sin_dato")).capitalize()
+                row = [zona, estado, val_str]
+                if has_category:
+                    row.append(cat)
+                rows.append(row)
+                units_data.append({"name": zona, "val": val, "val_str": val_str, "ent": estado, "cat": cat})
 
     facts = []
     if len(units_data) >= 2:
@@ -341,7 +398,7 @@ def _execute_compare(spec: QuerySpec, store: Any) -> DataResult:
     return DataResult(
         columns=columns,
         rows=rows,
-        source=_resolve_sources([spec.metric]),
+        source=_resolve_sources([spec.metric], spec, store),
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -462,21 +519,21 @@ def _execute_correlation(spec: QuerySpec, store: Any) -> DataResult:
                     logger.debug("Quintiles calculation error: %s", e)
 
     facts = []
-    if r is not None and pd.notna(r):
+    if r is not None and pd.notna(r) and n > 0:
         facts.append(
             f"El coeficiente de correlación de Pearson es r = {r:.2f} (fuerza {fuerza}, dirección {direccion}), "
             f"calculado sobre n = {n} unidades."
         )
+        facts.append("Correlación no implica causalidad.")
+        facts.append(f"Se analizó la relación entre {m_label.lower()} y {x_label.lower()}.")
     else:
-        facts.append(f"No fue posible estimar la correlación con los datos disponibles (n = {n}).")
-
-    facts.append("Correlación no implica causalidad.")
-    facts.append(f"Se analizó la relación entre {m_label.lower()} y {x_label.lower()}.")
+        facts.append("No fue posible estimar la correlación: sin datos suficientes disponibles.")
+        facts.append("Correlación no implica causalidad.")
 
     return DataResult(
         columns=q_columns,
         rows=q_rows,
-        source=_resolve_sources([spec.metric, x_var]),
+        source=_resolve_sources([spec.metric, x_var], spec, store),
         facts=facts,
         empty=len(q_rows) == 0,
     )
@@ -495,68 +552,104 @@ def _execute_scenario(spec: QuerySpec, store: Any) -> DataResult:
     except ImportError:
         pass
 
-    all_units = store.units(level=None)
-    items_df = pd.DataFrame()
-    summary = {}
+    if sim_func is None:
+        return DataResult(
+            columns=[],
+            rows=[],
+            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            facts=["No fue posible simular el escenario: módulo de escenarios no disponible."],
+            empty=True,
+        )
 
-    if sim_func is not None:
-        try:
-            items_df, summary = sim_func(all_units, scenario=scenario, params=params, level=level, ent=ent)
-        except Exception as e:
-            logger.warning("Error calling model.scenarios.simulate: %s", e)
+    all_units = store.units(level=None)
+    if all_units.empty:
+        return DataResult(
+            columns=[],
+            rows=[],
+            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            facts=["No fue posible simular el escenario: sin datos disponibles."],
+            empty=True,
+        )
+
+    try:
+        items_df, summary = sim_func(all_units, scenario=scenario, params=params, level=level, ent=ent)
+    except Exception as e:
+        logger.warning("Error calling model.scenarios.simulate: %s", e)
+        return DataResult(
+            columns=[],
+            rows=[],
+            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            facts=[f"No fue posible simular el escenario: {e}"],
+            empty=True,
+        )
 
     if items_df.empty:
-        mun_units = store.units(level=level, ent=ent).copy()
-        if "pred_abstention" in mun_units.columns:
-            eff_pp = float(params.get("effect_pp", 2.0))
-            mun_units["delta_vs_base_pp"] = -eff_pp
-            mun_units["pred_abstention_sim"] = np.clip(
-                pd.to_numeric(mun_units["pred_abstention"], errors="coerce") - (eff_pp / 100.0),
-                0.0,
-                1.0,
-            )
-            votos_add = int(round((eff_pp / 100.0) * pd.to_numeric(mun_units.get("lista_nominal", 0), errors="coerce").fillna(0).sum()))
-            summary = {
-                "n_units": len(mun_units),
-                "by_category": {"verde": int(len(mun_units) * 0.4), "amarillo": int(len(mun_units) * 0.3), "naranja": int(len(mun_units) * 0.2), "rojo": int(len(mun_units) * 0.1)},
-                "votos_adicionales": votos_add,
-                "mean_delta_pp": -eff_pp,
-            }
-            items_df = mun_units
+        return DataResult(
+            columns=[],
+            rows=[],
+            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            facts=["No fue posible simular el escenario: sin unidades coincidentes."],
+            empty=True,
+        )
 
     columns = ["Zona", "Estado", "Abstención Base", "Abstención Simulada", "Cambio (pp)", "Semáforo"]
     rows = []
 
-    if not items_df.empty:
-        sort_col = "delta_vs_base_pp" if "delta_vs_base_pp" in items_df.columns else "pred_abstention"
-        asc = True if "delta_vs_base_pp" in items_df.columns else False
-        top_items = items_df.sort_values(by=sort_col, ascending=asc).head(10)
+    # Sort by delta_vs_base_pp ascending (mayor mejora primero)
+    if "delta_vs_base_pp" in items_df.columns:
+        items_sorted = items_df.sort_values(by="delta_vs_base_pp", ascending=True, na_position="last")
+    else:
+        items_sorted = items_df
 
-        for _, r in top_items.iterrows():
-            zona = r.get("name") or r.get("id")
-            estado = get_state_name(r.get("cve_ent") or r.get("ent"))
-            base_abst = format_value("abstencion", r.get("pred_abstention"))
-            sim_abst = format_value("abstencion", r.get("pred_abstention_sim", r.get("pred_abstention")))
-            delta = format_value("delta_vs_base_pp", r.get("delta_vs_base_pp", -2.0))
-            cat = str(r.get("category", "sin_dato")).capitalize()
-            rows.append([zona, estado, base_abst, sim_abst, delta, cat])
+    top_items = items_sorted.head(10)
+
+    for _, r in top_items.iterrows():
+        zona = r.get("name") or r.get("id")
+        estado = get_state_name(r.get("cve_ent") or r.get("ent"))
+        
+        simulada_val = r.get("pred_abstention")
+        delta_val = r.get("delta_vs_base_pp")
+
+        if pd.notna(simulada_val) and pd.notna(delta_val):
+            base_val = float(simulada_val) - float(delta_val) / 100.0
+            base_abst = format_value("abstencion", base_val)
+            sim_abst = format_value("abstencion", simulada_val)
+            delta = format_value("delta_vs_base_pp", delta_val)
+        elif pd.notna(simulada_val):
+            base_abst = format_value("abstencion", simulada_val)
+            sim_abst = format_value("abstencion", simulada_val)
+            delta = "0.0 pp"
+        else:
+            base_abst = "N/D"
+            sim_abst = "N/D"
+            delta = "N/D"
+
+        cat = str(r.get("category", "sin_dato")).capitalize()
+        rows.append([zona, estado, base_abst, sim_abst, delta, cat])
+
+    mean_delta = summary.get("mean_delta_pp", 0.0)
+    votos_add = summary.get("votos_adicionales", 0)
+    by_cat = summary.get("by_category", {})
+    by_cat_base = summary.get("by_category_base", {})
 
     facts = [
         f"Escenario simulado: '{scenario}'.",
-        f"Votos adicionales proyectados a nivel de área: {summary.get('votos_adicionales', 0):,} votos.",
-        f"Reducción promedio de abstención: {summary.get('mean_delta_pp', 0.0):+.2f} pp.",
+        f"Cambio promedio en abstención: {mean_delta:+.2f} pp.",
+        f"Votos adicionales proyectados: {votos_add:,} votos.",
     ]
-    by_cat = summary.get("by_category", {})
-    if by_cat:
+    if by_cat and by_cat_base:
         facts.append(
-            f"Distribución proyectada: Verde: {by_cat.get('verde', 0)}, Amarillo: {by_cat.get('amarillo', 0)}, "
-            f"Naranja: {by_cat.get('naranja', 0)}, Rojo: {by_cat.get('rojo', 0)}."
+            f"Distribución de riesgo (base → simulada): "
+            f"Verde {by_cat_base.get('verde', 0)} → {by_cat.get('verde', 0)}, "
+            f"Amarillo {by_cat_base.get('amarillo', 0)} → {by_cat.get('amarillo', 0)}, "
+            f"Naranja {by_cat_base.get('naranja', 0)} → {by_cat.get('naranja', 0)}, "
+            f"Rojo {by_cat_base.get('rojo', 0)} → {by_cat.get('rojo', 0)}."
         )
 
     return DataResult(
         columns=columns,
         rows=rows,
-        source="ATALAYA · Simulación de escenarios 2027",
+        source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -570,7 +663,7 @@ def _execute_explain_unit(spec: QuerySpec, store: Any, region_id: str | None = N
         return DataResult(
             columns=["Factor", "Impacto (pp)", "Efecto"],
             rows=[],
-            source="ATALAYA",
+            source="ATALAYA · Diagnóstico predictivo y factores clave 2027",
             facts=["No se encontró la información de la unidad solicitada."],
             empty=True,
         )
@@ -594,23 +687,24 @@ def _execute_explain_unit(spec: QuerySpec, store: Any, region_id: str | None = N
                 pass
 
     recs = []
-    try:
-        from atalaya.model.recommend import build_reference, recommend
-        ref = build_reference(store.units("mun"))
-        recs = recommend(unit, drivers, ref)
-    except Exception:
-        recs = [
-            {
-                "title": "Campaña de credencialización y activación juvenil",
-                "rationale": "Focalizar incentivos y brigadeo en sectores con alta proporción de jóvenes de 18 a 24 años.",
-                "priority": "alta",
-            },
-            {
-                "title": "Módulos itinerantes y casillas en zonas rurales",
-                "rationale": "Acercar puntos de votación para mitigar barreras de distancia y transporte.",
-                "priority": "media",
-            },
-        ]
+    if drivers:
+        try:
+            from atalaya.model.recommend import build_reference, recommend
+            ref = build_reference(store.units("mun"))
+            recs = recommend(unit, drivers, ref)
+        except Exception:
+            recs = [
+                {
+                    "title": "Campaña de credencialización y activación",
+                    "rationale": "Focalizar incentivos y brigadeo en sectores prioritarios.",
+                    "priority": "alta",
+                },
+                {
+                    "title": "Módulos itinerantes y casillas en zonas rurales",
+                    "rationale": "Acercar puntos de votación para mitigar barreras de distancia y transporte.",
+                    "priority": "media",
+                },
+            ]
 
     columns = ["Factor", "Impacto (pp)", "Efecto"]
     rows = []
@@ -628,8 +722,12 @@ def _execute_explain_unit(spec: QuerySpec, store: Any, region_id: str | None = N
 
     facts = [
         f"Unidad: {zona} ({estado}) | Categoría: {cat} (Índice de riesgo: {rs}).",
-        f"Factores determinantes identificados: {len(rows)}.",
     ]
+    if rows:
+        facts.append(f"Factores determinantes identificados: {len(rows)}.")
+    else:
+        facts.append("No se identificaron factores determinantes para esta unidad.")
+
     for r in recs[:2]:
         facts.append(f"Recomendación ({r.get('priority', 'alta').upper()}): {r.get('title')} — {r.get('rationale')}")
 
@@ -680,7 +778,11 @@ def _execute_help() -> DataResult:
     )
 
 
-def execute(spec: QuerySpec, region_id: str | None = None) -> DataResult:
+def execute(
+    spec: QuerySpec,
+    region_id: str | None = None,
+    followup_hint: str | None = None,
+) -> DataResult:
     """Execute analytical query against DataStore according to spec.
     
     Deterministic, offline-capable, and never calls LLM.
@@ -690,22 +792,28 @@ def execute(spec: QuerySpec, region_id: str | None = None) -> DataResult:
     _init_metadata(seed_dir)
 
     if spec.intent == "ranking":
-        return _execute_ranking(spec, store)
+        res = _execute_ranking(spec, store)
     elif spec.intent == "lookup":
-        return _execute_lookup(spec, store, region_id)
+        res = _execute_lookup(spec, store, region_id)
     elif spec.intent == "compare":
-        return _execute_compare(spec, store)
+        res = _execute_compare(spec, store)
     elif spec.intent == "trend":
-        return _execute_trend(spec, store, region_id)
+        res = _execute_trend(spec, store, region_id)
     elif spec.intent == "correlation":
-        return _execute_correlation(spec, store)
+        res = _execute_correlation(spec, store)
     elif spec.intent == "scenario":
-        return _execute_scenario(spec, store)
+        res = _execute_scenario(spec, store)
     elif spec.intent == "explain_unit":
-        return _execute_explain_unit(spec, store, region_id)
+        res = _execute_explain_unit(spec, store, region_id)
     elif spec.intent == "catalog":
-        return _execute_catalog(spec)
+        res = _execute_catalog(spec)
     elif spec.intent in ("help", "out_of_scope"):
-        return _execute_help()
+        res = _execute_help()
+    else:
+        res = _execute_help()
 
-    return _execute_help()
+    hint = followup_hint or getattr(spec, "followup_hint", None)
+    if hint and hint not in res.facts:
+        res.facts.append(hint)
+
+    return res

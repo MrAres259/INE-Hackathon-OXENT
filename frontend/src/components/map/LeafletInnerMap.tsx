@@ -20,7 +20,12 @@ import {
   type StateProperties,
   type MunProperties,
 } from "@/lib/geo";
-import { formatPct, getCategoryLabel } from "@/lib/format";
+import {
+  formatPct,
+  formatDeltaPp,
+  getDeltaAbstentionHex,
+  getCategoryLabel,
+} from "@/lib/format";
 import type { RiskItem } from "@/lib/types";
 import { Legend } from "./Legend";
 import { Breadcrumb } from "./Breadcrumb";
@@ -136,11 +141,19 @@ export function LeafletInnerMap() {
     const predAbs = item?.pred_abstention !== null ? formatPct(item?.pred_abstention) : "—";
     const catLabel = item ? getCategoryLabel(item.category) : "Sin dato";
 
+    let deltaHtml = "";
+    if (item?.delta_vs_base_pp !== undefined && item?.delta_vs_base_pp !== null) {
+      const deltaColor = getDeltaAbstentionHex(item.delta_vs_base_pp);
+      const deltaText = formatDeltaPp(item.delta_vs_base_pp);
+      deltaHtml = `<div class="text-slate-600">Cambio vs base: <span class="font-semibold" style="color: ${deltaColor}">${deltaText}</span> <span class="text-[10px] text-slate-500">(negativo = menos abstención)</span></div>`;
+    }
+
     // Bind tooltip
     layer.bindTooltip(
       `<div class="font-sans text-xs">
         <div class="font-bold text-slate-900">${name}</div>
         <div class="text-slate-600">Abstención 2027: <span class="font-semibold text-slate-900">${predAbs}</span></div>
+        ${deltaHtml}
         <div class="text-slate-600">Semáforo: <span class="font-semibold">${catLabel}</span></div>
         <div class="text-[10px] text-slate-400 mt-0.5">Clic para explorar municipios</div>
       </div>`,
@@ -190,10 +203,18 @@ export function LeafletInnerMap() {
     const predAbs = item?.pred_abstention !== null ? formatPct(item?.pred_abstention) : "—";
     const catLabel = item ? getCategoryLabel(item.category) : "Sin dato";
 
+    let deltaHtml = "";
+    if (item?.delta_vs_base_pp !== undefined && item?.delta_vs_base_pp !== null) {
+      const deltaColor = getDeltaAbstentionHex(item.delta_vs_base_pp);
+      const deltaText = formatDeltaPp(item.delta_vs_base_pp);
+      deltaHtml = `<div class="text-slate-600">Cambio vs base: <span class="font-semibold" style="color: ${deltaColor}">${deltaText}</span> <span class="text-[10px] text-slate-500">(negativo = menos abstención)</span></div>`;
+    }
+
     layer.bindTooltip(
       `<div class="font-sans text-xs">
         <div class="font-bold text-slate-900">${name}</div>
         <div class="text-slate-600">Abstención 2027: <span class="font-semibold text-slate-900">${predAbs}</span></div>
+        ${deltaHtml}
         <div class="text-slate-600">Semáforo: <span class="font-semibold">${catLabel}</span></div>
       </div>`,
       { sticky: true, className: "atalaya-map-tooltip" }

@@ -6,6 +6,9 @@ import {
   formatPct,
   formatPp,
   formatInt,
+  formatDeltaPp,
+  getDeltaAbstentionColorClass,
+  hasProminentDrivers,
   getCategoryColor,
   getCategoryLabel,
   CATEGORY_COLORS,
@@ -215,6 +218,20 @@ export function RegionDetailPanel() {
             <div className="text-2xl font-black text-white">
               {formatPct(selectedDetail.pred_abstention)}
             </div>
+            {selectedDetail.delta_vs_base_pp !== undefined && selectedDetail.delta_vs_base_pp !== null && (
+              <div className="mt-1">
+                <span
+                  className={`text-xs font-bold font-mono ${getDeltaAbstentionColorClass(
+                    selectedDetail.delta_vs_base_pp
+                  )}`}
+                >
+                  {formatDeltaPp(selectedDetail.delta_vs_base_pp)} vs base
+                </span>
+                <span className="text-[10px] text-slate-400 block">
+                  (negativo = menos abstención)
+                </span>
+              </div>
+            )}
             <div className="text-[10px] text-slate-400 mt-0.5">
               Intervalo: [{formatPct(selectedDetail.pred_low)} – {formatPct(selectedDetail.pred_high)}]
             </div>
@@ -248,9 +265,14 @@ export function RegionDetailPanel() {
       {/* Scenario Comparisons */}
       {selectedDetail.scenarios && selectedDetail.scenarios.length > 0 && (
         <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-            Comparación de Escenarios (Abstención 2027)
-          </h3>
+          <div className="flex items-center justify-between mb-2.5">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Comparación de Escenarios (Abstención 2027)
+            </h3>
+            <span className="text-[10px] text-slate-400 font-normal">
+              (negativo = menos abstención)
+            </span>
+          </div>
           <div className="space-y-2">
             {selectedDetail.scenarios.map((sc) => {
               const label =
@@ -262,12 +284,29 @@ export function RegionDetailPanel() {
               const val = sc.pred_abstention ?? 0.5;
               const color = CATEGORY_COLORS[sc.category];
 
+              const baseAbst = selectedDetail.scenarios.find((s) => s.scenario === "base")?.pred_abstention;
+              const scDelta =
+                sc.scenario !== "base" &&
+                baseAbst !== undefined &&
+                baseAbst !== null &&
+                sc.pred_abstention !== null
+                  ? (sc.pred_abstention - baseAbst) * 100
+                  : null;
+
               return (
                 <div key={sc.scenario}>
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-slate-300 font-medium">{label}</span>
-                    <span className="font-mono font-bold text-white">
-                      {formatPct(sc.pred_abstention)}
+                    <span className="font-mono font-bold text-white flex items-center gap-1.5">
+                      <span>{formatPct(sc.pred_abstention)}</span>
+                      {scDelta !== null && (
+                        <span
+                          className={`text-[10px] ${getDeltaAbstentionColorClass(scDelta)}`}
+                          title="Cambio en abstención vs base (negativo = menos abstención)"
+                        >
+                          ({formatDeltaPp(scDelta)})
+                        </span>
+                      )}
                     </span>
                   </div>
                   <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
@@ -320,6 +359,10 @@ export function RegionDetailPanel() {
         {!selectedDetail.drivers || selectedDetail.drivers.length === 0 ? (
           <div className="text-xs text-slate-400 py-3 text-center">
             Sin información suficiente
+          </div>
+        ) : !hasProminentDrivers(selectedDetail.drivers) ? (
+          <div className="text-xs text-slate-400 py-3 text-center">
+            Sin factores sociodemográficos destacados
           </div>
         ) : (
           <div className="space-y-2">

@@ -92,4 +92,35 @@ describe("Deterministic Mock Logic", () => {
       expect(ranking[i].risk_score!).toBeGreaterThanOrEqual(ranking[i + 1].risk_score!);
     }
   });
+
+  it("includes structural_r2 and forecast_coefficients in MOCK_METRICS", async () => {
+    const { MOCK_METRICS } = await import("../lib/mocks/metrics");
+    expect(MOCK_METRICS.structural_r2).toBeDefined();
+    expect(typeof MOCK_METRICS.structural_r2).toBe("number");
+    expect(MOCK_METRICS.structural_r2).toBeGreaterThan(0);
+
+    expect(MOCK_METRICS.coefficients.length).toBeGreaterThan(0);
+    // Structural coefficients describe sociodemographic features
+    expect(MOCK_METRICS.coefficients.some((c) => c.key === "graproes")).toBe(true);
+
+    expect(MOCK_METRICS.forecast_coefficients).toBeDefined();
+    expect(MOCK_METRICS.forecast_coefficients!.length).toBeGreaterThan(0);
+    // Forecast coefficients contain lags and pres
+    expect(MOCK_METRICS.forecast_coefficients!.some((c) => c.key === "lag1")).toBe(true);
+    expect(MOCK_METRICS.forecast_coefficients!.some((c) => c.key === "pres")).toBe(true);
+  });
+
+  it("simulates pesimista scenario with negative votos_adicionales and positive delta", () => {
+    const result = simulateMockScenario({
+      scenario: "pesimista",
+      level: "state",
+    });
+
+    expect(result.scenario).toBe("pesimista");
+    expect(result.summary.n_units).toBe(32);
+    // In pessimistic scenario, additional votes are negative (votos perdidos)
+    expect(result.summary.votos_adicionales).toBeLessThan(0);
+    // Mean delta is positive (more abstention)
+    expect(result.summary.mean_delta_pp).toBeGreaterThan(0);
+  });
 });

@@ -11,6 +11,7 @@ from atalaya.model.panel import (
     lista_nominal_matrix,
     unit_trend,
     training_rows,
+    intermediate_turnout,
 )
 
 
@@ -142,3 +143,24 @@ def test_load_inputs_missing(tmp_path):
     assert feats.empty
     assert "cvegeo" in part.columns
     assert "nom_mun" in feats.columns
+
+
+def test_intermediate_turnout():
+    """Verify intermediate_turnout averages non-presidential DIP_FED years and converts to pp."""
+    # 2009 (inter), 2012 (pres), 2015 (inter), 2018 (pres), 2021 (inter)
+    Y = pd.DataFrame(
+        {
+            2009: [0.40, np.nan],
+            2012: [0.60, 0.65],  # pres - excluded
+            2015: [0.46, 0.50],
+            2018: [0.62, 0.68],  # pres - excluded
+            2021: [0.49, 0.52],
+        },
+        index=["01001", "01002"],
+    )
+    target = intermediate_turnout(Y)
+    # 01001: (40 + 46 + 49) / 3 = 45.0 pp
+    # 01002: (50 + 52) / 2 = 51.0 pp
+    assert target.loc["01001"] == pytest.approx(45.0)
+    assert target.loc["01002"] == pytest.approx(51.0)
+

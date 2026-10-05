@@ -2,7 +2,17 @@
 
 import React, { useState, useEffect } from "react";
 import { useAtalaya } from "@/lib/state";
-import { formatInt, formatPp, CATEGORY_COLORS, CATEGORY_LABELS } from "@/lib/format";
+import {
+  formatInt,
+  formatPp,
+  formatSignedVotes,
+  getVotesLabel,
+  getVotesColorClass,
+  formatDeltaPp,
+  getDeltaAbstentionColorClass,
+  CATEGORY_COLORS,
+  CATEGORY_LABELS,
+} from "@/lib/format";
 import { ApiError } from "@/lib/api";
 
 export function ScenarioControls() {
@@ -217,18 +227,29 @@ export function ScenarioControls() {
             <div className="grid grid-cols-2 gap-2.5">
               <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                  Votos Adicionales Estimados
+                  {getVotesLabel(simulationResult.summary.votos_adicionales)}
                 </span>
-                <span className="text-base font-bold text-emerald-400 mt-0.5 block">
-                  +{formatInt(simulationResult.summary.votos_adicionales)}
+                <span
+                  className={`text-base font-bold font-mono ${getVotesColorClass(
+                    simulationResult.summary.votos_adicionales
+                  )} mt-0.5 block`}
+                >
+                  {formatSignedVotes(simulationResult.summary.votos_adicionales)}
                 </span>
               </div>
               <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
                 <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                  Efecto Promedio en Abstención
+                  Cambio promedio en abstención
                 </span>
-                <span className="text-base font-bold text-emerald-400 mt-0.5 block">
-                  {formatPp(simulationResult.summary.mean_delta_pp)}
+                <span
+                  className={`text-base font-bold font-mono ${getDeltaAbstentionColorClass(
+                    simulationResult.summary.mean_delta_pp
+                  )} mt-0.5 block`}
+                >
+                  {formatDeltaPp(simulationResult.summary.mean_delta_pp)}
+                </span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">
+                  (negativo = menos abstención)
                 </span>
               </div>
             </div>

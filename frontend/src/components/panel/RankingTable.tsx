@@ -7,6 +7,8 @@ import type { RiskItem, Level } from "@/lib/types";
 import {
   formatPct,
   formatPp,
+  formatDeltaPp,
+  getDeltaAbstentionColorClass,
   getCategoryColor,
   getCategoryLabel,
   generateRankingCsv,
@@ -93,6 +95,11 @@ export function RankingTable() {
         <p className="text-xs text-slate-400 mt-0.5">
           Top 20 zonas con mayor índice de vulnerabilidad electoral. Clic en una fila para ubicarla en el mapa.
         </p>
+        {scenario !== "base" && (
+          <p className="text-[11px] text-slate-400 mt-1">
+            Cambio vs base: <span className="text-emerald-400 font-semibold">(negativo = menos abstención)</span>
+          </p>
+        )}
       </div>
 
       {/* Filter Toolbar */}
@@ -145,7 +152,14 @@ export function RankingTable() {
             <tr>
               <th className="py-2.5 pl-3 pr-2">#</th>
               <th className="py-2.5 px-2">Zona</th>
-              <th className="py-2.5 px-2 text-right">Abst. 2027</th>
+              <th className="py-2.5 px-2 text-right">
+                <div>Abst. 2027</div>
+                {scenario !== "base" && (
+                  <div className="text-[9px] lowercase font-normal text-slate-400" title="negativo = menos abstención">
+                    (Δ vs base)
+                  </div>
+                )}
+              </th>
               <th className="py-2.5 px-2 text-right">Riesgo</th>
               <th className="py-2.5 pr-3 pl-2 text-right">Semáforo</th>
             </tr>
@@ -186,7 +200,17 @@ export function RankingTable() {
                       </div>
                     </td>
                     <td className="py-2 px-2 text-right font-mono font-bold text-white">
-                      {formatPct(item.pred_abstention)}
+                      <div>{formatPct(item.pred_abstention)}</div>
+                      {item.delta_vs_base_pp !== undefined && item.delta_vs_base_pp !== null && (
+                        <div
+                          className={`text-[10px] font-normal ${getDeltaAbstentionColorClass(
+                            item.delta_vs_base_pp
+                          )}`}
+                          title="Cambio en abstención vs base (negativo = menos abstención)"
+                        >
+                          {formatDeltaPp(item.delta_vs_base_pp)}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2 px-2 text-right font-mono font-bold text-white">
                       {item.risk_score ?? "—"}

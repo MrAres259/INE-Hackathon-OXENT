@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "Eres ATALAYA, asistente analítico para personal del Instituto Nacional Electoral (INE).\n"
-    "Responde a la consulta en español claro, profesional y breve (máximo 150 palabras).\n"
+    "Responde a la consulta en español claro, profesional y breve (máximo 120 palabras).\n"
+    "No repitas la tabla completa de datos (la interfaz ya la muestra): resume los 3 hallazgos principales.\n"
     "REGLAS ESTRICTAS E INQUEBRANTABLES:\n"
     "1. Usa ÚNICAMENTE las cifras presentes en los hechos (facts) y la tabla de datos proporcionada. "
     "Bajo ninguna circunstancia inventes o infieras números no presentes.\n"
@@ -53,7 +54,7 @@ def fallback_text(spec: QuerySpec, data: DataResult) -> str:
     return f"{title}\n{facts_block}{source_block}"
 
 
-def _format_table_text(data: DataResult, max_rows: int = 20) -> str:
+def _format_table_text(data: DataResult, max_rows: int = 10) -> str:
     """Format tabular data into markdown table text for LLM context."""
     if data.empty or not data.columns or not data.rows:
         return ""
@@ -83,7 +84,7 @@ def stream_answer(
         return
 
     # Build prompt context for LLM
-    table_text = _format_table_text(data, max_rows=20)
+    table_text = _format_table_text(data, max_rows=10)
     facts_text = "\n".join(f"- {f}" for f in data.facts)
 
     user_content = (
@@ -104,7 +105,7 @@ def stream_answer(
     try:
         token_stream = llm.chat_stream(
             messages,
-            max_tokens=700,
+            max_tokens=450,
             timeout_s=60.0,
             temperature=0.2,
         )

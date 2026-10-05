@@ -133,3 +133,42 @@ def test_stream_answer_llm_blocked_midway(monkeypatch):
     full_text = "".join(tokens)
     assert "Primer fragmento emitido. " in full_text
     assert "(Respuesta completada con datos, sin IA)" in full_text
+
+
+def test_writer_prompt_and_max_tokens(monkeypatch):
+    """Verify writer enforces max_tokens=450 and system prompt requests <= 120 words."""
+    from atalaya.chat.writer import SYSTEM_PROMPT, _format_table_text
+
+    assert "120 palabras" in SYSTEM_PROMPT
+    assert "3 hallazgos principales" in SYSTEM_PROMPT
+
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    captured_kwargs = {}
+
+    def _mock_stream(messages, **kwargs):
+        captured_kwargs.update(kwargs)
+        captured_kwargs["messages"] = messages
+        yield "Respuesta concisa."
+
+    monkeypatch.setattr(llm, "chat_stream", _mock_stream)
+
+    spec = QuerySpec(intent="lookup", metric="participacion")
+    data = DataResult(
+        columns=["Zona", "Participación"],
+        rows=[[f"Municipio {i}", f"{50+i}%"] for i in range(25)],
+        source="INE · Diputaciones federales 2024",
+        facts=["Participación promedio: 55.0%"],
+        empty=False,
+    )
+
+    tokens = list(stream_answer("Consulta", spec, data))
+    assert "".join(tokens) == "Respuesta concisa."
+
+    # max_tokens must be 450
+    assert captured_kwargs.get("max_tokens") == 450
+
+    # table text formatted for LLM must have at most 10 rows
+    table_text = _format_table_text(data, max_rows=10)
+    table_lines = [l for l in table_text.splitlines() if "|" in l]
+    assert len(table_lines) == 12

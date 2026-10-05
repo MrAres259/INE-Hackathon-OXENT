@@ -20,15 +20,19 @@ from atalaya.model.panel import (
     unit_trend,
     training_rows,
     is_presidential,
+    intermediate_turnout,
 )
 from atalaya.model.forecast import (
     fit_ridge,
+    fit_structural,
     predict,
     contributions,
+    contributions_structural,
     backtest,
     select_lambda,
     FEATURES,
     PREDICTORS,
+    StructuralModel,
 )
 
 try:
@@ -180,6 +184,8 @@ def build_fallback_artifacts(
         "train_years": [],
         "backtests": [],
         "coefficients": [],
+        "forecast_coefficients": [],
+        "structural_r2": 0.0,
         "lambda": 10.0,
         "sigma_pp": 0.0,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -200,6 +206,16 @@ def build_fallback_artifacts(
         "sigma_pp": 0.0,
         "train_years": [],
         "target_year": target_year,
+        "structural": {
+            "features": list(FEATURES),
+            "means": {},
+            "stds": {},
+            "medians": {},
+            "coef": {},
+            "intercept": 0.0,
+            "lambda": 10.0,
+            "cv_r2": 0.0,
+        },
     }
 
     write_parquet(units_df, build_dir / "units.parquet")
@@ -269,6 +285,14 @@ def build_model(
     final_model = fit_ridge(train_df[pred_cols], train_df["y"], lam)
     final_model.train_years = sorted(list(train_targets))
     final_model.target_year = t_year
+
+    # Fit structural model explaining intermediate DIP_FED turnout
+    target_structural = intermediate_turnout(Y)
+    structural_model = fit_structural(
+        feats_idx,
+        target_structural,
+        folds_by=feats_idx.get("cve_ent"),
+    )
 
     # Sigma pp estimation
     if backtests:
@@ -442,8 +466,8 @@ def build_model(
         units_df["risk_score"] = np.nan
         units_df["category"] = "sin_dato"
 
-    # 7. Feature contributions & drivers
-    mun_contribs = contributions(final_model, X_target)
+    # 7. Feature contributions & drivers (structural model)
+    mun_contribs = contributions_structural(structural_model, feats_idx)
     # Effect on abstention is negative of effect on participation
     mun_abst_effects = -mun_contribs
 
@@ -493,9 +517,18 @@ def build_model(
     write_parquet(drivers_df, b_dir / "drivers.parquet")
 
     # Serialize metrics.json
-    coef_list = []
+    structural_coef_list = []
+    for k in FEATURES:
+        if k in structural_model.features:
+            structural_coef_list.append({
+                "key": k,
+                "label": label_map.get(k, k),
+                "coef_pp_per_sd": round(structural_model.coef.get(k, 0.0), 3),
+            })
+
+    forecast_coef_list = []
     for k in PREDICTORS:
-        coef_list.append({
+        forecast_coef_list.append({
             "key": k,
             "label": label_map.get(k, k),
             "coef_pp_per_sd": round(final_model.coef.get(k, 0.0), 3),
@@ -505,7 +538,9 @@ def build_model(
         "target_year": t_year,
         "train_years": final_model.train_years,
         "backtests": backtests,
-        "coefficients": coef_list,
+        "coefficients": structural_coef_list,
+        "forecast_coefficients": forecast_coef_list,
+        "structural_r2": round(structural_model.cv_r2, 4),
         "lambda": float(lam),
         "sigma_pp": round(sigma_pp, 2),
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -514,14 +549,27 @@ def build_model(
             {"name": "features", "file": "features.parquet", "rows": len(feats)},
         ],
     }
+    if len(backtests) == 1:
+        metrics_data["lambda_selection_note"] = "lambda elegida y evaluada en el mismo fold"
+
     (b_dir / "metrics.json").write_text(json.dumps(metrics_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Serialize model.json
-    (b_dir / "model.json").write_text(json.dumps(final_model.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+    model_dict = final_model.to_dict()
+    model_dict["structural"] = structural_model.to_dict()
+    (b_dir / "model.json").write_text(json.dumps(model_dict, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # 9. Print build summary
     print(f"ATALAYA Model built successfully for target year {t_year}")
     print(f"Optimal lambda: {lam}")
+    print(f"R² estructural (CV): {structural_model.cv_r2:.4f}")
+    top3_coefs = sorted(
+        structural_model.coef.items(),
+        key=lambda item: abs(item[1]),
+        reverse=True,
+    )[:3]
+    top3_str = ", ".join(f"{k}={v:+.3f}" for k, v in top3_coefs)
+    print(f"Top 3 coeficientes estructurales: {top3_str}")
     for b in backtests:
         print(f"Fold {b['test_year']}: MAE={b['mae_pp']} pp vs baseline={b['baseline_mae_pp']} pp (Spearman={b['spearman']})")
 

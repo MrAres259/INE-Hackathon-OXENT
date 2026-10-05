@@ -1,5 +1,5 @@
 // Formatting utilities for percentages, points, numbers, categories, and CSV generation
-import type { Category, RiskItem } from "./types";
+import type { Category, RiskItem, Driver } from "./types";
 
 export const CATEGORY_COLORS: Record<Category, string> = {
   verde: "#2e7d32",
@@ -39,6 +39,58 @@ export function formatPp(val: number | null | undefined, decimals = 1): string {
 export function formatInt(val: number | null | undefined): string {
   if (val === null || val === undefined || isNaN(val)) return "—";
   return Math.round(val).toLocaleString("es-MX");
+}
+
+export function getVotesLabel(val: number | null | undefined): string {
+  if (val !== null && val !== undefined && val < 0) {
+    return "Votos perdidos estimados";
+  }
+  return "Votos adicionales estimados";
+}
+
+export function formatSignedVotes(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return "—";
+  const rounded = Math.round(val);
+  if (rounded < 0) {
+    return `−${Math.abs(rounded).toLocaleString("es-MX")}`;
+  }
+  return `+${rounded.toLocaleString("es-MX")}`;
+}
+
+export function getVotesColorClass(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return "text-slate-400";
+  return val < 0 ? "text-rose-400" : "text-emerald-400";
+}
+
+export const MEAN_DELTA_LABEL = "Cambio promedio en abstención";
+export const DELTA_ABSTENTION_NOTE = "(negativo = menos abstención)";
+
+export function formatDeltaPp(val: number | null | undefined, decimals = 1): string {
+  if (val === null || val === undefined || isNaN(val)) return "—";
+  const sign = val > 0 ? "+" : "";
+  return `${sign}${val.toFixed(decimals)} pp`;
+}
+
+export function getDeltaAbstentionColorClass(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return "text-slate-400";
+  if (val < 0) return "text-emerald-400";
+  if (val > 0) return "text-rose-400";
+  return "text-slate-200";
+}
+
+export function getDeltaAbstentionHex(val: number | null | undefined): string {
+  if (val === null || val === undefined || isNaN(val)) return "#94a3b8";
+  if (val < 0) return "#10b981";
+  if (val > 0) return "#f43f5e";
+  return "#e2e8f0";
+}
+
+export function hasProminentDrivers(
+  drivers: Driver[] | null | undefined,
+  threshold = 0.3
+): boolean {
+  if (!drivers || drivers.length === 0) return false;
+  return drivers.some((d) => Math.abs(d.contribution_pp) >= threshold);
 }
 
 export function escapeCsvField(field: string | number | null | undefined): string {

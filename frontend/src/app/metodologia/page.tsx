@@ -132,15 +132,28 @@ export default function MetodologiaPage() {
         </div>
       </section>
 
-      {/* 4. Coeficientes */}
+      {/* 4. Perfil Estructural */}
       {metrics?.coefficients && metrics.coefficients.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <span className="text-emerald-500">4.</span> Coeficientes del Modelo Estandarizado
-          </h2>
-          <p className="text-xs text-slate-300">
-            Impacto en puntos porcentuales por cada desviación estándar de cambio en la variable explicativa:
-          </p>
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <span className="text-emerald-500">4.</span> Qué características se asocian con mayor o menor participación (perfil estructural)
+            </h2>
+            <p className="text-xs text-slate-300 mt-1">
+              Unidades: <span className="font-semibold text-emerald-400">pp de participación por 1 desviación estándar</span>.
+              Evalúa la asociación de determinantes sociodemográficos sobre la participación promedio en elecciones intermedias (DIP_FED).
+            </p>
+          </div>
+
+          {metrics.structural_r2 !== undefined && metrics.structural_r2 !== null && (
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/80 text-xs">
+              <span className="text-slate-300">R² en validación cruzada por estado:</span>
+              <span className="font-mono font-bold text-emerald-400 text-sm">
+                {typeof metrics.structural_r2 === "number" ? metrics.structural_r2.toFixed(2) : metrics.structural_r2}
+              </span>
+            </div>
+          )}
+
           <div className="space-y-2 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
             {metrics.coefficients.map((c) => {
               const isPositive = c.coef_pp_per_sd > 0;
@@ -167,6 +180,68 @@ export default function MetodologiaPage() {
               );
             })}
           </div>
+
+          {/* Tabla secundaria colapsable: Coeficientes del pronóstico */}
+          {metrics.forecast_coefficients && metrics.forecast_coefficients.length > 0 && (
+            <details className="group bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden mt-3">
+              <summary className="px-4 py-3 cursor-pointer text-xs font-bold text-slate-300 hover:text-white flex items-center justify-between select-none">
+                <span className="flex items-center gap-2">
+                  <svg
+                    className="w-4 h-4 transition-transform group-open:rotate-90 text-emerald-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span>Coeficientes del pronóstico</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  (clic para expandir)
+                </span>
+              </summary>
+              <div className="p-4 border-t border-slate-800/80 space-y-3 text-xs bg-slate-950/40">
+                <p className="text-slate-400 leading-relaxed">
+                  En el modelo predictivo de pronóstico, <strong className="text-white">lag1</strong> y{" "}
+                  <strong className="text-white">lag2</strong> son la participación de las dos elecciones
+                  anteriores (absorben la inercia territorial), y <strong className="text-white">pres</strong> representa
+                  el efecto de año presidencial sobre la concurrencia a las urnas.
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-900 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th className="py-2 px-3">Variable Predictora</th>
+                        <th className="py-2 px-3 font-mono">Clave</th>
+                        <th className="py-2 px-3 text-right">Efecto (pp por 1 SD)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {metrics.forecast_coefficients.map((fc) => (
+                        <tr key={fc.key} className="hover:bg-slate-800/30">
+                          <td className="py-2 px-3 font-medium text-slate-200">{fc.label}</td>
+                          <td className="py-2 px-3 font-mono text-[11px] text-slate-400">{fc.key}</td>
+                          <td
+                            className={`py-2 px-3 text-right font-mono font-bold ${
+                              fc.coef_pp_per_sd > 0
+                                ? "text-emerald-400"
+                                : fc.coef_pp_per_sd < 0
+                                ? "text-rose-400"
+                                : "text-slate-300"
+                            }`}
+                          >
+                            {fc.coef_pp_per_sd > 0
+                              ? `+${fc.coef_pp_per_sd.toFixed(2)} pp`
+                              : `${fc.coef_pp_per_sd.toFixed(2)} pp`}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+          )}
         </section>
       )}
 

@@ -20,6 +20,57 @@ _STATE_MAP: dict[str, str] = {}
 _STATE_NAMES: dict[str, str] = {}
 
 
+class PlanResult(tuple):
+    """Result of query planning: (spec, method) tuple with optional followup_hint attribute."""
+
+    def __new__(cls, spec: QuerySpec, method: str, followup_hint: str | None = None):
+        instance = super().__new__(cls, (spec, method))
+        instance.spec = spec
+        instance.method = method
+        instance.followup_hint = followup_hint
+        return instance
+
+
+def _extract_metric_candidate(text: str, target_future: bool = False) -> str | None:
+    """Extract candidate catalog metric key from text snippet."""
+    t = text.lower()
+    if re.search(r"riesgo|sem[aá]foro", t):
+        return "risk_score"
+    if re.search(r"abstenci[oó]n", t):
+        return "pred_abstention" if target_future else "abstencion"
+    if re.search(r"j[oó]venes|juventud|18\s+a\s+24|voto\s+joven", t):
+        return "pct_18_24"
+    if re.search(r"adultos\s+mayores|65\s+y\s+m[aá]s", t):
+        return "pct_65ymas"
+    if re.search(r"escolaridad|educaci[oó]n|estudios|graproes", t):
+        return "graproes"
+    if re.search(r"ind[ií]gena|lengua\s+ind[ií]gena|hli", t):
+        return "pct_hli"
+    if re.search(r"salud|servicios\s+de\s+salud|sin\s+seguro", t):
+        return "pct_sin_servsalud"
+    if re.search(r"internet|conectividad", t):
+        return "pct_internet"
+    if re.search(r"marginaci[oó]n", t):
+        return "im_2020"
+    if re.search(r"rural|campo", t):
+        return "pct_rural"
+    if re.search(r"analfabeta|analfabetismo", t):
+        return "pct_analfabeta"
+    if re.search(r"ingresos\s+bajos|salarios\s+m[ií]nimos", t):
+        return "pct_po2sm"
+    if re.search(r"participaci[oó]n", t):
+        return "pred_participation" if target_future else "participacion"
+    if re.search(r"lista\s+nominal|padr[oó]n", t):
+        return "lista_nominal"
+    if re.search(r"votos\s+totales", t):
+        return "votos_totales"
+    if re.search(r"poblaci[oó]n\s+total|habitantes", t):
+        return "pob_tot"
+    if re.search(r"poblaci[oó]n\s+de\s+18|poblaci[oó]n\s+18|edad\s+de\s+votar", t):
+        return "pob_18ymas"
+    return None
+
+
 def _init_states() -> None:
     """Load states.csv once to initialize entity name and alias mappings."""
     global _STATE_MAP, _STATE_NAMES
@@ -111,10 +162,10 @@ def _plan_rules(
     message: str,
     history: list[dict] | None = None,
     region_id: str | None = None,
-) -> tuple[QuerySpec, bool]:
+) -> tuple[QuerySpec, bool, str | None]:
     """Execute rule-based planning.
     
-    Returns (spec, high_confidence).
+    Returns (spec, high_confidence, followup_hint).
     """
     _init_states()
     text_lower = message.lower()
@@ -130,6 +181,38 @@ def _plan_rules(
                 target_future = True
             elif y in (2009, 2012, 2015, 2018, 2021, 2024):
                 explicit_year = y
+
+    followup_hint: str | None = None
+
+    # Check for multipart questions joined by " y " with two distinct metrics
+    # e.g. "¿Cuántos jóvenes hay en Nuevo León y cómo ha evolucionado su participación?"
+    split_pattern = r"(?<!18)(?<!65)\s+[ye]\s+(?:¿)?(?!(?:m[aá]s|naranjas?)\b)"
+    parts = re.split(split_pattern, message, maxsplit=1, flags=re.IGNORECASE)
+    if len(parts) == 2:
+        m1 = _extract_metric_candidate(parts[0], target_future)
+        m2 = _extract_metric_candidate(parts[1], target_future)
+        if m1 and m2 and m1 != m2:
+            followup_hint = "Puedo responder la otra parte si la preguntas por separado."
+            st_list = _find_states_in_text(message)
+            mentions_mun_first = bool(re.search(r"\bmunicipio(?:s)?\b|\balcald[ií]a(?:s)?\b", message.lower()))
+            
+            lvl = "mun" if mentions_mun_first else "state"
+            u_ids = [st_list[0]] if st_list else ([region_id] if region_id else [])
+            flts = {"cve_ent": st_list[0]} if st_list else {}
+
+            spec = QuerySpec(
+                intent="lookup",
+                level=lvl,  # type: ignore
+                metric=m1,
+                filters=flts,
+                year=explicit_year,
+                election="DIP_FED",
+                order="desc",
+                limit=10,
+                unit_ids=u_ids,
+            )
+            object.__setattr__(spec, "followup_hint", followup_hint)
+            return spec, True, followup_hint
 
     # 2. Check Places (states)
     states = _find_states_in_text(message)
@@ -254,7 +337,7 @@ def _plan_rules(
             for turn in reversed(history):
                 if turn.get("role") == "user":
                     prev_text = turn.get("content", "")
-                    prev_spec, _ = _plan_rules(prev_text, history=None, region_id=region_id)
+                    prev_spec, _, _ = _plan_rules(prev_text, history=None, region_id=region_id)
                     intent = prev_spec.intent
                     metric = prev_spec.metric
                     explicit_year = prev_spec.year
@@ -400,23 +483,24 @@ def _plan_rules(
         scenario_params=scenario_params,
     )
 
-    return spec, high_confidence
+    object.__setattr__(spec, "followup_hint", followup_hint)
+    return spec, high_confidence, followup_hint
 
 
 def plan(
     message: str,
     history: list[dict] | None = None,
     region_id: str | None = None,
-) -> tuple[QuerySpec, str]:
+) -> PlanResult:
     """Plan query specification from user message.
     
     Tries rules first. Uses LLM if rules confidence is low and LLM is enabled.
-    Returns (spec, method) where method is 'rules' or 'llm'.
+    Returns PlanResult (spec, method) with optional followup_hint attribute.
     """
-    spec_rules, high_conf = _plan_rules(message, history=history, region_id=region_id)
+    spec_rules, high_conf, followup_hint = _plan_rules(message, history=history, region_id=region_id)
 
     if high_conf or not llm.is_enabled():
-        return spec_rules, "rules"
+        return PlanResult(spec_rules, "rules", followup_hint=followup_hint)
 
     # Call LLM for planning
     try:
@@ -441,7 +525,8 @@ def plan(
             timeout_s=30.0,
             temperature=0.0,
         )
-        return llm_spec, "llm"
+        object.__setattr__(llm_spec, "followup_hint", followup_hint)
+        return PlanResult(llm_spec, "llm", followup_hint=followup_hint)
     except (llm.LLMBlocked, llm.LLMError, Exception) as err:
         logger.warning("LLM planning failed (%s: %s). Falling back to rules.", err.__class__.__name__, err)
-        return spec_rules, "rules"
+        return PlanResult(spec_rules, "rules", followup_hint=followup_hint)

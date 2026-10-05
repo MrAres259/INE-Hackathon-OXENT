@@ -41,6 +41,7 @@ def mock_store(tmp_path: Path, monkeypatch) -> PandasStore:
         "pred_abstention,Abstención pronosticada 2027,Estimación 2027,ATALAYA,proporción,mun|state\n"
         "graproes,Escolaridad promedio,Grado escolaridad,INEGI,años,mun|state\n"
         "im_2020,Índice de marginación,Marginación 2020,CONAPO,índice,mun\n"
+        "pct_18_24,Jóvenes de 18 a 24 años,Proporción de 18 a 24 años,INEGI,proporción,mun|state\n"
         "lista_nominal,Lista nominal,Inscritos en lista,INE,personas,mun|state\n",
         encoding="utf-8",
     )
@@ -70,6 +71,7 @@ def mock_store(tmp_path: Path, monkeypatch) -> PandasStore:
             "volatility_pp": 2.5,
             "graproes": 6.0 + (idx * 0.5),
             "im_2020": 1.5 - (idx * 0.2),
+            "pct_18_24": 0.15 + (idx * 0.01),
             "part_dip_2021": 0.45 + (idx * 0.01),
             "abst_dip_2021": 0.55 - (idx * 0.01),
         })
@@ -318,7 +320,111 @@ def test_executor_scenario(mock_store):
     assert not result.empty
     assert "Abstención Base" in result.columns
     assert "Abstención Simulada" in result.columns
+
+    # Base != Simulada on target units (units that received intervention have negative delta)
+    target_rows = [r for r in result.rows if "-" in str(r[4])]
+    assert len(target_rows) > 0
+    for r in target_rows:
+        # Base (r[2]) should not equal Simulada (r[3])
+        assert r[2] != r[3]
+
+    # Ordered by delta_vs_base_pp ascending (mayor mejora primero)
+    deltas = [float(r[4].replace(" pp", "").replace("+", "")) for r in result.rows]
+    assert deltas == sorted(deltas)
+
+    # Facts include summary: by_category vs by_category_base, votos_adicionales, mean_delta_pp
+    assert any("Cambio promedio en abstención" in f for f in result.facts)
     assert any("Votos adicionales" in f for f in result.facts)
+    assert any("Distribución de riesgo" in f for f in result.facts)
+
+
+def test_executor_scenario_simulate_failure_returns_empty_without_figures(mock_store, monkeypatch):
+    """Verify that when simulate raises an exception, executor returns empty DataResult without fabricated figures."""
+    import atalaya.model.scenarios as sc_mod
+
+    def _faulty_simulate(*a, **kw):
+        raise RuntimeError("Model engine failure")
+
+    monkeypatch.setattr(sc_mod, "simulate", _faulty_simulate)
+
+    spec = QuerySpec(intent="scenario", scenario="intervencion")
+    result = execute(spec)
+    assert result.empty
+    assert len(result.rows) == 0
+    assert any("No fue posible simular el escenario" in f for f in result.facts)
+    # Check no fabricated figures in facts
+    for f in result.facts:
+        digits = [c for c in f if c.isdigit()]
+        assert not digits, f"Found unexpected digits {digits} in fact '{f}'"
+
+
+def test_executor_source_deduplicated_with_year(mock_store):
+    """Verify source is deduplicated and includes effective year in lookup, compare, correlation."""
+    # 1. Lookup with explicit year: should be 'INE · Diputaciones federales 2021', not duplicated
+    spec_lookup = QuerySpec(
+        intent="lookup",
+        level="state",
+        unit_ids=["14"],
+        metric="participacion",
+        year=2021,
+    )
+    res_lookup = execute(spec_lookup)
+    assert res_lookup.source == "INE · Diputaciones federales 2021"
+
+    # 2. Compare without explicit year: should include year (2024 from stats)
+    spec_compare = QuerySpec(
+        intent="compare",
+        level="state",
+        unit_ids=["09", "15"],
+        metric="abstencion",
+    )
+    res_compare = execute(spec_compare)
+    assert res_compare.source == "INE · Diputaciones federales 2024"
+
+    # 3. Correlation with INE and INEGI variables: should include year for both
+    spec_corr = QuerySpec(
+        intent="correlation",
+        level="mun",
+        filters={"cve_ent": "07"},
+        metric="participacion",
+        x_metric="graproes",
+    )
+    res_corr = execute(spec_corr)
+    assert res_corr.source == "INE · Diputaciones federales 2024; INEGI · Censo 2020"
+
+
+def test_no_digits_produced_when_store_empty(tmp_path: Path, monkeypatch):
+    """Verify no intent produces digits in rows or facts when store is completely empty."""
+    empty_build = tmp_path / "empty_build"
+    empty_seed = tmp_path / "empty_seed"
+    empty_build.mkdir(parents=True, exist_ok=True)
+    empty_seed.mkdir(parents=True, exist_ok=True)
+
+    # Empty store
+    empty_store = PandasStore(build_dir=empty_build, seed_dir=empty_seed)
+    monkeypatch.setattr("atalaya.chat.executor.get_store", lambda: empty_store)
+
+    specs = [
+        QuerySpec(intent="ranking", metric="risk_score"),
+        QuerySpec(intent="lookup", metric="participacion", unit_ids=["14"]),
+        QuerySpec(intent="compare", metric="abstencion", unit_ids=["09", "15"]),
+        QuerySpec(intent="trend", metric="participacion", unit_ids=["07"]),
+        QuerySpec(intent="correlation", metric="participacion", x_metric="im_2020"),
+        QuerySpec(intent="scenario", scenario="intervencion"),
+        QuerySpec(intent="explain_unit", unit_ids=["07101"]),
+    ]
+
+    for spec in specs:
+        res = execute(spec)
+        assert res.empty
+        assert len(res.rows) == 0
+        for f in res.facts:
+            f_clean = f
+            if spec.year:
+                f_clean = f_clean.replace(str(spec.year), "")
+            f_clean = f_clean.replace(str(spec.limit), "")
+            digits = [c for c in f_clean if c.isdigit()]
+            assert not digits, f"Found digits {digits} in fact '{f}' for intent '{spec.intent}'"
 
 
 def test_executor_explain_unit(mock_store):
