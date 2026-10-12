@@ -9,6 +9,7 @@ import type {
   ScenarioResult,
   Meta,
   HealthResponse,
+  MapMode,
 } from "./types";
 import {
   getHealth,
@@ -19,6 +20,7 @@ import {
   subscribeMockStatus,
   isMockEnabled,
 } from "./api";
+import { defaultParamsFromMeta, paramsForScenario } from "./scenarioParams";
 
 interface AtalayaContextValue {
   scenario: ScenarioId;
@@ -40,6 +42,12 @@ interface AtalayaContextValue {
   health: HealthResponse | null;
   apiAvailable: boolean;
   hasData: boolean;
+  mapMode: MapMode;
+  setMapMode: (m: MapMode) => void;
+  extrude3d: boolean;
+  setExtrude3d: (e: boolean) => void;
+  comparePos: number;
+  setComparePos: (pos: number) => void;
   selectState: (ent: string) => void;
   selectMunicipality: (cvegeo: string) => void;
   selectRegion: (id: string | null) => void;
@@ -51,12 +59,7 @@ const AtalayaContext = createContext<AtalayaContextValue | null>(null);
 
 export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   const [scenario, setScenarioState] = useState<ScenarioId>("base");
-  const [scenarioParams, setScenarioParams] = useState<Record<string, number | string>>({
-    palanca: "promocion_jovenes",
-    focalizacion: "rojo_naranja",
-    effect_pp: 3.5,
-    coverage: 0.8,
-  });
+  const [scenarioParams, setScenarioParams] = useState<Record<string, number | string>>({});
   const [level, setLevel] = useState<Level>("state");
   const [selectedEnt, setSelectedEnt] = useState<string | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
@@ -71,6 +74,58 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [apiAvailable, setApiAvailable] = useState<boolean>(true);
   const [hasData, setHasData] = useState<boolean>(true);
+  const [mapMode, setMapMode] = useState<MapMode>("semaforo");
+  const [extrude3d, setExtrude3d] = useState<boolean>(false);
+  const [comparePos, setComparePos] = useState<number>(50);
+  const [isUrlInitialized, setIsUrlInitialized] = useState<boolean>(false);
+
+  // Read initial map parameters from URL on client mount (avoids hydration mismatch)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const mapa = sp.get("mapa");
+      if (mapa === "semaforo" || mapa === "delta" || mapa === "compare") {
+        setMapMode(mapa);
+      }
+      const d3 = sp.get("3d");
+      if (d3 === "1" || d3 === "true") {
+        setExtrude3d(true);
+      }
+      const esc = sp.get("escenario");
+      if (esc === "base" || esc === "intervencion" || esc === "pesimista") {
+        setScenarioState(esc);
+      }
+      setIsUrlInitialized(true);
+    }
+  }, []);
+
+  // Synchronize map & scenario params to URL without reloading
+  useEffect(() => {
+    if (!isUrlInitialized || typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+
+    if (mapMode !== "semaforo") {
+      sp.set("mapa", mapMode);
+    } else {
+      sp.delete("mapa");
+    }
+
+    if (extrude3d) {
+      sp.set("3d", "1");
+    } else {
+      sp.delete("3d");
+    }
+
+    if (scenario !== "base") {
+      sp.set("escenario", scenario);
+    } else {
+      sp.delete("escenario");
+    }
+
+    const search = sp.toString();
+    const newUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [mapMode, extrude3d, scenario, isUrlInitialized]);
 
   // Subscribe to mock state changes
   useEffect(() => {
@@ -106,14 +161,16 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     getMeta().then((m) => {
       setMeta(m);
       if (m?.scenarios) {
-        const intervencion = m.scenarios.find((s) => s.id === "intervencion");
-        if (intervencion?.params) {
-          const defaults: Record<string, number | string> = {};
-          intervencion.params.forEach((p) => {
-            defaults[p.key] = p.default;
-          });
-          setScenarioParams((prev) => ({ ...defaults, ...prev }));
-        }
+        const defaults = defaultParamsFromMeta(m);
+        setScenarioParams((prev) => {
+          const next: Record<string, number | string> = { ...defaults };
+          for (const [k, v] of Object.entries(prev)) {
+            if (k in defaults) {
+              next[k] = v;
+            }
+          }
+          return next;
+        });
       }
     });
   }, []);
@@ -136,13 +193,15 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
       setSimulationResult(null);
       return;
     }
+    if (!meta) return;
 
     const timer = setTimeout(async () => {
       setLoadingRisk(true);
       try {
+        const resolvedParams = paramsForScenario(scenario, scenarioParams, meta);
         const res = await simulateScenario({
           scenario,
-          params: scenarioParams,
+          params: resolvedParams,
           level,
           ent: selectedEnt,
         });
@@ -156,7 +215,7 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [scenario, scenarioParams, level, selectedEnt]);
+  }, [scenario, scenarioParams, level, selectedEnt, meta]);
 
   // Load region detail whenever selectedRegionId or scenario changes
   useEffect(() => {
@@ -214,10 +273,12 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
 
   const runSimulation = useCallback(
     async (customParams?: Record<string, number | string>) => {
+      if (!meta) return;
       const p = customParams ?? scenarioParams;
+      const resolved = paramsForScenario("intervencion", p, meta);
       const res = await simulateScenario({
         scenario: "intervencion",
-        params: p,
+        params: resolved,
         level,
         ent: selectedEnt,
       });
@@ -225,7 +286,7 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
       setRiskItems(res.items);
       setScenarioState("intervencion");
     },
-    [scenarioParams, level, selectedEnt]
+    [scenarioParams, level, selectedEnt, meta]
   );
 
   return (
@@ -250,6 +311,12 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
         health,
         apiAvailable,
         hasData,
+        mapMode,
+        setMapMode,
+        extrude3d,
+        setExtrude3d,
+        comparePos,
+        setComparePos,
         selectState,
         selectMunicipality,
         selectRegion,

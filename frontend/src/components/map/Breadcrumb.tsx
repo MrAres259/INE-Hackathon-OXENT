@@ -22,7 +22,7 @@ export function Breadcrumb() {
   const munName = isMun && selectedDetail ? selectedDetail.name : null;
 
   return (
-    <nav className="flex items-center gap-1.5 text-xs text-slate-300 bg-slate-900/90 backdrop-blur-sm border border-slate-800 px-3 py-1.5 rounded-lg shadow-md">
+    <nav className="flex items-center gap-1.5 text-xs text-slate-300 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-xl shadow-xl pointer-events-auto">
       <button
         type="button"
         onClick={resetToNational}
@@ -57,7 +57,7 @@ export function Breadcrumb() {
         <button
           type="button"
           onClick={resetToNational}
-          className="ml-2 px-2 py-0.5 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded transition-colors"
+          className="ml-2 px-2 py-0.5 text-[10px] font-bold bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded transition-colors"
           title="Regresar a vista nacional"
         >
           ← México

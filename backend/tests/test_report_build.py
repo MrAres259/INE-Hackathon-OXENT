@@ -210,3 +210,26 @@ def test_build_report_pdf_generation_if_browser_available(synthetic_workspace):
 
     pages = res.get("pages", 0)
     assert pages >= 10, f"Expected at least 10 pages in the generated PDF, got {pages}"
+
+
+def test_report_unequivocal_percentages(synthetic_workspace):
+    """Verifies that report HTML has no '% nacional' and has explicit bases for zone percentages."""
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+    )
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    # 1. No ambiguous '% nacional'
+    assert "% nacional" not in content.lower()
+    assert "%%" not in content
+
+    # 2. Explicit bases present
+    assert "% de los municipios" in content or "% de municipios" in content
+    assert "% de la LN" in content or "% de la lista nominal" in content
+
+    # 3. Base red count accompanied by 'municipios'
+    rojo_n = res["stats"]["categories"]["base"]["rojo"]["n"]
+    assert f"{rojo_n} municipios" in content
+

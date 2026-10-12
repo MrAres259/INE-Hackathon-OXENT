@@ -15,6 +15,7 @@ from atalaya.report.build_slides import (
     _fmt_pct,
     _safe_float,
     build_slides,
+    check_overflow,
     compute_category_counts,
     compute_scenarios,
     compute_top_priorities,
@@ -25,6 +26,7 @@ from atalaya.report.build_slides import (
     render_slides_html,
 )
 from atalaya.report.charts import find_browser
+from atalaya.report.facts import compute_facts
 
 
 @pytest.fixture
@@ -328,3 +330,140 @@ def test_compute_functions(synthetic_workspace):
 
     age_rates = load_age_profile(b_dir)
     assert len(age_rates) >= 5
+
+
+def test_slides_banned_strings_absence(synthetic_workspace):
+    """Verifies that banned strings from §13.1 are not present in rendered presentation HTML."""
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    html_p, _ = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        team_name="OXENT",
+        repo_url="https://github.com/MrAres259/INE-Hackathon-OXENT",
+        make_pdf=False,
+    )
+    content = html_p.read_text(encoding="utf-8")
+
+    assert "20 a 29" not in content
+    assert "18 a 29" not in content
+    assert "Entregable Oficial" not in content
+    assert "intermedias previas" not in content
+
+    facts = compute_facts(b_dir)
+    rojo_n = facts.get("categories", {}).get("base", {}).get("rojo", {}).get("n", 0)
+    if rojo_n != 359:
+        assert "359" not in content
+
+    # Direccion Ejecutiva should not appear in slide 1 header / portada
+    assert "Dirección Ejecutiva de Capacitación Electoral y Educación Cívica" not in content[:1500]
+
+
+def test_slides_scenario_figures_in_facts(synthetic_workspace):
+    """Verifies that all figures in slide 7 match facts.py exactly."""
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    html_p, _ = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        make_pdf=False,
+    )
+    content = html_p.read_text(encoding="utf-8")
+    facts = compute_facts(b_dir)
+
+    votos_interv = facts["votes"]["intervencion"]["votos_fmt"]
+    assert votos_interv in content
+
+    rojo_red = str(facts["transitions"]["rojo_net_reduction"])
+    assert rojo_red in content
+
+    votos_pesim = facts["votes"]["pesimista"]["votos_fmt"]
+    assert votos_pesim in content
+
+
+def test_overflow_detector_marks_overloaded_card(tmp_path: Path):
+    """Verifies that check_overflow accurately detects a card that overflows its bounding box."""
+    try:
+        find_browser()
+    except RuntimeError:
+        pytest.skip("No headless browser installed to test overflow detector")
+
+    test_html = tmp_path / "overflow_test.html"
+    test_html.write_text(
+        """<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    .slide { width: 1920px; height: 1080px; position: relative; }
+    .card { width: 300px; height: 80px; overflow: hidden; padding: 10px; }
+  </style>
+</head>
+<body>
+  <section class="slide" id="slide-overflow-fixture">
+    <div class="card">
+      <p>""" + "Texto largo de prueba que desborda forzadamente el contenedor para validar el detector. " * 30 + """</p>
+    </div>
+  </section>
+  <script>
+    window.addEventListener("DOMContentLoaded", function() {
+      var cards = document.querySelectorAll(".card");
+      for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        if (card.scrollHeight > card.clientHeight + 1) {
+          card.setAttribute("data-overflow", "1");
+          var slide = card.closest(".slide");
+          if (slide) {
+            slide.setAttribute("data-overflow", "1");
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
+""",
+        encoding="utf-8",
+    )
+
+    overflowing = check_overflow(test_html)
+    assert "slide-overflow-fixture" in overflowing
+
+
+def test_slides_unequivocal_percentages_and_chart_labels(synthetic_workspace):
+    """Verifies that presentation HTML has no ambiguous '% nacional', has bar charts labeled with '% de municipios',
+    and has explicit bases for zone percentages."""
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    html_p, _ = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        team_name="OXENT",
+        repo_url="https://github.com/MrAres259/INE-Hackathon-OXENT",
+        make_pdf=False,
+    )
+    content = html_p.read_text(encoding="utf-8")
+
+    # 1. No '% nacional' in visible text
+    assert "% nacional" not in content.lower()
+    assert "%%" not in content
+
+    # 2. Slide 6 and 7 bar / cards labeled '% de municipios'
+    assert "% de municipios" in content
+
+    # 3. Explicit '% de la LN'
+    assert "% de la LN" in content
+
+    # 4. Red municipality count accompanied by 'municipios'
+    facts = compute_facts(b_dir)
+    rojo_n = facts["categories"]["base"]["rojo"]["n"]
+    assert f"{rojo_n} municipios" in content
+

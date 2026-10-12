@@ -12,7 +12,7 @@
   <!-- SLIDE 1: PORTADA -->
   <section class="slide hero" id="slide-1">
     <div>
-      <div class="hero-kicker">Instituto Nacional Electoral · Hackea la Participación</div>
+      <div class="hero-kicker">Hackathon INE 2026 · «Hackea la Participación»</div>
       <h1 class="hero-title">ATALAYA</h1>
       <div class="hero-subtitle">Anticipar dónde puede caer la participación en 2027</div>
       <div class="hero-badge">Reto 2: Predicción y escenarios de riesgo de abstención</div>
@@ -23,7 +23,7 @@
         </div>
         <div class="hero-pillar-card">
           <div class="hero-pillar-title">Focalización Territorial</div>
-          <div class="hero-pillar-text">Semáforo de riesgo explicable para los 2,478 municipios de México sin el uso de datos personales.</div>
+          <div class="hero-pillar-text">Semáforo de riesgo explicable para los {{ stats.n_mun }} municipios de México sin el uso de datos personales.</div>
         </div>
         <div class="hero-pillar-card">
           <div class="hero-pillar-title">Acción Preventiva</div>
@@ -32,8 +32,8 @@
       </div>
     </div>
     <div class="hero-footer">
-      <div>Equipo: <strong>{{ team_name }}</strong> · Dirección Ejecutiva de Capacitación Electoral y Educación Cívica</div>
-      <div>Hackathon INE 2026 · ENCÍVICA</div>
+      <div>Propuesta del equipo: <strong>{{ team_name }}</strong> · Reto 2</div>
+      <div>Hackathon INE 2026 «Hackea la participación»</div>
     </div>
   </section>
 
@@ -42,7 +42,7 @@
     <div class="slide-header">
       <div class="slide-kicker">02 / Análisis Histórico y Diagnóstico</div>
       <h1 class="slide-title">El Problema: La Caída en Elecciones Intermedias</h1>
-      <div class="slide-subtitle">La participación nacional cae drásticamente en intermedias; el INE debe anticipar y priorizar recursos limitados.</div>
+      <div class="slide-subtitle">La participación nacional cae drásticamente en comicios intermedios; el INE debe focalizar recursos limitados.</div>
     </div>
     <div class="slide-body">
       <div class="col-left">
@@ -51,15 +51,15 @@
       <div class="col-right">
         <div class="card">
           <div class="card-title">Ciclo Intermedio Recurrente</div>
-          <div class="card-text">La oscilación histórica entre intermedias (~48%) y presidenciales (~61%) amenaza la representatividad ciudadana en 2027 si no se actúa preventivamente.</div>
+          <div class="card-text">La participación cae ~10 pp en comicios intermedios respecto a los presidenciales, amenazando la representatividad en 2027 sin acción oportuna.</div>
         </div>
         <div class="card">
           <div class="card-title">Priorización Indispensable</div>
-          <div class="card-text">Con 2,478 municipios en el país, el INE no puede dispersar recursos uniformemente. Requiere focalizar donde el riesgo de abstención es más severo.</div>
+          <div class="card-text">Con {{ stats.n_mun }} municipios en el país, el Instituto debe focalizar esfuerzos donde el riesgo de abstención es más severo.</div>
         </div>
         <div class="card">
-          <div class="card-title">Horizonte 2027</div>
-          <div class="card-text">La elección de diputaciones federales de 2027 exige diagnóstico temprano para desplegar brigadas, convenios universitarios y casillas desde 2026.</div>
+          <div class="card-title">Horizonte Preventivo 2027</div>
+          <div class="card-text">La elección federal 2027 exige diagnóstico temprano para desplegar brigadas, convenios juveniles y logística desde 2026.</div>
         </div>
       </div>
     </div>
@@ -82,19 +82,19 @@
           <div class="card-title">Plataforma CCPC (INE)</div>
           <div class="card-text">
             • <strong>6 procesos federales</strong> analizados (2009 a 2024).<br>
-            • <strong>98.3 millones de electores</strong> en Lista Nominal 2024.<br>
-            • Granularidad de casilla a sección electoral por grupo de edad y sexo.<br>
-            • Medición oficial canónica: <code>SV / (SV + NV)</code> sin distorsiones.
+            • <strong>{{ stats.tot_ln_m }}</strong> en Lista Nominal nacional.<br>
+            • Nivel sección por edad y sexo.<br>
+            • Medición oficial: <code>SV / (SV + NV)</code> sin distorsión.
           </div>
         </div>
       </div>
       <div class="col-third">
         <div class="card" style="height: 100%;">
-          <div class="card-title">INEGI & CONAPO</div>
+          <div class="card-title">INEGI y CONAPO</div>
           <div class="card-text">
-            • <strong>Censo 2020 (ITER)</strong>: Población en edad de votar, jóvenes, adultos mayores y escolaridad.<br>
-            • <strong>CONAPO (IMM 2020)</strong>: Grado e índice de marginación municipal.<br>
-            • <strong>Marco Geoestadístico 2024</strong>: 2,478 municipios con 100% de cobertura y homologación canónica.
+            • <strong>Censo 2020</strong>: P_18YMAS, escolaridad y edad.<br>
+            • <strong>CONAPO IMM 2020</strong>: Grado de marginación.<br>
+            • <strong>Marco Geoestadístico 2024</strong>: {{ stats.n_mun }} municipios con 100% de cobertura canónica.
           </div>
         </div>
       </div>
@@ -102,15 +102,15 @@
         <div class="card" style="height: 100%;">
           <div class="card-title">Privacidad Estadística</div>
           <div class="card-text">
-            • <strong>100% datos agregados y disociados</strong>: cero uso de padrón nominal ni datos personales.<br>
-            • <strong>Regla de supresión estricta</strong>: celdas con Lista Nominal menor a 10 se suprimen (null).<br>
-            • Categoría no binaria reservada a nivel nacional/estatal para impedir re-identificación.
+            • <strong>100% datos agregados y disociados</strong>.<br>
+            • <strong>Regla de supresión</strong> en celdas con Lista Nominal &lt; 10.<br>
+            • Registros no binarios difundidos solo a nivel estatal y nacional.
           </div>
         </div>
       </div>
     </div>
     <div class="slide-footer">
-      <div>Cumplimiento de la Ley General de Protección de Datos Personales en Posesión de Sujetos Obligados</div>
+      <div>Diseñado conforme a principios de la Ley General de Protección de Datos Personales en Posesión de Sujetos Obligados</div>
       <div class="footer-counter">03 / 10</div>
     </div>
   </section>
@@ -120,7 +120,7 @@
     <div class="slide-header">
       <div class="slide-kicker">04 / Diagnóstico Empírico</div>
       <h1 class="slide-title">Hallazgos: Brecha Juvenil, de Género y Territorial</h1>
-      <div class="slide-subtitle">La abstención se concentra en jóvenes de 20 a 29 años, con mayor participación femenina y contrastes estatales de 24 pp.</div>
+      <div class="slide-subtitle">La abstención se concentra en jóvenes de 18 a 34 años, con mayor afluencia femenina y contrastes territoriales.</div>
     </div>
     <div class="slide-body">
       <div class="col-left">
@@ -128,16 +128,16 @@
       </div>
       <div class="col-right">
         <div class="card">
-          <div class="card-title">Brecha Juvenil Crítica: -21.5 pp</div>
-          <div class="card-text">Los jóvenes de 20 a 29 años registran apenas ~49.6% de participación en 2024, frente a más del 71.1% en adultos de 55 a 64 años. Son el segmento prioritario.</div>
+          <div class="card-title">Brecha Juvenil: {{ stats.youth_gap_pp.gap_25_34_pp_fmt }}</div>
+          <div class="card-text">Los jóvenes de 25-34 años registraron {{ stats.youth_gap_pp.part_25_34_fmt }} de participación en 2024 (18-24: {{ stats.youth_gap_pp.part_18_24_fmt }}), frente a &gt;70% en adultos mayores. Segmento clave.</div>
         </div>
         <div class="card">
-          <div class="card-title">Brecha de Género Favorable: +9.4 pp</div>
-          <div class="card-text">A nivel nacional, las mujeres alcanzaron 64.2% de participación frente al 54.8% de los hombres en 2024, patrón que se repite en casi todas las entidades federativas.</div>
+          <div class="card-title">Brecha de Género: {{ stats.gender_gap_pp.gap_2024_pp_fmt }}</div>
+          <div class="card-text">Las mujeres alcanzaron {{ stats.gender_gap_pp.part_fem_2024_fmt }} de participación frente al {{ stats.gender_gap_pp.part_masc_2024_fmt }} de hombres en 2024, ventaja constante en casi todas las entidades federativas.</div>
         </div>
         <div class="card">
-          <div class="card-title">Desigualdad Territorial: 24.4 pp</div>
-          <div class="card-text">Yucatán (71.4%) y Tlaxcala (70.1%) muestran alta concurrencia cívica, mientras Baja California (47.0%) y Sonora (49.6%) presentan abstención estructural.</div>
+          <div class="card-title">Contraste Territorial</div>
+          <div class="card-text">Entidades con mayor Lista Nominal en riesgo alto son {{ stats.state_extremes.top_state_1 }} ({{ stats.state_extremes.top_state_1_pct }}% de su LN) y {{ stats.state_extremes.top_state_2 }} ({{ stats.state_extremes.top_state_2_pct }}% de su LN), reflejando disparidades espaciales.</div>
         </div>
       </div>
     </div>
@@ -159,27 +159,27 @@
         <div class="card" style="flex: 1;">
           <div class="card-title">1. Pronóstico de Nivel Relativo</div>
           <div class="card-text">
-            Modela la posición de cada municipio respecto a la media nacional en intermedias previas (<code>persist_l1</code>). Supera a modelos complejos de rezagos y concurrencia con menor sobreajuste.
+            Modela la posición municipal respecto a la media nacional en la elección federal anterior, 2024 (<code>persist_l1</code>), con menor sobreajuste que modelos complejos.
           </div>
         </div>
-        <div class="card" style="flex: 1; margin-top: 0.12in;">
+        <div class="card" style="flex: 1;">
           <div class="card-title">2. Vulnerabilidad Estructural</div>
           <div class="card-text">
-            Regresión regularizada con determinantes sociodemográficos (escolaridad, juventud, ruralidad, marginación; R² = {{ structural_r2_display }} en CV). Explica el porqué del riesgo.
+            Regresión regularizada con determinantes sociodemográficos (escolaridad, juventud, ruralidad; R² = {{ stats.model.structural_r2_fmt }} en CV). Explica causas del abstencionismo.
           </div>
         </div>
-        <div class="card" style="flex: 1; margin-top: 0.12in;">
+        <div class="card" style="flex: 1;">
           <div class="card-title">3. Semáforo Multidimensional</div>
           <div class="card-text">
-            Score 0–100 ponderado: <strong>50% Abstención</strong> pronosticada + <strong>20% Vulnerabilidad</strong> estructural + <strong>15% Tendencia</strong> + <strong>15% Volatilidad</strong>.
+            Score 0–100 ponderado: 50% Abstención pronosticada + 20% Vulnerabilidad estructural + 15% Tendencia + 15% Volatilidad. Umbrales: Verde, Amarillo, Naranja y Rojo.
           </div>
         </div>
       </div>
       <div class="col-half">
         <div class="card" style="height: 100%;">
           <div class="card-title">Validación Rigurosa en Folds Históricos</div>
-          <div class="card-text" style="margin-bottom: 0.12in;">
-            Evaluado en elecciones reales no observadas (entrena ≤2018 para predecir 2021; ≤2021 para predecir 2024):
+          <div class="card-text" style="margin-bottom: 0.08in;">
+            Evaluado en comicios reales no observados (entrena ≤2018 para predecir 2021; ≤2021 para predecir 2024):
           </div>
           <table class="data-table">
             <thead>
@@ -207,8 +207,8 @@
               </tr>
             </tbody>
           </table>
-          <div class="card-text" style="margin-top: 0.14in;">
-            • <strong>Calibración Intermedia</strong>: Supuesto nacional del 51.84% (intermedia 2021).<br>
+          <div class="card-text" style="margin-top: 0.08in;">
+            • <strong>Calibración Intermedia</strong>: Supuesto base nacional del {{ stats.model.national_level_fmt }} (intermedia 2021).<br>
             • <strong>Explicabilidad Total</strong>: Sin algoritmos opacos, auditable ante el Consejo General del INE.
           </div>
         </div>
@@ -225,28 +225,29 @@
     <div class="slide-header">
       <div class="slide-kicker">06 / Resultados Territoriales</div>
       <h1 class="slide-title">Semáforo Territorial 2027: Dónde Puede Caer el Voto</h1>
-      <div class="slide-subtitle">Distribución del riesgo de abstención en los 2,478 municipios del país para la elección de diputaciones federales 2027.</div>
+      <div class="slide-subtitle">Distribución del riesgo de abstención en los {{ stats.n_mun }} municipios del país para la elección de diputaciones federales 2027.</div>
     </div>
     <div class="slide-body">
       <div class="col-left">
         {{ chart_map_base | safe }}
+        <div style="font-size: 0.11in; font-weight: 600; color: #455a64; margin-top: 0.04in;">{{ stats.chart_territorial_title }}</div>
       </div>
       <div class="col-right">
         <div class="card card-rojo">
-          <div class="card-title" style="color: #c62828;">Rojo: {{ cat_counts.rojo_count }} municipios ({{ cat_counts.rojo_ln_pct }}% LN)</div>
-          <div class="card-text">Riesgo Alto (Score ≥ 75). Zonas críticas con abstención pronosticada severa y alta vulnerabilidad sociodemográfica. Máxima prioridad institucional.</div>
+          <div class="card-title" style="color: #c62828;">Rojo: {{ stats.categories.base.rojo.n_fmt }} municipios ({{ stats.categories.base.rojo.both_pct_label }})</div>
+          <div class="card-text">Riesgo Muy Alto (Score ≥ 75). Zonas críticas con abstención severa y vulnerabilidad sociodemográfica. Máxima prioridad institucional.</div>
         </div>
         <div class="card card-naranja">
-          <div class="card-title" style="color: #ef6c00;">Naranja: {{ cat_counts.naranja_count }} municipios ({{ cat_counts.naranja_ln_pct }}% LN)</div>
-          <div class="card-text">Riesgo Medio-Alto (Score 55–74). Municipios con tendencias declinantes o rezago estructural. Requieren atención preventiva activa.</div>
+          <div class="card-title" style="color: #ef6c00;">Naranja: {{ stats.categories.base.naranja.n_fmt }} municipios ({{ stats.categories.base.naranja.both_pct_label }})</div>
+          <div class="card-text">Riesgo Alto (Score 55–74). Municipios con tendencias declinantes o rezago estructural. Requieren atención preventiva focalizada.</div>
         </div>
         <div class="card card-amarillo">
-          <div class="card-title" style="color: #f9a825;">Amarillo: {{ cat_counts.amarillo_count }} municipios ({{ cat_counts.amarillo_ln_pct }}% LN)</div>
+          <div class="card-title" style="color: #f9a825;">Amarillo: {{ stats.categories.base.amarillo.n_fmt }} municipios ({{ stats.categories.base.amarillo.both_pct_label }})</div>
           <div class="card-text">Riesgo Moderado (Score 35–54). Niveles de participación estables cercanos al promedio nacional. Monitoreo regular.</div>
         </div>
         <div class="card card-verde">
-          <div class="card-title" style="color: #2e7d32;">Verde: {{ cat_counts.verde_count }} municipios ({{ cat_counts.verde_ln_pct }}% LN)</div>
-          <div class="card-text">Riesgo Bajo (Score &lt; 35). Comunidades con sólida cultura de participación electoral y resiliencia cívica consolidada.</div>
+          <div class="card-title" style="color: #2e7d32;">Verde: {{ stats.categories.base.verde.n_fmt }} municipios ({{ stats.categories.base.verde.both_pct_label }})</div>
+          <div class="card-text">Riesgo Bajo (Score &lt; 35). Comunidades con sólida cultura cívica y participación consolidada.</div>
         </div>
       </div>
     </div>
@@ -261,24 +262,25 @@
     <div class="slide-header">
       <div class="slide-kicker">07 / Analítica Prescriptiva</div>
       <h1 class="slide-title">Simulación de Escenarios: Con vs. Sin Intervención</h1>
-      <div class="slide-subtitle">La intervención estratégica focalizada puede movilizar más de 1.5 millones de electores y rescatar cientos de municipios.</div>
+      <div class="slide-subtitle">La intervención estratégica focalizada puede movilizar más de 1.7 millones de electores y desescalar municipios críticos.</div>
     </div>
     <div class="slide-body">
       <div class="col-left">
+        <div style="font-size: 0.12in; font-weight: 600; color: #37474f; margin-bottom: 0.04in;">{{ stats.chart_scenarios_title }}</div>
         {{ chart_scenarios | safe }}
       </div>
       <div class="col-right">
         <div class="card">
-          <div class="card-title">+{{ scenario_summary.votos_adicionales_fmt }} Votos Adicionales</div>
-          <div class="card-text">Impacto proyectado en el escenario de intervención focalizada en municipios rojos y naranjas, activando convenios de voto joven y transporte rural.</div>
+          <div class="card-title">+{{ stats.votes.intervencion.votos_fmt }} Votos Adicionales</div>
+          <div class="card-text">Impacto proyectado en intervención focalizada en municipios rojos y naranjas, activando convenios de voto joven y casillas extraordinarias.</div>
         </div>
         <div class="card">
-          <div class="card-title">{{ scenario_summary.rojo_rescued }} Municipios Fuera de Zona Roja</div>
-          <div class="card-text">Transición significativa de territorios de alta marginación y abstención hacia categorías de menor riesgo (reducción de municipios en rojo).</div>
+          <div class="card-title">{{ stats.transitions.rojo_net_reduction }} Municipios Dejan Zona Roja</div>
+          <div class="card-text">Reducción neta del {{ stats.transitions.pct_rojo_reduction_fmt }} en alerta roja ({{ stats.transitions.rojo_salidas }} municipios desescalan de Rojo). En total, {{ stats.transitions.n_improved }} municipios mejoran de categoría.</div>
         </div>
         <div class="card">
-          <div class="card-title">Alerta de Inacción (Escenario Pesimista)</div>
-          <div class="card-text">Sin intervención y con desafección cívica, una caída general de -2.0 pp costaría más de 2.5 millones de votos, incrementando las zonas de riesgo.</div>
+          <div class="card-title">Alerta de Inacción (Pesimista)</div>
+          <div class="card-text">Sin intervención o en entorno adverso, se perderían {{ stats.votes.pesimista.votos_fmt }} votos, incrementando la población en alerta crítica.</div>
         </div>
       </div>
     </div>
@@ -293,13 +295,13 @@
     <div class="slide-header">
       <div class="slide-kicker">08 / Plan de Acción Preventivo</div>
       <h1 class="slide-title">Priorización de Recursos y Recomendaciones</h1>
-      <div class="slide-subtitle">Priorizamos por volumen de abstención esperada (Abstención × LN) para maximizar el retorno cívico de la inversión.</div>
+      <div class="slide-subtitle">Priorizamos por abstención esperada (Abstención × LN) para maximizar el retorno cívico de la inversión institucional.</div>
     </div>
     <div class="slide-body">
       <div class="col-half">
         <div class="card" style="height: 100%;">
           <div class="card-title">Top Municipios Prioritarios (Mayor Abstención Esperada)</div>
-          <table class="data-table" style="margin-top: 6px;">
+          <table class="data-table" style="margin-top: 4px;">
             <thead>
               <tr>
                 <th>#</th>
@@ -328,19 +330,19 @@
       <div class="col-half">
         <div class="card" style="flex: 1;">
           <div class="card-title">Palanca 1: Promoción del Voto Joven</div>
-          <div class="card-text">Convenios con universidades públicas y privadas, activación digital en redes sociales y módulos itinerantes de credencialización para electores de 18 a 29 años.</div>
+          <div class="card-text">Convenios universitarios, activación en redes y módulos itinerantes de credencialización para electores de 18-24 y 25-34 años.</div>
         </div>
-        <div class="card" style="flex: 1; margin-top: 0.1in;">
+        <div class="card" style="flex: 1;">
           <div class="card-title">Palanca 2: Casillas y Transporte Rural</div>
-          <div class="card-text">Instalación de casillas extraordinarias y rutas de transporte comunitario para reducir barreras de distancia física en municipios rurales dispersos.</div>
+          <div class="card-text">Casillas extraordinarias y rutas de transporte comunitario para reducir barreras físicas en municipios rurales dispersos.</div>
         </div>
-        <div class="card" style="flex: 1; margin-top: 0.1in;">
-          <div class="card-title">Palanca 3: Materiales en Lenguas Indígenas</div>
-          <div class="card-text">Capacitadores electorales bilingües y difusión cívica en lenguas originarias con pertinencia cultural para municipios con alta población HLI.</div>
+        <div class="card" style="flex: 1;">
+          <div class="card-title">Palanca 3: Lenguas Indígenas</div>
+          <div class="card-text">Capacitadores bilingües y difusión cívica en lenguas originarias con pertinencia cultural en municipios de alta población indígena.</div>
         </div>
-        <div class="card" style="flex: 1; margin-top: 0.1in;">
+        <div class="card" style="flex: 1;">
           <div class="card-title">Palanca 4: Campañas Cívicas Urbanas</div>
-          <div class="card-text">Estrategias de movilización en grandes concentraciones metropolitanas (frontera norte y corredores urbanos con abstención crónica).</div>
+          <div class="card-text">Estrategias intensivas de credencialización y difusión comunitaria en concentraciones urbanas con abstención crónica.</div>
         </div>
       </div>
     </div>
@@ -361,26 +363,21 @@
       <div class="col-half">
         <div class="card" style="height: 100%;">
           <div class="card-title">Ecosistema Tecnológico ATALAYA</div>
-          <div class="card-text" style="margin-top: 0.1in;">
-            • <strong>Tablero Web Interactivo</strong>: Desarrollado en Next.js y mapas Leaflet navegables (zoom/pan de país a municipio) con filtros dinámicos.<br><br>
-            • <strong>Asistente IA Institucional</strong>: Consultas en lenguaje natural con recuperación sobre Huawei CSS (Elasticsearch 7.10) y LLM Huawei MaaS (GLM-5.2).<br><br>
-            • <strong>Respaldo 100% Determinista</strong>: Capacidad de operación offline total ante contingencias de conectividad o filtros de contenido.<br><br>
-            • <strong>Actualización Continua</strong>: Pipeline automatizado listo para ingerir resultados electorales y los Conteos Censales CCPC 2027.
+          <div class="card-text" style="margin-top: 0.08in;">
+            • <strong>Tablero WebGL</strong>: Visualización interactiva con comparador base | intervención y vista 3D.<br><br>
+            • <strong>Asistente IA</strong>: Consultas en lenguaje natural con respaldo determinista offline.<br><br>
+            • <strong>Actualización</strong>: Pipeline automatizado para ingerir CCPC 2027.
           </div>
         </div>
       </div>
       <div class="col-half">
         <div class="card" style="height: 100%;">
           <div class="card-title">Ruta Crítica hacia el 6 de Junio de 2027</div>
-          <div class="card-text" style="margin-top: 0.1in;">
-            • <strong>Fase 1 (Sep – Dic 2026): Diagnóstico Territorial</strong><br>
-            Entrega del semáforo a las 32 Juntas Locales Ejecutivas y parametrización de metas presupuestales para la elección federal 2027.<br><br>
-            • <strong>Fase 2 (Ene – Mar 2027): Convenios y Logística</strong><br>
-            Firma de convenios con universidades y mapeo de rutas para casillas extraordinarias en los 359 municipios en zona roja.<br><br>
-            • <strong>Fase 3 (Abr – May 2027): Campañas Intensivas</strong><br>
-            Despliegue de pauta focalizada, perifoneo en lenguas originarias y talleres cívicos juveniles en campo.<br><br>
-            • <strong>Fase 4 (Jun 2027): Monitoreo y Evaluación</strong><br>
-            Seguimiento de la participación el día de la jornada y evaluación de impacto frente a las metas estimadas.
+          <div class="card-text" style="margin-top: 0.08in;">
+            • <strong>Fase 1 (Sep–Dic 2026)</strong>: Diagnóstico con las 32 Juntas Locales Ejecutivas.<br><br>
+            • <strong>Fase 2 (Ene–Mar 2027)</strong>: Módulos y rutas en los {{ stats.categories.base.rojo.n }} municipios rojos.<br><br>
+            • <strong>Fase 3 (Abr–May 2027)</strong>: Campañas juveniles focalizadas y perifoneo.<br><br>
+            • <strong>Fase 4 (Jun 2027)</strong>: Monitoreo el día comicial.
           </div>
         </div>
       </div>
@@ -402,32 +399,48 @@
       <div class="col-half">
         <div class="card" style="height: 100%;">
           <div class="card-title">Valor Estratégico para el INE</div>
-          <div class="card-text" style="margin-top: 0.1in;">
-            • <strong>Anticipación Científica</strong>: Deja atrás la reacción post-electoral para gobernar la planeación cívica con rigor analítico.<br><br>
-            • <strong>Eficiencia del Presupuesto</strong>: Cada peso del gasto público en educación cívica se asigna donde la abstención esperada es verdaderamente crítica.<br><br>
-            • <strong>Transparencia y Explicabilidad</strong>: Cero sesgos partidistas; formulación metodológica abierta y disponible para la ciudadanía.<br><br>
-            • <strong>Legado Institucional</strong>: Plataforma escalable para futuras elecciones federales, locales y consultas ciudadanas.
+          <div class="card-text" style="margin-top: 0.08in;">
+            • <strong>Anticipación Científica</strong>: Planeación basada en analítica predictiva.<br><br>
+            • <strong>Eficiencia de Recursos</strong>: Gasto focalizado en zonas de mayor abstención esperada.<br><br>
+            • <strong>Transparencia Total</strong>: Cero sesgos partidistas; código abierto y auditable.<br><br>
+            • <strong>Legado Institucional</strong>: Plataforma escalable para futuras elecciones federales.
           </div>
         </div>
       </div>
       <div class="col-half">
         <div class="card" style="height: 100%;">
           <div class="card-title">Catálogo Completo de Entregables (Reto 2)</div>
-          <div class="card-text" style="margin-top: 0.1in;">
-            1. <strong>Reporte Metodológico y Preventivo</strong> (PDF de 10–15 cuartillas) con el marco conceptual, fórmulas y recomendaciones.<br><br>
-            2. <strong>Presentación Ejecutiva</strong> (HTML y PDF de 10 diapositivas ejecutivas) para órganos de dirección.<br><br>
-            3. <strong>Mapas Territoriales de Escenarios</strong> (GeoJSON estatal y municipal) compatibles con cualquier software SIG.<br><br>
-            4. <strong>Base de Datos Anonimizada</strong> (Excel con 10 pestañas + CSVs) con total trazabilidad estadística.<br><br>
-            5. <strong>Repositorio de Código Abierto</strong> reproducible con suite completa de pruebas automatizadas.
+          <div class="card-text" style="margin-top: 0.08in;">
+            1. <strong>Reporte Metodológico</strong> (PDF de 10–15 cuartillas).<br><br>
+            2. <strong>Presentación Ejecutiva</strong> (10 diapositivas).<br><br>
+            3. <strong>Mapas Territoriales</strong> (GeoJSON estatal y municipal).<br><br>
+            4. <strong>Base de Datos Anonimizada</strong> (Excel y CSVs).<br><br>
+            5. <strong>Código Abierto</strong> reproducible.
           </div>
         </div>
       </div>
     </div>
     <div class="slide-footer">
-      <div>Equipo: <strong>{{ team_name }}</strong> · Repositorio: <strong>{{ repo_url }}</strong></div>
+      <div>Propuesta del equipo: <strong>{{ team_name }}</strong> · Repositorio: <strong>{{ repo_url }}</strong></div>
       <div class="footer-counter">10 / 10</div>
     </div>
   </section>
+
+  <script>
+    window.addEventListener("DOMContentLoaded", function() {
+      var cards = document.querySelectorAll(".card, .hero-pillar-card");
+      for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        if (card.scrollHeight > card.clientHeight + 1) {
+          card.setAttribute("data-overflow", "1");
+          var slide = card.closest(".slide");
+          if (slide) {
+            slide.setAttribute("data-overflow", "1");
+          }
+        }
+      }
+    });
+  </script>
 
 </body>
 </html>

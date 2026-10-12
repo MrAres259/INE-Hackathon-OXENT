@@ -46,7 +46,7 @@ describe("Deterministic Mock Logic", () => {
 
   it("applies intervention scenario parameters deterministically", () => {
     const baseStates = generateMockStates("base");
-    const intervStates = generateMockStates("intervencion", { effect_pp: 4.0, coverage: 0.9 });
+    const intervStates = generateMockStates("intervencion", { effect_pp: 4.0, coverage: 90 });
 
     expect(intervStates).toHaveLength(32);
     for (let i = 0; i < 32; i++) {
@@ -65,7 +65,7 @@ describe("Deterministic Mock Logic", () => {
   it("simulates scenario and aggregates summary statistics", () => {
     const result = simulateMockScenario({
       scenario: "intervencion",
-      params: { effect_pp: 3.5, coverage: 0.8 },
+      params: { effect_pp: 3.0, coverage: 100, lever: "promocion_jovenes", targeting: "rojo_naranja" },
       level: "state",
     });
 
@@ -122,5 +122,35 @@ describe("Deterministic Mock Logic", () => {
     expect(result.summary.votos_adicionales).toBeLessThan(0);
     // Mean delta is positive (more abstention)
     expect(result.summary.mean_delta_pp).toBeGreaterThan(0);
+  });
+
+  it("generates national municipalities for all states with abstencion_esperada", () => {
+    const allMuns = generateMockMunicipalityItems(undefined, "base");
+    expect(allMuns.length).toBeGreaterThan(100);
+
+    const statesRepresented = new Set(allMuns.map((m) => m.ent));
+    expect(statesRepresented.size).toBe(32);
+
+    for (const m of allMuns) {
+      expect(m.level).toBe("mun");
+      expect(m.id).toMatch(/^\d{5}$/);
+      expect(m.ent).toHaveLength(2);
+      expect(typeof m.abstencion_esperada).toBe("number");
+      expect(m.abstencion_esperada).toBeGreaterThan(0);
+    }
+  });
+
+  it("simulates national municipality scenario with ent=null", () => {
+    const result = simulateMockScenario({
+      scenario: "intervencion",
+      level: "mun",
+      ent: null,
+      params: { effect_pp: 3.0, coverage: 100, targeting: "rojo_naranja" },
+    });
+
+    expect(result.level).toBe("mun");
+    expect(result.summary.n_units).toBeGreaterThan(100);
+    expect(result.summary.votos_adicionales).toBeGreaterThan(0);
+    expect(result.summary.mean_delta_pp).toBeLessThan(0);
   });
 });

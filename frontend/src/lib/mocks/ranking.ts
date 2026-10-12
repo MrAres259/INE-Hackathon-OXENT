@@ -11,15 +11,7 @@ export function getMockRanking(
   let items: RiskItem[];
 
   if (level === "mun") {
-    if (ent) {
-      items = generateMockMunicipalityItems(ent, scenario);
-    } else {
-      // Aggregate municipalities from our sample states
-      const chis = generateMockMunicipalityItems("07", scenario);
-      const mex = generateMockMunicipalityItems("15", scenario);
-      const oax = generateMockMunicipalityItems("20", scenario);
-      items = [...chis, ...mex, ...oax];
-    }
+    items = generateMockMunicipalityItems(ent, scenario);
   } else {
     items = generateMockStates(scenario);
   }

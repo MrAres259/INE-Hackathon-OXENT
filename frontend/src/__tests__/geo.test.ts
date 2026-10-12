@@ -5,6 +5,9 @@ import {
   fetchStatesGeoJson,
   fetchMunGeoJson,
   fetchGeoIndex,
+  fetchMunAllGeoJson,
+  fetchCountryGeoJson,
+  getMockMunAllGeoJson,
 } from "../lib/geo";
 import {
   getMockStatesGeoJson,
@@ -166,4 +169,31 @@ describe("Geo Adapter and Contract Tests", () => {
     expect(chiapas?.level).toBe("state");
     expect(chiapas?.name).toBe("Chiapas");
   });
+
+  it("loads national mock municipalities with fetchMunAllGeoJson", async () => {
+    const munAll = await fetchMunAllGeoJson();
+    expect(munAll.type).toBe("FeatureCollection");
+    expect(munAll.features.length).toBeGreaterThan(100);
+
+    const statesInMunAll = new Set(munAll.features.map((f) => f.properties.ent));
+    expect(statesInMunAll.size).toBe(32);
+
+    for (const feat of munAll.features) {
+      expect(feat.properties.id).toMatch(/^\d{5}$/);
+      expect(feat.properties.ent).toHaveLength(2);
+      expect(feat.properties.name).toBeDefined();
+    }
+  });
+
+  it("handles fetchCountryGeoJson gracefully (returns null in mock mode)", async () => {
+    // In node/mock mode without static files, it falls back to null
+    const country = await fetchCountryGeoJson();
+    // Either null or valid FeatureCollection
+    if (country !== null) {
+      expect(country.type).toBe("FeatureCollection");
+    } else {
+      expect(country).toBeNull();
+    }
+  });
 });
+

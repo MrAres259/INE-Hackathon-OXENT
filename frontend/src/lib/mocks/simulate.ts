@@ -8,17 +8,18 @@ export function simulateMockScenario(req: ScenarioRequest): ScenarioResult {
   const level = req.level;
   const ent = req.ent;
 
+  const isMun = level === "mun";
+  const munEnt = ent ? ent : undefined;
+
   // Base items to compare
-  const baseItems: RiskItem[] =
-    level === "mun" && ent
-      ? generateMockMunicipalityItems(ent, "base")
-      : generateMockStates("base");
+  const baseItems: RiskItem[] = isMun
+    ? generateMockMunicipalityItems(munEnt, "base")
+    : generateMockStates("base");
 
   // Simulated items
-  const simulatedItems: RiskItem[] =
-    level === "mun" && ent
-      ? generateMockMunicipalityItems(ent, scenario, params)
-      : generateMockStates(scenario, params);
+  const simulatedItems: RiskItem[] = isMun
+    ? generateMockMunicipalityItems(munEnt, scenario, params)
+    : generateMockStates(scenario, params);
 
   const byCategory: Record<Category, number> = {
     verde: 0,

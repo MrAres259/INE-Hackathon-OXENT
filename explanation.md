@@ -65,7 +65,8 @@ flowchart LR
 | API | FastAPI + SSE | `backend/atalaya/api` |
 | Asistente | Reglas deterministas + GLM-5.2 vía MaaS (API compatible OpenAI) | `backend/atalaya/chat`, `backend/atalaya/llm.py` |
 | Entregables | openpyxl, GeoJSON, SVG en Python, PDF con Chrome/Edge headless | `backend/atalaya/export.py`, `backend/atalaya/report` |
-| Frontend | Next.js 16, React 19, Tailwind 4, Leaflet/react-leaflet | `frontend/src` |
+| Frontend | Next.js 16, React 19, Tailwind 4, MapLibre GL 5 (WebGL) | `frontend/src` |
+| Mapa base | Esri World Dark Gray Canvas (teselas ráster sin llave); sin conexión el mapa usa el contorno propio de México | `frontend/src/lib/mapStyle.ts` |
 | Geografía | mapshaper (Node) | `tools/geo` |
 | Orquestación | PowerShell 5.1 | `scripts/*.ps1` |
 
@@ -151,15 +152,17 @@ Estado actual (base): 297 municipios rojos (12.9 % de la LN), 756 naranjas (49.5
 | Escenario | Parámetros | Efecto |
 |---|---|---|
 | `base` | — | Pronóstico sin intervención |
-| `intervencion` | palanca (voto joven, casillas/traslado rurales, lenguas indígenas, campaña general), focalización (rojo / rojo+naranja / todos), efecto 0–10 pp, cobertura 0–100 % | `Δ = efecto · cobertura · peso`, peso = variable de la palanca / su P75 (tope 1.5; 1 en campaña general); tope 98 % |
-| `pesimista` | caída general 0–5 pp, acentuación de tendencias negativas | Empeora participación |
+| `intervencion` | `lever` (voto joven, casillas/traslado rurales, lenguas indígenas, campaña general; default voto joven), `targeting` (rojo / rojo+naranja / todos; default rojo+naranja), `effect_pp` 0–10 (default 3), `coverage` 0–100 % (default 100) | `Δ = efecto · cobertura · peso`, peso = variable de la palanca / su P75 (tope 1.5; 1 en campaña general); tope 98 % |
+| `pesimista` | `shock_pp` 0–5 (default 2), `trend_amplifier` 0–100 % (default 50) | Empeora participación |
 
-Resumen: zonas por color vs base, LN por color, votos adicionales/perdidos (`Δparticipación × LN`), cambio promedio en abstención y abstención esperada por escenario.
+Las claves, rangos y defaults se publican en `/api/meta`; el frontend los toma de ahí (`lib/scenarioParams.ts`) y envía a cada escenario solo sus claves. Claves desconocidas se ignoran; valores fuera de rango ⇒ 422.
+
+Resumen: zonas por color vs base, LN por color, votos adicionales/perdidos (`Δparticipación × LN`), cambio promedio en abstención y abstención esperada por escenario. Con los defaults: rojos 297 → 232, 1,053 municipios con Δ entre −4.5 y −0.9 pp, +1,744,296 votos.
 
 ### 4.5 Priorización y recomendaciones
 
 - `abstencion_esperada = pred_abstention × lista_nominal`; `prioridad` = orden por abstención esperada dentro de zonas rojas y naranjas (encabezan Tijuana, Juárez, Puebla, León, Ecatepec).
-- `model/recommend.py` + `data/seed/recommendations.csv`: 10 reglas (voto joven, accesibilidad de casillas, lenguas indígenas, educación cívica visual, difusión no digital, diagnóstico de caída sostenida, monitoreo por volatilidad, personas mayores, credencialización, coordinación en alta marginación) activadas por percentiles nacionales y por los factores de la zona; máximo 4 por zona.
+- `model/recommend.py` + `data/seed/recommendations.csv`: 10 reglas (voto joven, accesibilidad de casillas, lenguas indígenas, educación cívica visual, difusión no digital, diagnóstico de caída sostenida, monitoreo por volatilidad, personas mayores, credencialización, coordinación en alta marginación) activadas por percentiles nacionales y por los factores de la zona; máximo 4 por zona. Un disparador por factor (`driver:<col>`) solo aplica si el valor de la zona está del lado desfavorable de la mediana nacional, según la columna `direction` (`low`/`high`) del CSV (p. ej. no sugiere difusión no digital a un municipio con buen acceso a internet).
 
 ### 4.6 Privacidad
 
@@ -205,14 +208,29 @@ Eventos: `plan` → `data` → `token`… → `done {sources, degraded}`. Client
 
 ### 4.10 Frontend
 
-UI deliberadamente simple (será rediseñada por un experto); lógica separada de presentación.
+Tablero oscuro de una sola pantalla en escritorio (el mapa llena su columna; el panel derecho hace scroll interno); lógica separada de presentación.
+
+**Mapa de escenarios (MapLibre GL, WebGL).** Carga una vez los 32 estados y los 2,478 municipios de todo el país (`/api/risk?level=state|mun` sin `ent`) y colorea con *feature-state*, sin volver a subir geometría al cambiar de escenario. Los estados se ven en zoom bajo y los municipios aparecen al acercarse (fundido entre zoom 5 y 6). Al elegir un estado la cámara hace `fitBounds` y el resto del país se atenúa. Modos:
+
+| Modo | Qué muestra |
+|---|---|
+| **Semáforo** | Categoría de riesgo del escenario activo |
+| **Cambio Δ** | Intervención − base en pp de abstención (escala divergente: azul = menos abstención) |
+| **Comparar** | Dos mapas sincronizados con cortina arrastrable: izquierda sin intervención, derecha con intervención; resumen "Rojo: 297 → 232 · N mejoran de categoría" |
+| **3D** (conmutador) | Extrusión = abstención esperada (personas), escala √ fija entre escenarios; cámara inclinada |
+
+El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&escenario=base|intervencion|pesimista`.
 
 | Funcionalidad | Dónde |
 |---|---|
-| Estado global (escenario, nivel, selección, simulación, salud) | `src/lib/state.tsx` |
-| Cliente API + SSE; mocks solo ante fallo de red | `src/lib/api.ts`, `src/lib/mocks/*` |
-| GeoJSON del pipeline (`id/name/ent`) e índice | `src/lib/geo.ts` |
-| Mapa: estados → municipios, tooltip, leyenda con zonas y % de LN, buscador, breadcrumb | `src/components/map/*` |
+| Estado global (escenario, parámetros, nivel, selección, simulación, salud, `mapMode`, `extrude3d`, `comparePos`, sincronía con la URL) | `src/lib/state.tsx` |
+| Parámetros de escenario desde `Meta` (defaults, filtrado por escenario, descripción legible) | `src/lib/scenarioParams.ts` |
+| Cliente API + SSE; mocks fieles al contrato real solo ante fallo de red | `src/lib/api.ts`, `src/lib/mocks/*` |
+| GeoJSON del pipeline: estados, municipios por estado y nacional (`mun_all.json`), contorno (`country.json`), índice | `src/lib/geo.ts` |
+| Datos del mapa: índices nacionales base y alterno, conteos por categoría, transiciones, escala 3D | `src/lib/mapRisk.ts`, `src/lib/useMapRisk.ts` |
+| Estilo del mapa: ids de capas, mapa base, expresiones de color (categoría y Δ), alturas 3D, leyendas | `src/lib/mapStyle.ts` |
+| Motor: capas (fondo, mapa base, contorno, rellenos, bordes, extrusiones, hover, selección, etiquetas), feature-state, hover, clic, cámara, 3D | `src/components/map/AtalayaMap.tsx`, `mapLayers.ts` |
+| Cáscara del mapa: modos, comparador con cortina y cámara sincronizada, tooltip, leyenda (categorías o Δ), breadcrumb, buscador | `src/components/map/RiskMap.tsx`, `CompareSwipe.tsx`, `compareSync.ts`, `MapToolbar.tsx`, `MapTooltip.tsx`, `Legend.tsx`, `Breadcrumb.tsx`, `RegionSearch.tsx` |
 | Selector de escenario y controles generados desde `Meta` | `src/components/layout/TopBar.tsx`, `ScenarioControls.tsx` |
 | Detalle: semáforo, intervalo, serie (cortes por datos no confiables, judicial aparte), componentes del índice, perfil edad × sexo (celdas protegidas), indicadores CCPC, factores, recomendaciones, prioridad | `src/components/panel/RegionDetailPanel.tsx`, `src/components/viz/Sparkline.tsx` |
 | Ranking ordenable (riesgo, abstención esperada, prioridad) y exportación CSV | `src/components/panel/RankingTable.tsx` |
@@ -228,11 +246,13 @@ UI deliberadamente simple (será rediseñada por un experto); lógica separada d
 | Reporte metodológico `reporte_metodologico.{html,pdf}` (14 pp.) | `python -m atalaya.report.build_report` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, limitaciones |
 | Presentación ejecutiva `presentacion_ejecutiva.{html,pdf}` (10 diapositivas) | `python -m atalaya.report.build_slides` | Mensajes clave con mapas y gráficas |
 
-Gráficas en SVG generado en Python (`report/charts.py`: choropleth, líneas, barras) y PDF con Chrome/Edge headless (`html_to_pdf`).
+**Una sola fuente de cifras:** `report/facts.py` → `compute_facts` calcula todo número que aparece en reporte y presentación (categorías por escenario, LN en riesgo, transiciones base → intervención, parámetros reales de `SCENARIOS`, votos, perfil por edad con etiquetas exactas, modelo, prioridades, confiabilidad, privacidad), en crudo y formateado; las plantillas no calculan ni escriben cifras. Ambos documentos se presentan como **propuesta del equipo** (`--team`, `--repo-url`) y cada porcentaje indica su base (% de los municipios o % de la LN). La presentación falla (exit 2) si alguna tarjeta desborda su texto.
+
+Gráficas en SVG generado en Python (`report/charts.py`: choropleth, mapa de transiciones con leyenda, líneas, barras) y PDF con Chrome/Edge headless (`html_to_pdf`).
 
 ### 4.12 Pipeline geográfico
 
-`tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe `frontend/public/geo/states.json`, `mun/<cve_ent>.json`, `index.json` (versionados, ≈ 4.6 MB) y los catálogos geo.
+`tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe en `frontend/public/geo/` (versionado): `states.json`, `mun/<cve_ent>.json` (los usa `export.py`), `mun_all.json` (los 2,478 municipios en un archivo para el mapa nacional, ≈ 3.8 MB), `country.json` (contorno de México, respaldo sin conexión del mapa base), `index.json` (bbox y centroides), y los catálogos geo de `data/build/`.
 
 ---
 
@@ -240,19 +260,19 @@ Gráficas en SVG generado en Python (`report/charts.py`: choropleth, líneas, ba
 
 ```powershell
 # Pipeline completo: geo → CCPC → INEGI/CONAPO → features → crosswalk → CCPC features → modelo → export → validación
-powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-SkipGeo] [-SkipModel] [-SkipExport] [-Load]
+powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-SkipGeo] [-SkipModel] [-SkipExport] [-SkipReports] [-Load]
 # Reporte y presentación (después del pipeline)
 cd backend; python -m atalaya.report.build_report; python -m atalaya.report.build_slides
 # Demo (API :8001 + web :3000; PIDs en data/cache/*.pid)
 powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1      # -Mock: solo frontend con datos de demostración
 powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
 # Pruebas (sin red; una guardia impide que escriban en datos reales)
-cd backend;  python -m pytest -q          # 203 pruebas
-cd frontend; npm run typecheck; npm test; npm run build   # 47 pruebas
+cd backend;  python -m pytest -q          # 216 pruebas
+cd frontend; npm run typecheck; npm test; npm run build   # 84 pruebas
 cd tools/geo; npm test
 ```
 
-`build_all.ps1` termina con un resumen de validación y falla si la participación nacional 2024 no está en 59.6–59.7 %.
+`build_all.ps1` termina con un resumen de validación (falla si la participación nacional 2024 no está en 59.6–59.7 %) y, salvo `-SkipReports`, genera reporte y presentación.
 
 Configuración: `backend/.env` (plantilla `backend/.env.example`): `ES_URL`, `ES_USERNAME`, `ES_PASSWORD`, `ES_INSECURE`, `MAAS_API_KEY`, `MAAS_BASE_URL`, `MAAS_MODEL=glm-5.2`, `ATALAYA_INDEX_PREFIX=atalaya-`, `ATALAYA_STORE=auto|es|memory`, `ATALAYA_LLM_ENABLED`, `ATALAYA_TARGET_YEAR=2027`.
 
@@ -267,10 +287,10 @@ backend/atalaya/
   model/    panel · forecast · build · risk · scenarios · recommend
   api/      main · routes · deps · chat
   chat/     spec · guard · planner · executor · writer
-  report/   charts · build_report · build_slides · templates/ · slides_templates/
+  report/   facts · charts · build_report · build_slides · templates/ · slides_templates/
 backend/scripts/   check_cluster.py · smoke_llm.py · validate_build.py
-backend/tests/     203 pruebas offline
-frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,mocks}
+backend/tests/     216 pruebas offline
+frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapRisk,useMapRisk,mocks}
 frontend/public/geo/   capas GeoJSON generadas (versionadas)
 tools/geo/         build_geo.mjs + pruebas
 data/seed/         catálogos y reglas curadas
@@ -301,11 +321,9 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 
 ## 9. Estado actual
 
-**Funcional y probado con datos reales:** ingesta CCPC/INEGI/CONAPO, crosswalk al 100 %, modelo con backtest y selección honesta, semáforo con vulnerabilidad, escenarios, priorización, recomendaciones, privacidad, API, asistente, frontend con mapas reales, exportación y generación de reporte y presentación.
+**Funcional y probado con datos reales:** ingesta CCPC/INEGI/CONAPO, crosswalk al 100 %, modelo con backtest y selección honesta, semáforo con vulnerabilidad, escenarios (con los parámetros reales de la API), priorización, recomendaciones con dirección desfavorable, privacidad, API, asistente, mapa WebGL (semáforo, Δ, comparador con cortina, 3D; verificado en Chrome con capturas y mediciones), exportación, y reporte y presentación con cifras únicas desde `facts.py`.
 
 **Pendiente:**
-1. Corregir contenido de reporte y presentación: unificar todas las cifras desde una sola fuente (hay inconsistencias entre ambos y frases no respaldadas por parámetros), ajustar texto que se desborda en diapositivas, presentar los documentos como propuesta del equipo (no como documento institucional) y completar `[Nombre del equipo]` / `[URL del repositorio]`.
-2. Ajustar la regla de recomendaciones activadas por factores para que exija que el valor de la variable esté del lado desfavorable (hoy puede sugerir "difusión no digital" a municipios con buen acceso a internet).
-3. Verificar en navegador real que el mapa pinta polígonos y teselas (en capturas headless aparece vacío aunque el DOM contiene las capas).
-4. Cargar a Huawei CSS desde una máquina dentro de la VPC y probar `EsStore` con datos reales.
-5. Rediseño visual del frontend.
+1. Cargar a Huawei CSS desde una máquina dentro de la VPC y probar `EsStore` con datos reales.
+2. Pulido visual menor del tablero: atribución y controles de zoom con el estilo oscuro, etiqueta "Intervención" con acento en el panel de diagnóstico.
+3. Completar el nombre definitivo del equipo y la URL pública del repositorio en reporte y presentación (hoy: defaults `OXENT` y el repositorio de GitHub).

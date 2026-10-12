@@ -10,6 +10,25 @@ const __dirname = path.dirname(__filename);
 const MAX_STATES_BYTES = 1.5 * 1024 * 1024;    // 1.5 MB
 const MAX_MUN_FILE_BYTES = 800 * 1024;         // 800 KB per mun file
 const MAX_MUN_TOTAL_BYTES = 15 * 1024 * 1024;  // 15 MB total
+const MAX_MUN_ALL_BYTES = 4.5 * 1024 * 1024;   // 4.5 MB
+const MAX_COUNTRY_BYTES = 300 * 1024;          // 300 KB
+
+export function roundCoordinates(coords, decimals = 4) {
+  const factor = 10 ** decimals;
+  function recurse(node) {
+    if (!Array.isArray(node)) return;
+    if (typeof node[0] === 'number') {
+      for (let i = 0; i < node.length; i++) {
+        node[i] = Math.round(node[i] * factor) / factor;
+      }
+    } else {
+      for (let i = 0; i < node.length; i++) {
+        recurse(node[i]);
+      }
+    }
+  }
+  recurse(coords);
+}
 
 export function parseArgs(rawArgs = process.argv.slice(2)) {
   let ent = path.resolve(__dirname, '../../data/raw/geo/00ent.shp');
@@ -299,6 +318,32 @@ export async function buildGeo(options = {}) {
     }
     fs.writeFileSync(statesOutPath, JSON.stringify(statesRaw), 'utf8');
 
+    // 2b. Process dissolved country
+    const countryOutPath = path.join(out, 'country.json');
+    const countryCmd = [
+      `-i "${statesOutPath}"`,
+      '-dissolve',
+      '-simplify visvalingam weighted keep-shapes 15%',
+      `-each "id = 'MX'"`,
+      '-filter-fields id',
+      `-o force "${countryOutPath}" format=geojson precision=0.0001`
+    ].filter(Boolean).join(' ');
+
+    await mapshaper.runCommands(countryCmd);
+
+    const countryRaw = JSON.parse(fs.readFileSync(countryOutPath, 'utf8'));
+    for (const feat of countryRaw.features) {
+      feat.properties = { id: 'MX' };
+    }
+    fs.writeFileSync(countryOutPath, JSON.stringify(countryRaw), 'utf8');
+
+    let countrySize = fs.statSync(countryOutPath).size;
+    if (countrySize > MAX_COUNTRY_BYTES) {
+      console.warn(`[build_geo WARN] country.json size ${(countrySize / 1024).toFixed(1)} KB exceeds 300 KB limit. Re-simplifying...`);
+      await mapshaper.runCommands(`-i "${countryOutPath}" -simplify visvalingam weighted keep-shapes 50% -o force "${countryOutPath}" format=geojson precision=0.0001`);
+      countrySize = fs.statSync(countryOutPath).size;
+    }
+
     // 3. Process municipalities
     const munCmd = [
       `-i "${mun}"${munCfg.encodingOpt}`,
@@ -315,10 +360,12 @@ export async function buildGeo(options = {}) {
 
     // Read all generated mun files, enforce exact properties and calculate municipal index
     const munFiles = fs.readdirSync(munDir).filter(f => f.endsWith('.json'));
+    munFiles.sort();
     const indexMun = {};
     let totalMunSize = 0;
     let maxSingleMunSize = 0;
     let largestMunFile = '';
+    const allMunFeatures = [];
 
     for (const f of munFiles) {
       const filePath = path.join(munDir, f);
@@ -360,8 +407,34 @@ export async function buildGeo(options = {}) {
           ent,
           centroid: computeCentroid(feat.geometry)
         };
+
+        // Clone feature for mun_all.json with precision=0.0001
+        const featClone = {
+          type: 'Feature',
+          properties: { id, ent, name },
+          geometry: JSON.parse(JSON.stringify(feat.geometry))
+        };
+        roundCoordinates(featClone.geometry.coordinates, 4);
+        allMunFeatures.push(featClone);
       }
       fs.writeFileSync(filePath, JSON.stringify(munRaw), 'utf8');
+    }
+
+    // 3b. Generate mun_all.json (all municipalities in one FeatureCollection, <= 4.5 MB)
+    allMunFeatures.sort((a, b) => a.properties.id.localeCompare(b.properties.id));
+    const munAllGeo = {
+      type: 'FeatureCollection',
+      features: allMunFeatures
+    };
+    const munAllOutPath = path.join(out, 'mun_all.json');
+    fs.writeFileSync(munAllOutPath, JSON.stringify(munAllGeo), 'utf8');
+    let munAllSize = fs.statSync(munAllOutPath).size;
+
+    if (munAllSize > MAX_MUN_ALL_BYTES) {
+      console.warn(`[build_geo WARN] mun_all.json size ${(munAllSize / 1024 / 1024).toFixed(2)} MB exceeds 4.5 MB limit. Re-simplifying...`);
+      await mapshaper.runCommands(`-i "${munAllOutPath}" -simplify visvalingam weighted keep-shapes 70% -o force "${munAllOutPath}" format=geojson precision=0.0001`);
+      munAllSize = fs.statSync(munAllOutPath).size;
+      console.log(`[build_geo] Re-simplified mun_all.json to ${(munAllSize / 1024 / 1024).toFixed(2)} MB`);
     }
 
     // 4. Build index.json
@@ -388,11 +461,13 @@ export async function buildGeo(options = {}) {
     const indexSize = fs.statSync(indexPath).size;
 
     console.log('[build_geo] Output sizes:');
-    console.log(`  states.json: ${(statesSize / 1024).toFixed(1)} KB (limit: 1536 KB)`);
-    console.log(`  index.json:  ${(indexSize / 1024).toFixed(1)} KB`);
-    console.log(`  mun/:        ${munFiles.length} files, total ${(totalMunSize / 1024 / 1024).toFixed(2)} MB (limit: 15 MB)`);
+    console.log(`  states.json:  ${(statesSize / 1024).toFixed(1)} KB (limit: 1536 KB)`);
+    console.log(`  country.json: ${(countrySize / 1024).toFixed(1)} KB (limit: 300 KB)`);
+    console.log(`  index.json:   ${(indexSize / 1024).toFixed(1)} KB`);
+    console.log(`  mun_all.json: ${(munAllSize / 1024 / 1024).toFixed(2)} MB (limit: 4.5 MB)`);
+    console.log(`  mun/:         ${munFiles.length} files, total ${(totalMunSize / 1024 / 1024).toFixed(2)} MB (limit: 15 MB)`);
     if (largestMunFile) {
-      console.log(`  largest mun: mun/${largestMunFile} ${(maxSingleMunSize / 1024).toFixed(1)} KB (limit: 800 KB)`);
+      console.log(`  largest mun:  mun/${largestMunFile} ${(maxSingleMunSize / 1024).toFixed(1)} KB (limit: 800 KB)`);
     }
 
     let needsRetry = false;
@@ -425,8 +500,11 @@ export async function buildGeo(options = {}) {
       statesCount: statesRaw.features.length,
       munFilesCount: munFiles.length,
       totalMunCount: Object.keys(indexMun).length,
+      munAllCount: allMunFeatures.length,
       statesSize,
+      countrySize,
       totalMunSize,
+      munAllSize,
       indexSize,
       catalogs: catalogResult
     };

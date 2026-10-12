@@ -155,7 +155,7 @@ export async function getRisk(
 ): Promise<{ level: Level; scenario: ScenarioId; items: RiskItem[] }> {
   if (isMockEnabled()) {
     const items =
-      level === "mun" && ent
+      level === "mun"
         ? generateMockMunicipalityItems(ent, scenario)
         : generateMockStates(scenario);
     return { level, scenario, items };
@@ -170,7 +170,7 @@ export async function getRisk(
     if (shouldFallbackToMock(err)) {
       setMockActive(true);
       const items =
-        level === "mun" && ent
+        level === "mun"
           ? generateMockMunicipalityItems(ent, scenario)
           : generateMockStates(scenario);
       return { level, scenario, items };

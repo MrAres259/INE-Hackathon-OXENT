@@ -31,13 +31,17 @@ test('build_geo runs on fixtures and produces correct GeoJSON and index.json', a
 
     // 1. Verify generated files exist
     const statesPath = path.join(tempDir, 'states.json');
+    const countryPath = path.join(tempDir, 'country.json');
     const indexPath = path.join(tempDir, 'index.json');
+    const munAllPath = path.join(tempDir, 'mun_all.json');
     const munDir = path.join(tempDir, 'mun');
     const mun07Path = path.join(munDir, '07.json');
     const mun16Path = path.join(munDir, '16.json');
 
     assert.ok(fs.existsSync(statesPath), 'states.json should exist');
+    assert.ok(fs.existsSync(countryPath), 'country.json should exist');
     assert.ok(fs.existsSync(indexPath), 'index.json should exist');
+    assert.ok(fs.existsSync(munAllPath), 'mun_all.json should exist');
     assert.ok(fs.existsSync(mun07Path), 'mun/07.json should exist');
     assert.ok(fs.existsSync(mun16Path), 'mun/16.json should exist');
 
@@ -87,6 +91,33 @@ test('build_geo runs on fixtures and produces correct GeoJSON and index.json', a
     assert.equal(morelia.properties.id, '16053');
     assert.equal(morelia.properties.ent, '16');
     assert.equal(morelia.properties.name, 'Morelia');
+
+    // 3b. Verify country.json content and properties
+    const countryGeo = JSON.parse(fs.readFileSync(countryPath, 'utf8'));
+    assert.equal(countryGeo.type, 'FeatureCollection');
+    assert.ok(countryGeo.features.length >= 1, 'country.json must have at least 1 feature');
+    for (const feat of countryGeo.features) {
+      assert.equal(feat.type, 'Feature');
+      assert.deepEqual(feat.properties, { id: 'MX' }, 'Country properties must be exactly { id: "MX" }');
+    }
+    assert.ok(fs.statSync(countryPath).size <= 300 * 1024, 'country.json size must be <= 300 KB');
+
+    // 3c. Verify mun_all.json content and properties
+    const munAllGeo = JSON.parse(fs.readFileSync(munAllPath, 'utf8'));
+    assert.equal(munAllGeo.type, 'FeatureCollection');
+    assert.equal(munAllGeo.features.length, 3, 'mun_all.json must contain 3 features on fixture');
+    const seenMunIds = new Set();
+    for (const feat of munAllGeo.features) {
+      assert.equal(feat.type, 'Feature');
+      const keys = Object.keys(feat.properties).sort();
+      assert.deepEqual(keys, ['ent', 'id', 'name'], 'mun_all feature properties must ONLY contain ent, id, name');
+      assert.equal(feat.properties.id.length, 5, 'Mun id must have 5 digits');
+      assert.equal(feat.properties.ent.length, 2, 'Mun ent must have 2 digits');
+      assert.equal(feat.properties.ent, feat.properties.id.slice(0, 2), 'Mun ent must match first 2 digits of id');
+      seenMunIds.add(feat.properties.id);
+    }
+    assert.equal(seenMunIds.size, 3, 'All mun ids in mun_all.json must be unique');
+    assert.ok(fs.statSync(munAllPath).size <= 4.5 * 1024 * 1024, 'mun_all.json size must be <= 4.5 MB');
 
     // 4. Verify index.json structure, bbox, and centroid
     const indexData = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
@@ -197,3 +228,45 @@ test('build_geo exits cleanly without error when input files are missing without
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('production build validation covers mun_all.json and country.json if present', () => {
+  const prodGeoDir = path.resolve(__dirname, '../../../frontend/public/geo');
+  const munAllPath = path.join(prodGeoDir, 'mun_all.json');
+  const countryPath = path.join(prodGeoDir, 'country.json');
+
+  if (!fs.existsSync(munAllPath) || !fs.existsSync(countryPath)) {
+    return;
+  }
+
+  // 1. Validate country.json
+  const countryStat = fs.statSync(countryPath);
+  assert.ok(countryStat.size <= 300 * 1024, `country.json size (${countryStat.size} bytes) exceeds 300 KB limit`);
+  const countryGeo = JSON.parse(fs.readFileSync(countryPath, 'utf8'));
+  assert.equal(countryGeo.type, 'FeatureCollection');
+  assert.ok(countryGeo.features.length >= 1, 'country.json must have at least 1 feature');
+  for (const feat of countryGeo.features) {
+    assert.deepEqual(feat.properties, { id: 'MX' }, 'Country properties must be { id: "MX" }');
+  }
+
+  // 2. Validate mun_all.json
+  const munAllStat = fs.statSync(munAllPath);
+  assert.ok(munAllStat.size <= 4.5 * 1024 * 1024, `mun_all.json size (${munAllStat.size} bytes) exceeds 4.5 MB limit`);
+  const munAllGeo = JSON.parse(fs.readFileSync(munAllPath, 'utf8'));
+  assert.equal(munAllGeo.type, 'FeatureCollection');
+  assert.equal(munAllGeo.features.length, 2478, 'mun_all.json must contain all 2,478 municipalities');
+
+  const seenIds = new Set();
+  for (const feat of munAllGeo.features) {
+    assert.equal(feat.type, 'Feature');
+    const p = feat.properties;
+    const keys = Object.keys(p).sort();
+    assert.deepEqual(keys, ['ent', 'id', 'name'], 'Feature properties must be exactly { ent, id, name }');
+    assert.equal(p.id.length, 5, `Mun id '${p.id}' must be 5 digits`);
+    assert.equal(p.ent.length, 2, `Mun ent '${p.ent}' must be 2 digits`);
+    assert.equal(p.ent, p.id.slice(0, 2), `ent '${p.ent}' must match first 2 digits of id '${p.id}'`);
+    assert.ok(typeof p.name === 'string' && p.name.length > 0, 'Name must be a non-empty string');
+    seenIds.add(p.id);
+  }
+  assert.equal(seenIds.size, 2478, 'All 2,478 municipality ids in mun_all.json must be unique');
+});
+

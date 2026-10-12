@@ -36,13 +36,16 @@ export function generateMockStates(scenario: ScenarioId = "base", params?: Recor
     let deltaVsBase: number | null = null;
 
     if (scenario === "intervencion") {
-      const effectPp = typeof params?.effect_pp === "number" ? params.effect_pp : 3.5;
-      const coverage = typeof params?.coverage === "number" ? params.coverage : 0.8;
-      const delta = (effectPp * coverage) / 100;
-      deltaVsBase = -Math.round(delta * 1000) / 10; // in pp, e.g. -2.8
+      const effectPp = typeof params?.effect_pp === "number" ? params.effect_pp : 3.0;
+      const coverage = typeof params?.coverage === "number" ? params.coverage : 100;
+      const deltaPp = effectPp * (coverage / 100);
+      const delta = deltaPp / 100;
+      deltaVsBase = -Math.round(deltaPp * 10) / 10; // in pp, e.g. -3.0
       predAbs = Math.max(0.20, Math.round((predAbs - delta) * 1000) / 1000);
     } else if (scenario === "pesimista") {
-      const deltaPp = 2.0 + Math.abs(trend < 0 ? trend * 0.5 : 0);
+      const shockPp = typeof params?.shock_pp === "number" ? params.shock_pp : 2.0;
+      const trendAmp = typeof params?.trend_amplifier === "number" ? params.trend_amplifier : 50;
+      const deltaPp = shockPp + Math.abs(trend < 0 ? trend * (trendAmp / 100) : 0);
       deltaVsBase = Math.round(deltaPp * 10) / 10;
       predAbs = Math.min(0.85, Math.round((predAbs + deltaPp / 100) * 1000) / 1000);
     }
@@ -79,6 +82,7 @@ export function generateMockStates(scenario: ScenarioId = "base", params?: Recor
       risk_score: riskScore,
       category,
       delta_vs_base_pp: deltaVsBase,
+      abstencion_esperada: Math.round(predAbs * listaNominal),
     };
   });
 }
@@ -135,20 +139,33 @@ export const MOCK_MUN_TEMPLATES: Record<string, MunTemplate[]> = {
   ],
 };
 
-export function generateMockMunicipalityItems(
-  ent: string,
-  scenario: ScenarioId = "base",
-  params?: Record<string, number | string>
-): RiskItem[] {
-  // If we have explicit templates, use them
-  const templates = MOCK_MUN_TEMPLATES[ent] ?? [
-    // Generic fallback for any other state
+export function getMunTemplatesForState(ent: string): MunTemplate[] {
+  if (MOCK_MUN_TEMPLATES[ent]) {
+    return MOCK_MUN_TEMPLATES[ent];
+  }
+  return [
     { cvegeo: `${ent}001`, ent, name: `Municipio Capital (${ent})`, baseRiskScore: 45, lastPart: 0.55, trend: -0.5, lista: 300000 },
     { cvegeo: `${ent}002`, ent, name: `Municipio Norte (${ent})`, baseRiskScore: 68, lastPart: 0.46, trend: -2.0, lista: 120000 },
     { cvegeo: `${ent}003`, ent, name: `Municipio Sur (${ent})`, baseRiskScore: 79, lastPart: 0.41, trend: -3.1, lista: 85000 },
     { cvegeo: `${ent}004`, ent, name: `Municipio Oriente (${ent})`, baseRiskScore: 54, lastPart: 0.51, trend: -1.0, lista: 95000 },
     { cvegeo: `${ent}005`, ent, name: `Municipio Poniente (${ent})`, baseRiskScore: 33, lastPart: 0.62, trend: 0.7, lista: 140000 },
   ];
+}
+
+export function generateMockMunicipalityItems(
+  ent?: string,
+  scenario: ScenarioId = "base",
+  params?: Record<string, number | string>
+): RiskItem[] {
+  if (!ent) {
+    const all: RiskItem[] = [];
+    for (const state of MOCK_STATES) {
+      all.push(...generateMockMunicipalityItems(state.id, scenario, params));
+    }
+    return all;
+  }
+
+  const templates = getMunTemplatesForState(ent);
 
   return templates.map((m) => {
     let riskScore = m.baseRiskScore;
@@ -158,24 +175,36 @@ export function generateMockMunicipalityItems(
     let deltaVsBase: number | null = null;
 
     if (scenario === "intervencion") {
-      const focalizacion = (params?.focalizacion as string) ?? "rojo_naranja";
+      const targeting = (params?.targeting as string) ?? "rojo_naranja";
       const applies =
-        focalizacion === "todos" ||
-        (focalizacion === "rojo_naranja" && m.baseRiskScore >= 55) ||
-        (focalizacion === "rojo" && m.baseRiskScore >= 75);
+        targeting === "todos" ||
+        (targeting === "rojo_naranja" && m.baseRiskScore >= 55) ||
+        (targeting === "rojo" && m.baseRiskScore >= 75);
 
       if (applies) {
-        const effectPp = typeof params?.effect_pp === "number" ? params.effect_pp : 3.5;
-        const coverage = typeof params?.coverage === "number" ? params.coverage : 0.8;
-        const delta = (effectPp * coverage) / 100;
-        deltaVsBase = -Math.round(delta * 1000) / 10;
+        const effectPp = typeof params?.effect_pp === "number" ? params.effect_pp : 3.0;
+        const coverage = typeof params?.coverage === "number" ? params.coverage : 100;
+        const lever = (params?.lever as string) ?? "promocion_jovenes";
+        let peso = 1.0;
+        if (lever === "casillas_rurales") {
+          peso = m.cvegeo.endsWith("3") || m.cvegeo.endsWith("0") ? 1.2 : 0.85;
+        } else if (lever === "materiales_lengua_indigena") {
+          peso = m.ent === "07" || m.ent === "20" ? 1.25 : 0.75;
+        } else if (lever === "promocion_jovenes") {
+          peso = m.cvegeo.endsWith("1") || m.cvegeo.endsWith("6") ? 1.15 : 0.9;
+        }
+        const deltaPp = effectPp * (coverage / 100) * peso;
+        const delta = deltaPp / 100;
+        deltaVsBase = -Math.round(deltaPp * 10) / 10;
         predAbs = Math.max(0.18, Math.round((predAbs - delta) * 1000) / 1000);
         riskScore = Math.max(10, riskScore - 18);
       } else {
         deltaVsBase = 0;
       }
     } else if (scenario === "pesimista") {
-      const deltaPp = 2.2 + Math.abs(m.trend < 0 ? m.trend * 0.5 : 0);
+      const shockPp = typeof params?.shock_pp === "number" ? params.shock_pp : 2.0;
+      const trendAmp = typeof params?.trend_amplifier === "number" ? params.trend_amplifier : 50;
+      const deltaPp = shockPp + Math.abs(m.trend < 0 ? m.trend * (trendAmp / 100) : 0);
       deltaVsBase = Math.round(deltaPp * 10) / 10;
       predAbs = Math.min(0.90, Math.round((predAbs + deltaPp / 100) * 1000) / 1000);
       riskScore = Math.min(99, riskScore + 14);
@@ -202,6 +231,7 @@ export function generateMockMunicipalityItems(
       risk_score: riskScore,
       category,
       delta_vs_base_pp: deltaVsBase,
+      abstencion_esperada: Math.round(predAbs * m.lista),
     };
   });
 }

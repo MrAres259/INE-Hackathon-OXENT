@@ -3,7 +3,7 @@ import type { FeatureCollection, Polygon, Geometry } from "geojson";
 import type { GeoIndexFile, GeoIndexItem, GeoIndexState, GeoIndexMun } from "../types";
 import { toIndexItems } from "../geo";
 import { MOCK_STATES } from "./meta";
-import { MOCK_MUN_TEMPLATES } from "./risk";
+import { MOCK_MUN_TEMPLATES, getMunTemplatesForState } from "./risk";
 
 export type { GeoIndexItem };
 
@@ -86,7 +86,7 @@ export function getMockMunGeoJson(
   ent: string
 ): FeatureCollection<Geometry, { id: string; ent: string; name: string }> {
   const centroid = STATE_CENTROIDS[ent] ?? [23.0, -102.0];
-  const templates = MOCK_MUN_TEMPLATES[ent] ?? [];
+  const templates = getMunTemplatesForState(ent);
   const count = Math.max(templates.length, 6);
 
   // Layout in rows x cols around the state centroid
@@ -133,7 +133,9 @@ export function getMockGeoIndexFile(): GeoIndexFile {
   }
 
   const mun: Record<string, GeoIndexMun> = {};
-  for (const [ent, muns] of Object.entries(MOCK_MUN_TEMPLATES)) {
+  for (const s of MOCK_STATES) {
+    const ent = s.id;
+    const muns = getMunTemplatesForState(ent);
     const [stateLat, stateLon] = STATE_CENTROIDS[ent] ?? [23.0, -102.0];
     muns.forEach((m, idx) => {
       const r = Math.floor(idx / 3);

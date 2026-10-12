@@ -23,11 +23,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es" className={`${inter.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col font-sans bg-slate-950 text-slate-100">
+      <body className="min-h-dvh lg:h-dvh flex flex-col font-sans bg-slate-950 text-slate-100">
         <AtalayaProvider>
           <TopBar />
           <ScenarioControls />
-          <main className="flex-1 w-full max-w-[1700px] mx-auto p-3 md:p-5 flex flex-col">
+          <main className="flex-1 min-h-0 w-full max-w-[1700px] mx-auto p-3 md:p-5 flex flex-col">
             {children}
           </main>
         </AtalayaProvider>

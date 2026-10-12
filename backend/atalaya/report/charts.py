@@ -56,6 +56,7 @@ def svg_choropleth(
     stroke: str = "#ffffff",
     stroke_width: float = 0.3,
     title: str | None = None,
+    legend: list[tuple[str, str]] | None = None,
 ) -> str:
     """Renders a choropleth map in SVG using equirectangular projection with cos(mean_lat) correction.
 
@@ -112,9 +113,10 @@ def svg_choropleth(
 
     padding = 12.0
     title_height = 30.0 if title else 0.0
+    legend_height = 22.0 if legend else 0.0
 
     usable_w = max(width - 2.0 * padding, 10.0)
-    usable_h = max(height - 2.0 * padding - title_height, 10.0)
+    usable_h = max(height - 2.0 * padding - title_height - legend_height, 10.0)
 
     scale = min(usable_w / max(dx, 1e-7), usable_h / max(dy, 1e-7))
 
@@ -186,10 +188,27 @@ def svg_choropleth(
         else ""
     )
 
+    legend_elems: list[str] = []
+    if legend:
+        item_widths = [len(lbl) * 5.6 + 22.0 for lbl, _ in legend]
+        gap = 12.0
+        tot_legend_w = sum(item_widths) + max(0, len(legend) - 1) * gap
+        cur_x = max(padding, (width - tot_legend_w) / 2.0)
+        leg_y = height - 8.0
+        for (lbl, col), iw in zip(legend, item_widths):
+            legend_elems.append(
+                f'<rect x="{cur_x:.1f}" y="{leg_y - 9.0:.1f}" width="10" height="10" rx="2" fill="{col}" stroke="#757575" stroke-width="0.5" />'
+            )
+            legend_elems.append(
+                f'<text x="{cur_x + 14.0:.1f}" y="{leg_y - 1.0:.1f}" font-family="Arial, sans-serif" font-size="8.5" fill="#37474f">{html.escape(lbl)}</text>'
+            )
+            cur_x += iw + gap
+
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" style="background-color: transparent;">'
         f"{title_elem}"
         f'{"".join(paths)}'
+        f'{"".join(legend_elems)}'
         f"</svg>"
     )
 

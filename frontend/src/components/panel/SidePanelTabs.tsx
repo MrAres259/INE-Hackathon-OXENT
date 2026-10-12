@@ -9,7 +9,7 @@ export function SidePanelTabs() {
   const [activeTab, setActiveTab] = useState<"detail" | "ranking" | "chat">("detail");
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl flex flex-col h-full shadow-xl overflow-hidden">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl flex flex-col h-full min-h-0 shadow-xl overflow-hidden">
       {/* Tab Navigation */}
       <div className="flex border-b border-slate-800 bg-slate-950/60 p-1.5 gap-1 shrink-0">
         <button
@@ -59,7 +59,7 @@ export function SidePanelTabs() {
       </div>
 
       {/* Tab Body */}
-      <div className="p-4 flex-1 overflow-y-auto">
+      <div className="p-4 flex-1 min-h-0 overflow-y-auto">
         {activeTab === "detail" && <RegionDetailPanel />}
         {activeTab === "ranking" && <RankingTable />}
         {activeTab === "chat" && <ChatPanel />}

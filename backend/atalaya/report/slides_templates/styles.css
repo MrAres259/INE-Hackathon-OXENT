@@ -179,7 +179,8 @@ section.slide.hero {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 0.14in;
+  gap: 0.10in;
+  min-height: 0;
 }
 
 .col-half {
@@ -187,7 +188,8 @@ section.slide.hero {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 0.14in;
+  gap: 0.10in;
+  min-height: 0;
 }
 
 .col-third {
@@ -195,7 +197,8 @@ section.slide.hero {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 0.12in;
+  gap: 0.10in;
+  min-height: 0;
 }
 
 /* Cards */
@@ -203,20 +206,23 @@ section.slide.hero {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 0.18in 0.24in;
+  padding: 0.09in 0.15in;
   box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .card-title {
-  font-size: 20pt;
+  font-size: 14.5pt;
   font-weight: 700;
   color: #0f172a;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  line-height: 1.18;
 }
 
 .card-text {
-  font-size: 18pt;
-  line-height: 1.32;
+  font-size: 12pt;
+  line-height: 1.25;
   color: #334155;
   margin: 0;
 }
@@ -225,36 +231,50 @@ section.slide.hero {
 .card-rojo {
   border-left: 8px solid #c62828;
   background: #fffafa;
+  padding: 0.07in 0.12in;
 }
 
 .card-naranja {
   border-left: 8px solid #ef6c00;
   background: #fffcf9;
+  padding: 0.07in 0.12in;
 }
 
 .card-amarillo {
   border-left: 8px solid #f9a825;
   background: #fffff7;
+  padding: 0.07in 0.12in;
 }
 
 .card-verde {
   border-left: 8px solid #2e7d32;
   background: #f9fff9;
+  padding: 0.07in 0.12in;
+}
+
+.card-rojo .card-title, .card-naranja .card-title, .card-amarillo .card-title, .card-verde .card-title {
+  font-size: 13.5pt;
+  margin-bottom: 2px;
+}
+
+.card-rojo .card-text, .card-naranja .card-text, .card-amarillo .card-text, .card-verde .card-text {
+  font-size: 11pt;
+  line-height: 1.22;
 }
 
 .metric-highlight {
-  font-size: 22pt;
+  font-size: 20pt;
   font-weight: 800;
   color: #0f172a;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 /* Badges */
 .badge-pill {
   display: inline-block;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 15pt;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10pt;
   font-weight: 700;
 }
 
@@ -282,27 +302,27 @@ section.slide.hero {
 table.data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 16pt;
+  font-size: 11pt;
   background: #ffffff;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 table.data-table th {
   background: #0f172a;
   color: #ffffff;
-  padding: 7px 10px;
+  padding: 4px 6px;
   text-align: left;
-  font-size: 16pt;
+  font-size: 11pt;
   font-weight: 700;
 }
 
 table.data-table td {
-  padding: 5px 10px;
+  padding: 3px 6px;
   border-bottom: 1px solid #f1f5f9;
   color: #1e293b;
-  font-size: 15pt;
+  font-size: 10.5pt;
 }
 
 table.data-table tr:nth-child(even) {

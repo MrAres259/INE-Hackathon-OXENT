@@ -13,6 +13,8 @@ import json
 import logging
 from pathlib import Path
 import re
+import subprocess
+import sys
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
@@ -23,12 +25,14 @@ from atalaya.config import BUILD_DIR, DATA_DIR, REPO_DIR
 from atalaya.model.scenarios import simulate
 from atalaya.report.charts import (
     CATEGORY_COLORS,
+    find_browser,
     html_to_pdf,
     svg_bars,
     svg_choropleth,
     svg_line,
     svg_stacked_bars,
 )
+from atalaya.report.facts import DEFAULT_REPO_URL, DEFAULT_TEAM, compute_facts
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +117,12 @@ def load_historical_series(build_dir: Path) -> list[tuple[float, float]]:
 def load_age_profile(build_dir: Path) -> list[tuple[str, float]]:
     """Loads age-group participation rates for 2024 from CCPC profile."""
     default_rates = [
-        ("18 a 24 años", 50.4),
-        ("25 a 34 años", 49.6),
-        ("35 a 44 años", 58.1),
-        ("45 a 54 años", 65.6),
-        ("55 a 64 años", 71.1),
-        ("65 y más años", 70.7),
+        ("18-24", 50.4),
+        ("25-34", 49.6),
+        ("35-44", 58.1),
+        ("45-54", 65.6),
+        ("55-64", 71.1),
+        ("65+", 70.7),
     ]
 
     parquet_path = build_dir / "ccpc_profile.parquet"
@@ -142,8 +146,7 @@ def load_age_profile(build_dir: Path) -> list[tuple[str, float]]:
             denom = sv + nv
             if denom > 0:
                 p = round(float(sv) / float(denom) * 100.0, 1)
-                label = f"{ag} años" if "años" not in str(ag) else str(ag)
-                rates.append((label, p))
+                rates.append((str(ag), p))
 
         return rates if rates else default_rates
     except Exception as exc:
@@ -175,7 +178,6 @@ def load_units(build_dir: Path) -> pd.DataFrame:
     """Loads units.parquet DataFrame."""
     units_path = build_dir / "units.parquet"
     if not units_path.is_file():
-        # Minimal synthetic frame
         return pd.DataFrame([
             {"id": "01001", "level": "mun", "cve_ent": "01", "name": "Aguascalientes",
              "lista_nominal": 700000, "pred_abstention": 0.42, "category": "verde", "risk_score": 30.0},
@@ -199,7 +201,7 @@ def load_states_catalog(data_dir: Path | None = None) -> dict[str, str]:
         if p and p.is_file():
             try:
                 df = pd.read_csv(p, dtype=str)
-                return dict(zip(df["cve_ent"], df["name"]))
+                return dict(zip(df["cve_ent"].str.zfill(2), df["name"]))
             except Exception:
                 pass
     return {}
@@ -208,10 +210,26 @@ def load_states_catalog(data_dir: Path | None = None) -> dict[str, str]:
 def load_map_geojson(geo_dir: Path, deliverables_dir: Path | None = None) -> tuple[dict[str, Any], str]:
     """Loads GeoJSON for the slide map.
 
-    Prioritizes municipal GeoJSON, falls back to states GeoJSON.
+    Prioritizes state GeoJSON for slide performance and legibility, falls back to municipal.
     Returns (geojson_dict, level_str).
     """
+    states_file = geo_dir / "states.json"
+    if states_file.is_file():
+        try:
+            with open(states_file, "r", encoding="utf-8") as f:
+                return json.load(f), "state"
+        except Exception:
+            pass
+
     if deliverables_dir:
+        st_deliv = deliverables_dir / "mapa_escenarios_estatal.geojson"
+        if st_deliv.is_file():
+            try:
+                with open(st_deliv, "r", encoding="utf-8") as f:
+                    return json.load(f), "state"
+            except Exception:
+                pass
+
         mun_deliv = deliverables_dir / "mapa_escenarios_municipal.geojson"
         if mun_deliv.is_file():
             try:
@@ -235,22 +253,7 @@ def load_map_geojson(geo_dir: Path, deliverables_dir: Path | None = None) -> tup
             if features:
                 return {"type": "FeatureCollection", "features": features}, "mun"
 
-    states_file = geo_dir / "states.json"
-    if states_file.is_file():
-        try:
-            with open(states_file, "r", encoding="utf-8") as f:
-                return json.load(f), "state"
-        except Exception:
-            pass
-
-    if deliverables_dir:
-        st_deliv = deliverables_dir / "mapa_escenarios_estatal.geojson"
-        if st_deliv.is_file():
-            try:
-                with open(st_deliv, "r", encoding="utf-8") as f:
-                    return json.load(f), "state"
-            except Exception:
-                pass
+    return {"type": "FeatureCollection", "features": []}, "empty"
 
     return {"type": "FeatureCollection", "features": []}, "empty"
 
@@ -329,7 +332,6 @@ def compute_top_priorities(mun_df: pd.DataFrame, states_map: dict[str, str]) -> 
     if "cve_ent" in df.columns and "nom_ent" not in df.columns:
         df["nom_ent"] = df["cve_ent"].map(states_map)
 
-    # Filter rojo and naranja first; fall back to all if empty
     target_df = df[df.get("category", "").isin(["rojo", "naranja"])]
     if target_df.empty:
         target_df = df
@@ -339,11 +341,10 @@ def compute_top_priorities(mun_df: pd.DataFrame, states_map: dict[str, str]) -> 
 
     for rank, (_, row) in enumerate(sorted_df.iterrows(), start=1):
         name = str(row.get("name", f"Municipio {rank}"))
-        ent_code = str(row.get("cve_ent", ""))
+        ent_code = str(row.get("cve_ent", "")).zfill(2)
         ent_name = str(row.get("nom_ent", states_map.get(ent_code, ent_code)))
         ln = _safe_float(row.get("lista_nominal", 0))
         abs_esp = _safe_float(row.get("abstencion_esperada", 0))
-        pred_abs = _safe_float(row.get("pred_abstention", 0.5))
         cat = str(row.get("category", "naranja"))
 
         results.append({
@@ -352,7 +353,6 @@ def compute_top_priorities(mun_df: pd.DataFrame, states_map: dict[str, str]) -> 
             "ent_name": ent_name,
             "ln_fmt": _fmt_int(ln),
             "abs_esp_fmt": _fmt_int(abs_esp),
-            "pred_abs_pct": _fmt_pct(pred_abs),
             "category": cat,
         })
 
@@ -363,19 +363,23 @@ def render_slides_html(
     build_dir: Path,
     geo_dir: Path,
     deliverables_dir: Path | None = None,
-    team_name: str = "[Nombre del equipo]",
-    repo_url: str = "[URL del repositorio]",
+    team_name: str = DEFAULT_TEAM,
+    repo_url: str = DEFAULT_REPO_URL,
 ) -> str:
     """Builds the complete HTML string containing exactly 10 slides."""
-    # 1. Load data
-    hist_series = load_historical_series(build_dir)
-    age_profile = load_age_profile(build_dir)
-    metrics = load_metrics(build_dir)
-    units_df = load_units(build_dir)
-    mun_df = units_df[units_df.get("level", "mun") == "mun"] if "level" in units_df.columns else units_df
-    states_map = load_states_catalog(build_dir.parent if build_dir.name == "build" else None)
+    # 1. Single source of truth: compute facts
+    stats = compute_facts(
+        build_dir,
+        deliverables_dir=deliverables_dir,
+        team=team_name,
+        repo_url=repo_url,
+    )
 
     # 2. Charts
+    hist_series = [(float(yr), float(val)) for yr, val in stats.get("hist_dip_pts", [])]
+    if not hist_series:
+        hist_series = load_historical_series(build_dir)
+
     chart_history = svg_line(
         {"Participación DIP_FED": hist_series},
         width=740,
@@ -383,6 +387,32 @@ def render_slides_html(
         y_label="Participación (%)",
         y_fmt="{:.0f}%",
     )
+
+    # Demographic profile with exact age groups
+    age_profile: list[tuple[str, float]] = []
+    age_totals: dict[str, dict[str, int]] = {}
+    for item in stats.get("age_sex_2024", []):
+        ag = str(item.get("age_group", ""))
+        if ag not in age_totals:
+            age_totals[ag] = {"sv": 0, "nv": 0}
+        age_totals[ag]["sv"] += int(item.get("sv", 0))
+        age_totals[ag]["nv"] += int(item.get("nv", 0))
+
+    for ag in ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]:
+        if ag in age_totals and (age_totals[ag]["sv"] + age_totals[ag]["nv"]) > 0:
+            tot = age_totals[ag]["sv"] + age_totals[ag]["nv"]
+            rate = round(age_totals[ag]["sv"] / tot * 100.0, 1)
+            age_profile.append((ag, rate))
+
+    if not age_profile:
+        age_profile = [
+            ("18-24", 50.4),
+            ("25-34", 49.6),
+            ("35-44", 58.1),
+            ("45-54", 65.6),
+            ("55-64", 71.1),
+            ("65+", 70.7),
+        ]
 
     chart_age_gap = svg_bars(
         age_profile,
@@ -393,12 +423,20 @@ def render_slides_html(
         color="#1565c0",
     )
 
+    # Base map choropleth
     map_geojson, map_level = load_map_geojson(geo_dir, deliverables_dir)
-    if map_level == "state" and "level" in units_df.columns:
-        state_df = units_df[units_df["level"] == "state"]
-        fill_by_id = {str(r.get("id", "")): str(r.get("category", "sin_dato")) for _, r in state_df.iterrows()}
-    else:
-        fill_by_id = {str(r.get("id", "")): str(r.get("category", "sin_dato")) for _, r in mun_df.iterrows()}
+    fill_by_id: dict[str, str] = {}
+    units_file = build_dir / "units.parquet"
+    if units_file.is_file():
+        try:
+            udf = pd.read_parquet(units_file)
+            if map_level == "state" and "level" in udf.columns:
+                udf = udf[udf["level"] == "state"]
+            elif "level" in udf.columns and (udf["level"] == "mun").any():
+                udf = udf[udf["level"] == "mun"]
+            fill_by_id = {str(r.get("id", "")): str(r.get("category", "sin_dato")) for _, r in udf.iterrows()}
+        except Exception:
+            pass
 
     chart_map_base = svg_choropleth(
         map_geojson,
@@ -407,31 +445,54 @@ def render_slides_html(
         height=440,
     )
 
-    scenario_rows, scenario_summary = compute_scenarios(units_df)
+    # Scenarios stacked bars from single facts source
+    order = ["verde", "amarillo", "naranja", "rojo"]
+    cat_base = stats.get("categories", {}).get("base", {})
+    cat_inter = stats.get("categories", {}).get("intervencion", {})
+    cat_pesim = stats.get("categories", {}).get("pesimista", {})
+    scenario_rows = [
+        ("Base (Inercial)", {c: float(cat_base.get(c, {}).get("n", 0)) for c in order}),
+        ("Intervención", {c: float(cat_inter.get(c, {}).get("n", 0)) for c in order}),
+        ("Pesimista", {c: float(cat_pesim.get(c, {}).get("n", 0)) for c in order}),
+    ]
     chart_scenarios = svg_stacked_bars(
         scenario_rows,
-        order=["verde", "amarillo", "naranja", "rojo"],
+        order=order,
         colors=CATEGORY_COLORS,
         width=720,
         height=290,
     )
 
-    # 3. Context metrics
-    cat_counts = compute_category_counts(mun_df)
-    top_priorities = compute_top_priorities(mun_df, states_map)
+    # Top priorities from stats
+    top_priorities = [
+        {
+            "rank": p.get("rank", i + 1),
+            "name": p.get("name", ""),
+            "ent_name": p.get("state", p.get("ent_name", "")),
+            "ln_fmt": p.get("ln", p.get("ln_fmt", "")),
+            "abs_esp_fmt": p.get("abst_esp", p.get("abs_esp_fmt", "")),
+            "category": p.get("cat", p.get("category", "")),
+        }
+        for i, p in enumerate(stats.get("top_priorities", [])[:8])
+    ]
 
-    backtests = metrics.get("backtests", [])
+    # Model validation backtests from stats
+    backtests = stats.get("model", {}).get("backtests", [])
     bt_2021 = next((b for b in backtests if b.get("test_year") == 2021), {})
     bt_2024 = next((b for b in backtests if b.get("test_year") == 2024), {})
 
-    structural_r2 = metrics.get("structural_r2", 0.30)
-    r2_display = f"{structural_r2:.2f}" if structural_r2 is not None and not pd.isna(structural_r2) else "0.30"
+    backtest_2021_mae = f"{_safe_float(bt_2021.get('mae_pp', 5.95)):.2f}"
+    backtest_2021_spearman = f"{_safe_float(bt_2021.get('spearman', 0.84)):.2f}"
+    backtest_2021_top20 = f"{round(_safe_float(bt_2021.get('top20_hit', 0.676)) * 100):.0f}"
+    backtest_2024_mae = f"{_safe_float(bt_2024.get('mae_pp', 6.05)):.2f}"
+    backtest_2024_spearman = f"{_safe_float(bt_2024.get('spearman', 0.81)):.2f}"
+    backtest_2024_top20 = f"{round(_safe_float(bt_2024.get('top20_hit', 0.696)) * 100):.0f}"
 
-    # 4. CSS
+    # 3. CSS
     css_file = TEMPLATES_DIR / "styles.css"
     styles_css = css_file.read_text(encoding="utf-8") if css_file.is_file() else ""
 
-    # 5. Template render
+    # 4. Template render
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True)
     template = env.get_template("presentation.html")
 
@@ -439,26 +500,23 @@ def render_slides_html(
         "styles_css": styles_css,
         "team_name": team_name,
         "repo_url": repo_url,
+        "stats": stats,
         "chart_history": chart_history,
         "chart_age_gap": chart_age_gap,
         "chart_map_base": chart_map_base,
         "chart_scenarios": chart_scenarios,
-        "cat_counts": cat_counts,
-        "scenario_summary": scenario_summary,
         "top_priorities": top_priorities,
-        "backtest_2021_mae": f"{_safe_float(bt_2021.get('mae_pp', 5.95)):.2f}",
-        "backtest_2021_spearman": f"{_safe_float(bt_2021.get('spearman', 0.84)):.2f}",
-        "backtest_2021_top20": f"{round(_safe_float(bt_2021.get('top20_hit', 0.676)) * 100):.0f}",
-        "backtest_2024_mae": f"{_safe_float(bt_2024.get('mae_pp', 6.05)):.2f}",
-        "backtest_2024_spearman": f"{_safe_float(bt_2024.get('spearman', 0.81)):.2f}",
-        "backtest_2024_top20": f"{round(_safe_float(bt_2024.get('top20_hit', 0.696)) * 100):.0f}",
-        "structural_r2_display": r2_display,
+        "backtest_2021_mae": backtest_2021_mae,
+        "backtest_2021_spearman": backtest_2021_spearman,
+        "backtest_2021_top20": backtest_2021_top20,
+        "backtest_2024_mae": backtest_2024_mae,
+        "backtest_2024_spearman": backtest_2024_spearman,
+        "backtest_2024_top20": backtest_2024_top20,
     }
 
     rendered_html = template.render(**context)
 
-    # Sanitize rendered HTML: ensure no visible raw "None" or "NaN" tokens outside CSS/tags
-    # Replace any isolated None or NaN inside HTML tags content
+    # Sanitize rendered HTML: ensure no visible raw "None" or "NaN" tokens outside tags
     def clean_text_nodes(match: re.Match) -> str:
         text = match.group(0)
         text = re.sub(r'>\s*None\s*<', '>N/D<', text)
@@ -470,13 +528,63 @@ def render_slides_html(
     return rendered_html
 
 
+def check_overflow(html_path: Path, timeout_s: int = 20) -> list[str]:
+    """Runs headless Chrome to detect card text overflows tagged with data-overflow="1".
+
+    Returns a list of slide IDs that have overflowing cards.
+    """
+    try:
+        browser = find_browser()
+    except RuntimeError:
+        logger.warning("No headless browser found to run overflow check.")
+        return []
+
+    file_uri = html_path.resolve().as_uri()
+    cmd = [
+        str(browser),
+        "--headless=new",
+        "--disable-gpu",
+        "--virtual-time-budget=5000",
+        "--dump-dom",
+        file_uri,
+    ]
+    try:
+        res = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_s,
+        )
+        dom = res.stdout or ""
+        if 'data-overflow="1"' not in dom:
+            return []
+
+        overflowing: list[str] = []
+        for match in re.finditer(r'<section[^>]*id="([^"]+)"[\s\S]*?</section>', dom):
+            slide_id = match.group(1)
+            content = match.group(0)
+            if 'data-overflow="1"' in content:
+                overflowing.append(slide_id)
+
+        if not overflowing and 'data-overflow="1"' in dom:
+            overflowing.append("slide-unknown")
+
+        return overflowing
+    except Exception as exc:
+        logger.warning("Failed running browser overflow check: %s", exc)
+        return []
+
+
 def build_slides(
     build_dir: Path | str | None = None,
     geo_dir: Path | str | None = None,
     out_dir: Path | str | None = None,
     *,
-    team_name: str = "[Nombre del equipo]",
-    repo_url: str = "[URL del repositorio]",
+    team_name: str = DEFAULT_TEAM,
+    repo_url: str = DEFAULT_REPO_URL,
     make_pdf: bool = True,
 ) -> tuple[Path, Path | None]:
     """Generates the executive presentation HTML and PDF files.
@@ -507,7 +615,11 @@ def build_slides(
 
     o_dir.mkdir(parents=True, exist_ok=True)
 
-    deliverables_dir = REPO_DIR / "deliverables" if (REPO_DIR / "deliverables").is_dir() else None
+    deliverables_dir = (
+        Path(out_dir)
+        if out_dir and (Path(out_dir) / "mapa_escenarios_estatal.geojson").is_file()
+        else (REPO_DIR / "deliverables" if (REPO_DIR / "deliverables").is_dir() else None)
+    )
 
     html_content = render_slides_html(
         b_dir,
@@ -537,11 +649,11 @@ def build_slides(
 def main() -> None:
     """CLI entry point for building slides."""
     parser = argparse.ArgumentParser(description="Build ATALAYA Executive Presentation (10 slides)")
-    parser.add_argument("--build-dir", type=Path, default=None, help="Path to build parquet artifacts")
+    parser.add_argument("--build-dir", type=Path, default=BUILD_DIR, help="Path to build parquet artifacts")
     parser.add_argument("--geo-dir", type=Path, default=None, help="Path to frontend geo directory")
     parser.add_argument("--out", type=Path, default=None, help="Output deliverables directory")
-    parser.add_argument("--team-name", type=str, default="[Nombre del equipo]", help="Team name placeholder")
-    parser.add_argument("--repo-url", type=str, default="[URL del repositorio]", help="Repo URL placeholder")
+    parser.add_argument("--team", "--team-name", dest="team_name", type=str, default=DEFAULT_TEAM, help="Team name placeholder")
+    parser.add_argument("--repo-url", type=str, default=DEFAULT_REPO_URL, help="Repo URL placeholder")
     parser.add_argument("--no-pdf", action="store_true", help="Skip PDF generation")
 
     args = parser.parse_args()
@@ -560,6 +672,12 @@ def main() -> None:
         print(f"Generated PDF: {pdf_p}")
     else:
         print("PDF compilation was skipped or failed.")
+
+    # Overflow detection check
+    overflows = check_overflow(html_p)
+    if overflows:
+        print(f"ERROR: Text overflow detected in slide(s): {', '.join(overflows)}", file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

@@ -91,14 +91,62 @@ def load_rules(csv_path: Path | None = None) -> list[dict[str, str]]:
     return rules
 
 
-def _eval_single_condition(cond: str, unit: dict, drivers: list[dict], ref: RecoReference) -> bool:
+VAR_DIRECTIONS: dict[str, str] = {
+    "pct_internet": "low",
+    "graproes": "low",
+    "coverage_ln": "low",
+    "pct_18_24": "high",
+    "pct_rural": "high",
+    "pct_hli": "high",
+    "pct_analfabeta": "high",
+    "pct_65ymas": "high",
+    "trend_pp": "low",
+    "volatility_pp": "high",
+}
+
+
+def _eval_single_condition(
+    cond: str,
+    unit: dict,
+    drivers: list[dict],
+    ref: RecoReference,
+    rule: dict | None = None,
+) -> bool:
     """Evaluates a single condition string."""
     cond = cond.strip()
 
     # 1. Driver condition: driver:<col>
     if cond.startswith("driver:"):
         col = cond.split(":", 1)[1].strip()
-        return any(d.get("key") == col and d.get("direction") == "sube_abstencion" for d in drivers)
+        has_driver = any(d.get("key") == col and d.get("direction") == "sube_abstencion" for d in drivers)
+        if not has_driver:
+            return False
+
+        # Driver trigger also requires unit value to be on the unfavorable side of the national median
+        unit_val = unit.get(col)
+        if unit_val is None or pd.isna(unit_val):
+            return False
+        try:
+            val_float = float(unit_val)
+        except (ValueError, TypeError):
+            return False
+
+        median = ref.p50.get(col)
+        if median is None:
+            return False
+
+        rule_dir = (rule.get("direction") or "").strip().lower() if rule else ""
+        if rule_dir in ("low", "high"):
+            direction = rule_dir
+        elif col in VAR_DIRECTIONS:
+            direction = VAR_DIRECTIONS[col]
+        else:
+            direction = "high"
+
+        if direction == "low":
+            return val_float < median
+        else:
+            return val_float > median
 
     # 2. In condition: col in A;B
     if " in " in cond:
@@ -148,10 +196,16 @@ def _eval_single_condition(cond: str, unit: dict, drivers: list[dict], ref: Reco
     return False
 
 
-def _eval_trigger(trigger: str, unit: dict, drivers: list[dict], ref: RecoReference) -> bool:
+def _eval_trigger(
+    trigger: str,
+    unit: dict,
+    drivers: list[dict],
+    ref: RecoReference,
+    rule: dict | None = None,
+) -> bool:
     """Evaluates an OR-separated trigger string."""
     conditions = trigger.split("|")
-    return any(_eval_single_condition(c, unit, drivers, ref) for c in conditions)
+    return any(_eval_single_condition(c, unit, drivers, ref, rule=rule) for c in conditions)
 
 
 def _format_rationale(template: str, unit: dict, ref: RecoReference) -> str:
@@ -232,7 +286,7 @@ def recommend(
 
     for idx, r in enumerate(rule_defs):
         trigger = r.get("trigger", "")
-        if not _eval_trigger(trigger, unit, drivers, ref):
+        if not _eval_trigger(trigger, unit, drivers, ref, rule=r):
             continue
 
         base_prio = r.get("base_priority", "baja")

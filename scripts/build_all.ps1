@@ -6,7 +6,8 @@ param(
     [switch]$Load,
     [switch]$SkipGeo,
     [switch]$SkipModel,
-    [switch]$SkipExport
+    [switch]$SkipExport,
+    [switch]$SkipReports
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,7 +25,7 @@ Write-Host "==========================================================" -Foregro
 Write-Host " ATALAYA Full Data Build Pipeline" -ForegroundColor Cyan
 Write-Host " Root:     $repoRoot" -ForegroundColor Gray
 Write-Host " Backend:  $backendDir" -ForegroundColor Gray
-Write-Host " Options:  Load=$Load, SkipGeo=$SkipGeo, SkipModel=$SkipModel, SkipExport=$SkipExport" -ForegroundColor Gray
+Write-Host " Options:  Load=$Load, SkipGeo=$SkipGeo, SkipModel=$SkipModel, SkipExport=$SkipExport, SkipReports=$SkipReports" -ForegroundColor Gray
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 Push-Location $backendDir
@@ -37,7 +38,7 @@ function Run-Step {
     )
 
     Write-Host "`n----------------------------------------------------------" -ForegroundColor Yellow
-    Write-Host " [$StepNumber/12] $StepTitle" -ForegroundColor Yellow
+    Write-Host " [$StepNumber/14] $StepTitle" -ForegroundColor Yellow
     Write-Host "----------------------------------------------------------" -ForegroundColor Yellow
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -180,6 +181,26 @@ try {
         } else {
             Write-Host "backend/scripts/validate_build.py does not exist. Skipped." -ForegroundColor Yellow
             $global:LASTEXITCODE = 0
+        }
+    }
+
+    # Step 13: Executive Report Generation
+    Run-Step -StepNumber "13" -StepTitle "Generating Executive Methodological Report" -Action {
+        if ($SkipReports) {
+            Write-Host "-SkipReports specified. Skipping report build." -ForegroundColor Gray
+            $global:LASTEXITCODE = 0
+        } else {
+            python -m atalaya.report.build_report
+        }
+    }
+
+    # Step 14: Presentation Slides Generation
+    Run-Step -StepNumber "14" -StepTitle "Generating Executive Presentation Slides" -Action {
+        if ($SkipReports) {
+            Write-Host "-SkipReports specified. Skipping slides build." -ForegroundColor Gray
+            $global:LASTEXITCODE = 0
+        } else {
+            python -m atalaya.report.build_slides
         }
     }
 

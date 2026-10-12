@@ -3,6 +3,7 @@
 export type Category = "verde" | "amarillo" | "naranja" | "rojo" | "sin_dato";
 export type Level = "state" | "mun";
 export type ScenarioId = "base" | "intervencion" | "pesimista";
+export type MapMode = "semaforo" | "delta" | "compare";
 
 export type RiskItem = {
   id: string;

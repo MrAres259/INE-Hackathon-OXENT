@@ -2,6 +2,7 @@
 import type { FeatureCollection, Geometry } from "geojson";
 import type { GeoIndexFile, GeoIndexItem, RiskItem } from "./types";
 import { getMockStatesGeoJson, getMockMunGeoJson, getMockGeoIndex } from "./mocks/geo";
+import { MOCK_STATES } from "./mocks/meta";
 import { CATEGORY_COLORS } from "./format";
 
 export type StateProperties = {
@@ -105,5 +106,51 @@ export async function fetchGeoIndex(): Promise<GeoIndexItem[]> {
     return toIndexItems(raw);
   } catch {
     return getMockGeoIndex();
+  }
+}
+
+export type CountryProperties = {
+  id: string;
+};
+
+export function getMockMunAllGeoJson(): FeatureCollection<Geometry, MunProperties> {
+  const allFeatures: FeatureCollection<Geometry, MunProperties>["features"] = [];
+  for (const s of MOCK_STATES) {
+    const fc = getMockMunGeoJson(s.id);
+    allFeatures.push(...fc.features);
+  }
+  return {
+    type: "FeatureCollection",
+    features: allFeatures,
+  };
+}
+
+export async function fetchMunAllGeoJson(): Promise<FeatureCollection<Geometry, MunProperties>> {
+  if (isMockForce()) {
+    return getMockMunAllGeoJson();
+  }
+  try {
+    const res = await fetch("/geo/mun_all.json");
+    if (!res.ok) {
+      return getMockMunAllGeoJson();
+    }
+    return (await res.json()) as FeatureCollection<Geometry, MunProperties>;
+  } catch {
+    return getMockMunAllGeoJson();
+  }
+}
+
+export async function fetchCountryGeoJson(): Promise<FeatureCollection<Geometry, CountryProperties> | null> {
+  if (isMockForce()) {
+    return null;
+  }
+  try {
+    const res = await fetch("/geo/country.json");
+    if (!res.ok) {
+      return null;
+    }
+    return (await res.json()) as FeatureCollection<Geometry, CountryProperties>;
+  } catch {
+    return null;
   }
 }

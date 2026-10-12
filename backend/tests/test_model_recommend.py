@@ -80,11 +80,42 @@ def test_each_rule_triggers(sample_reference):
 
 
 def test_driver_trigger(sample_reference):
-    # Unit doesn't meet numeric threshold for R01, but driver:pct_18_24 triggers it
-    unit = {"name": "Mun Driver", "category": "verde", "pct_18_24": 0.10}
+    # Above median (0.20 > 0.175) but below p75: driver:pct_18_24 triggers R01
+    unit_above = {"name": "Mun Driver Above", "category": "verde", "pct_18_24": 0.20}
     drivers = [{"key": "pct_18_24", "direction": "sube_abstencion"}]
-    recos = recommend(unit, drivers, sample_reference)
-    assert any(r["id"] == "R01" for r in recos)
+    recos_above = recommend(unit_above, drivers, sample_reference)
+    assert any(r["id"] == "R01" for r in recos_above)
+
+    # Below median (0.10 < 0.175): driver:pct_18_24 does NOT trigger R01
+    unit_below = {"name": "Mun Driver Below", "category": "verde", "pct_18_24": 0.10}
+    recos_below = recommend(unit_below, drivers, sample_reference)
+    assert not any(r["id"] == "R01" for r in recos_below)
+
+
+def test_tijuana_like_internet_driver(sample_reference):
+    # Tijuana-like: high internet (> median) + driver:pct_internet => NO R05
+    unit_tijuana = {"name": "Tijuana", "category": "verde", "pct_internet": 0.70}
+    drivers = [{"key": "pct_internet", "direction": "sube_abstencion"}]
+    recos_tijuana = recommend(unit_tijuana, drivers, sample_reference)
+    assert not any(r["id"] == "R05" for r in recos_tijuana)
+
+    # Low internet (< median) + driver:pct_internet => triggers R05
+    unit_low = {"name": "Mun Low Internet", "category": "verde", "pct_internet": 0.40}
+    recos_low = recommend(unit_low, drivers, sample_reference)
+    assert any(r["id"] == "R05" for r in recos_low)
+
+    # Missing value => does not trigger R05
+    unit_missing = {"name": "Mun Missing Internet", "category": "verde", "pct_internet": None}
+    recos_missing = recommend(unit_missing, drivers, sample_reference)
+    assert not any(r["id"] == "R05" for r in recos_missing)
+
+    unit_nan = {"name": "Mun NaN Internet", "category": "verde", "pct_internet": np.nan}
+    recos_nan = recommend(unit_nan, drivers, sample_reference)
+    assert not any(r["id"] == "R05" for r in recos_nan)
+
+    unit_empty = {"name": "Mun Empty Internet", "category": "verde"}
+    recos_empty = recommend(unit_empty, drivers, sample_reference)
+    assert not any(r["id"] == "R05" for r in recos_empty)
 
 
 def test_text_formatting(sample_reference):

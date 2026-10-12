@@ -131,3 +131,28 @@ def test_html_to_pdf_real_execution(tmp_path):
     result = html_to_pdf(html_file, pdf_file)
     assert result.is_file()
     assert result.stat().st_size > 0
+
+
+def test_svg_choropleth_with_legend():
+    geojson = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"id": "01"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-100.0, 20.0], [-99.0, 20.0], [-99.0, 21.0], [-100.0, 21.0], [-100.0, 20.0]]],
+                },
+            }
+        ],
+    }
+    legend = [("Mejora", "#4caf50"), ("Sin cambio", "#e0e0e0")]
+    svg_str = svg_choropleth(geojson, {"01": "#4caf50"}, legend=legend)
+    root = ET.fromstring(svg_str)
+    assert root.tag.endswith("svg")
+    # Check that legend text elements are present
+    texts = [elem.text for elem in root.iter() if elem.tag.endswith("text")]
+    assert "Mejora" in texts
+    assert "Sin cambio" in texts
+

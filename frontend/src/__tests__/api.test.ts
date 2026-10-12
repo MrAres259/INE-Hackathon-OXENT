@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { shouldFallbackToMock, ApiError, getHealth, getMetrics } from "../lib/api";
+import {
+  shouldFallbackToMock,
+  ApiError,
+  getHealth,
+  getMetrics,
+  getRisk,
+  setMockActive,
+} from "../lib/api";
 
 describe("API Client Error and Mock Fallback Rules", () => {
   it("does NOT fallback to mock on HTTP 422 Unprocessable Entity", () => {
@@ -43,6 +50,34 @@ describe("API Client Error and Mock Fallback Rules", () => {
       expect(b.mae_pp).toBeGreaterThan(0);
       expect(b.baseline_mae_pp).toBeDefined();
       expect(b.baseline_mae_pp!).toBeGreaterThan(b.mae_pp);
+    }
+  });
+
+  it("mock getRisk('mun') without ent returns municipalities of >= 30 states and getRisk('state') returns only states even in parallel", async () => {
+    setMockActive(true);
+
+    const [munRes, stateRes] = await Promise.all([
+      getRisk("mun", undefined, "base"),
+      getRisk("state", undefined, "base"),
+    ]);
+
+    expect(munRes.level).toBe("mun");
+    expect(stateRes.level).toBe("state");
+
+    // All states have 2-digit ids
+    expect(stateRes.items).toHaveLength(32);
+    for (const s of stateRes.items) {
+      expect(s.level).toBe("state");
+      expect(s.id).toMatch(/^\d{2}$/);
+    }
+
+    // National municipalities cover >= 30 distinct states
+    expect(munRes.items.length).toBeGreaterThan(100);
+    const statesInMuns = new Set(munRes.items.map((m) => m.ent));
+    expect(statesInMuns.size).toBeGreaterThanOrEqual(30);
+    for (const m of munRes.items) {
+      expect(m.level).toBe("mun");
+      expect(m.id).toMatch(/^\d{5}$/);
     }
   });
 });
