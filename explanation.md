@@ -19,7 +19,8 @@ ATALAYA es un tablero y un conjunto de entregables que:
 3. **Simula escenarios**: *base* (sin intervención), *intervención* hipotética parametrizable y *pesimista*.
 4. **Prioriza recursos** por **abstención esperada** (personas que se espera no voten) y propone **recomendaciones preventivas** por zona.
 5. **Responde preguntas** con un asistente conversacional (GLM-5.2 en Huawei MaaS) que consulta los datos (motor de búsqueda **OpenSearch** en Huawei CSS, o memoria) y nunca inventa cifras.
-6. **Genera los entregables del reto**: reporte metodológico (PDF), presentación ejecutiva (PDF) con mapas renderizados por el mismo motor cartográfico de la app, mapa de escenarios (GeoJSON), figuras PNG y base de datos anonimizada (XLSX/CSV).
+6. **Genera los entregables del reto**: reporte metodológico (PDF), presentación ejecutiva (PDF) con mapas renderizados por el mismo motor cartográfico de la app, mapa de escenarios (GeoJSON y visor HTML autónomo), figuras PNG y base de datos anonimizada (XLSX/CSV), empaquetados y verificados contra la convocatoria.
+7. **Se publica en internet** como tablero dinámico (`http://46.250.172.193:8080`) detrás de un borde Caddy, con supervisor que reinicia cualquier componente caído.
 
 **Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; el clúster de búsqueda es **desechable** (se puede borrar y recrear: la app degrada a memoria en ~2 s y vuelve sola cuando el clúster nuevo está cargado); el mapa usa un motor WebGL dedicado (MapLibre GL) con teselas vectoriales de la geometría oficial INEGI, sin polígonos dibujados a mano.
 
@@ -72,6 +73,7 @@ flowchart LR
 | Frontend | Next.js 16, React 19, Tailwind 4, MapLibre GL 5 (WebGL) con fuente vectorial MVT | `frontend/src` |
 | Mapa base | Esri World Dark Gray Canvas (teselas ráster sin llave); tolera fallos aislados de teselas y, si el servicio cae, queda el contorno propio de México | `frontend/src/lib/mapStyle.ts`, `mapSupport.ts` |
 | Geografía | mapshaper + geojson-vt + vt-pbf (Node) | `tools/geo` |
+| Publicación | **Caddy 2.11** como borde público (puerto 8080) + supervisor Python con reinicio automático; tarea programada de Windows | `scripts/Caddyfile.template`, `backend/atalaya/ops/supervisor.py`, `scripts/serve_public.ps1` |
 | Orquestación | PowerShell 5.1 | `scripts/*.ps1` |
 
 ---
@@ -218,6 +220,11 @@ Eventos: `plan` → `data` → `token`… → `done {sources, degraded}`. Client
 | POST | `/api/admin/reload` | relee `backend/.env`, reconstruye cliente y store y recarga datos; responde `store`, `store_degraded`, `search_engine`, `stats` (para cambiar de clúster sin reiniciar) |
 | POST | `/api/chat` | SSE del asistente |
 
+**Seguridad para internet** (`api/security.py`):
+- `/api/admin/*` exige **siempre** `X-Admin-Token` (comparación en tiempo constante); el token es `ATALAYA_ADMIN_TOKEN` o uno aleatorio que el backend genera al arrancar en `data/cache/admin_token` (nunca se imprime; lo leen `bootstrap_cluster.py` y los scripts locales). Además el borde Caddy responde 404 a cualquier ruta admin.
+- `/api/chat`: límite por IP real (`ATALAYA_CHAT_RATE_PER_MIN`=8, `ATALAYA_CHAT_RATE_PER_DAY`=200, ventana deslizante en memoria) ⇒ 429 con `Retry-After`; mensajes > 1,000 caracteres ⇒ 413. El frontend muestra esos mensajes en el chat.
+- La IP real la fija Caddy (`X-Forwarded-For = {remote_host}`, descarta la que mande el cliente) y uvicorn la aplica con `--proxy-headers --forwarded-allow-ips 127.0.0.1`; `get_client_ip` usa `request.client.host`.
+
 ### 4.10 Frontend
 
 Tablero oscuro de una sola pantalla en escritorio (el mapa llena su columna; el panel derecho hace scroll interno); lógica separada de presentación.
@@ -263,6 +270,11 @@ El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&es
 | Presentación ejecutiva `presentacion_ejecutiva.{html,pdf}` (10 diapositivas) | `python -m atalaya.report.build_slides [--svg-maps]` | Mensajes clave con mapas y gráficas |
 | Figuras `figuras/*.png` | (las escriben los dos comandos anteriores) | `state_part_2024`, `state_semaforo`, `mun_semaforo_base`, `mun_semaforo_intervencion`, `mun_diff`, `chart_map_base` a 2× |
 
+| Visor autónomo de escenarios `visor_escenarios.html` (≈ 6 MB) | `python -m atalaya.viewer` | **Archivo ejecutable** del mapa de escenarios: un solo HTML con MapLibre y los GeoJSON incrustados; abre con doble clic, sin servidor ni internet; modos semáforo base, con intervención, cambio Δ y comparador con cortina; estados/municipios, buscador, tooltip con recomendación principal |
+| Paquete de entrega `entrega/OXENT_Reto2_Prediccion_y_escenarios_de_riesgo_de_abstencion.zip` | `python -m atalaya.submission [--allow-missing-letters]` | Verifica la convocatoria y arma el zip (ver §4.13) |
+
+El reporte usa formato de cuartilla (carta, Arial 11, interlineado 1.5) y `build_report` falla si sale con menos de 10 o más de 15 páginas (hoy 14). Reporte y presentación incluyen la URL del tablero público (`--app-url`, default `ATALAYA_PUBLIC_URL` = `http://46.250.172.193:8080`) y la referencia al visor y a los GeoJSON.
+
 **Una sola fuente de cifras:** `report/facts.py` → `compute_facts` calcula todo número que aparece en reporte y presentación (categorías por escenario, LN en riesgo, transiciones base → intervención, parámetros reales de `SCENARIOS`, votos, perfil por edad con etiquetas exactas, modelo, prioridades, confiabilidad, privacidad), en crudo y formateado; las plantillas no calculan ni escriben cifras. Ambos documentos se presentan como **propuesta del equipo** (`--team`, `--repo-url`) y cada porcentaje indica su base (% de los municipios o % de la LN). La presentación falla (exit 2) si alguna tarjeta desborda su texto.
 
 **Mapas del PDF con el mismo motor que la app** (`report/map_capture.py` + `report/map_print/print.{html,js}`): cada figura es una `MapSpec` (nivel, color por id calculado en `build_report`/`build_slides` con la paleta de `charts.py`, tamaño, escala). `capture_maps` sirve `maplibre-gl` (de `frontend/node_modules`) y `frontend/public/geo/` (teselas) con un `ThreadingHTTPServer` local que rechaza rutas fuera de sus raíces, controla Chrome headless por CDP (`websockets`, WebGL por software swiftshader), **sobremuestrea** (k = 4 municipios, 2 estados; a 600 px México quedaría en zoom ≈ 2.9, bajo el mínimo de las teselas), encuadra con los `bounds` de `tiles.json` y valida cada PNG (≥ 4 colores, colores esperados presentes, bordes libres). Una figura inválida o un entorno sin Chrome/teselas usa el **SVG de respaldo** (`charts.svg_choropleth`); cada documento imprime `mapas: maplibre N/M`. Una prueba verifica que la paleta de categorías de `charts.py` coincide con `CATEGORY_COLORS` del frontend. Humo: `python -m atalaya.report.map_capture --smoke <dir>`.
@@ -274,6 +286,34 @@ Gráficas no cartográficas en SVG generado en Python (`report/charts.py`: líne
 `tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe en `frontend/public/geo/` (versionado): `states.json`, `mun/<cve_ent>.json` (los usa `export.py`), `mun_all.json` (respaldo GeoJSON nacional del mapa, ≈ 3.8 MB), `country.json` (contorno de México), `index.json` (bbox y centroides), y los catálogos geo de `data/build/`. Al final invoca las teselas (`--tiles-only` genera solo estas).
 
 **Teselas vectoriales** (`tools/geo/build_tiles.mjs` → `buildTiles`, `validateTileset`, `tileRangeForBounds`, `tilesetVersion`): shapefiles MG 2024 → mapshaper (municipios 25 %, estados 20 %) → `geojson-vt` (`maxZoom 9`, tolerancia 3, extent 4096, buffer 64) → `vt-pbf`. Escribe `frontend/public/geo/tiles/{z}/{x}/{y}.pbf` (MVT v2 sin comprimir, z 3–9, capa `states` desde z3 y `mun` desde z5, propiedades `id`/`ent`/`name`, id numérico de feature) —todas las teselas dentro de los límites, vacías de 0 bytes para que no haya 404— y el manifiesto TileJSON `tiles.json` (versión = hash de insumos, `bounds`, `vector_layers`, `feature_counts`). La validación decodifica todas las teselas de z9 y falla si falta alguno de los 32 estados o 2,478 municipios. Estado actual: 1,899 teselas, 5.8 MB. `.gitattributes` marca `*.pbf` como binario.
+
+### 4.13 Cumplimiento de la convocatoria (Reto 2) y paquete de entrega
+
+`atalaya/submission.py` verifica cada entregable mínimo obligatorio y arma el zip con el nombre del equipo y el eje (máximo 20 MB para el correo; si excede, excluye los CSV que duplican hojas del XLSX):
+
+| Exigencia de la convocatoria | Entregable ATALAYA | Verificación automática |
+|---|---|---|
+| Presentación ejecutiva ≤ 10 diapositivas | `01_presentacion_ejecutiva.pdf` | ≤ 10 páginas |
+| Reporte metodológico y preventivo, 10–15 cuartillas: variables, semáforo, recomendaciones preventivas y de priorización | `02_reporte_metodologico.pdf` | 10–15 páginas carta y las 5 secciones clave |
+| Mapa de escenarios con y sin intervención (archivo ejecutable, tablero dinámico o GeoJSON) | `03_mapa_escenarios/` (visor HTML, GeoJSON municipal y estatal, figuras) + enlace al tablero público | 2,478 / 32 features con campos base e intervención |
+| Base de datos anonimizada CSV/XLSX | `04_base_datos/` | Sin columnas de datos personales; celdas con LN < 10 suprimidas |
+| Cartas de cesión de derechos y de decir verdad firmadas | `05_cartas/` (las firma el equipo; formato en ine.mx/hackathon-2026) | Dos PDF con `cesion` y `verdad` en el nombre; si faltan, el zip sale `INCOMPLETO` |
+| Código o enlace a repositorio | `ENLACES.txt` (tablero público y repositorio) | La app responde en `/api/health` (aviso, no bloquea) |
+
+Fecha límite: 31/10/2026 23:59, por correo a las direcciones de la convocatoria.
+
+### 4.14 Publicación en internet tolerante a fallos
+
+```
+internet :8080 ─► Caddy (0.0.0.0:8080) ─┬─ /api/*            ─► FastAPI 127.0.0.1:8001 (X-Forwarded-For = IP real, SSE sin buffer)
+                                        ├─ /api/admin* (ruta decodificada, sin distinguir mayúsculas) ─► 404
+                                        └─ resto             ─► Next.js 127.0.0.1:3000
+```
+
+- **Supervisor** (`python -m atalaya.ops.supervisor run|status|stop`): lanza backend (uvicorn, 1 worker), frontend (`next start` local) y borde (Caddy, con `Caddyfile` renderizado y validado desde `scripts/Caddyfile.template`); revisa la salud cada 10 s; reinicia ante caída del proceso o 3 fallos de salud seguidos, con *backoff* 2 → 60 s y detección de *crash-loop* (sigue reintentando cada 5 min); mata árboles de procesos; nunca toca procesos ajenos que ocupen sus puertos; logs rotativos y estado atómico en `data/cache/` (`supervisor_state.json`, `logs/`).
+- **`scripts/serve_public.ps1 [-Port 8080] [-Rebuild] [-Install|-Uninstall|-Status|-Stop|-Foreground]`**: build de producción si hace falta, regla de firewall de Windows para el puerto público, descarga verificada de Caddy (`scripts/get_caddy.ps1`, SHA-512), y con `-Install` una **tarea programada "ATALAYA"** (SYSTEM, al iniciar la máquina, reinicio cada minuto si falla). Rechaza el puerto 80 (en esta ECS lo usa otra aplicación).
+- Verificado en vivo: backend, frontend y borde reviven solos en 18–22 s tras matarlos; variantes de ruta admin (codificadas, mayúsculas, `//`, `./`) ⇒ 404; Next y FastAPI no son alcanzables por la red; el límite del chat no se evade falsificando `X-Forwarded-For`.
+- Fuera de la máquina: el *security group* de la ECS (Huawei Cloud) debe permitir TCP 8080 entrante.
 
 ---
 
@@ -287,8 +327,10 @@ cd backend; python -m atalaya.report.build_report; python -m atalaya.report.buil
 # Demo (API :8001 + web :3000; PIDs en data/cache/*.pid)
 powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1      # -Mock: solo frontend con datos de demostración
 powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
-# Acceso público: una ventana de Windows Terminal con dos paneles (API | web); solo se publica el puerto web
-powershell -ExecutionPolicy Bypass -File scripts\start_public.ps1 [-Port 3000] [-Rebuild] [-NoFirewall]
+# Publicación en internet supervisada (borde Caddy en :8080); -Install la deja como tarea programada al arrancar Windows
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 [-Install | -Status | -Stop | -Rebuild]
+# Visor autónomo y paquete de entrega del Reto 2
+cd backend; python -m atalaya.viewer; python -m atalaya.submission
 # Clúster OpenSearch nuevo o recreado (tras editar OPENSEARCH_* en backend/.env)
 cd backend; python scripts\check_cluster.py                 # diagnóstico sin secretos
 cd backend; python scripts\bootstrap_cluster.py [--reset] [--skip-parity] [--api URL]
@@ -296,8 +338,8 @@ cd backend; python scripts\bootstrap_cluster.py [--reset] [--skip-parity] [--api
 # Solo teselas del mapa (tras cambiar la geometría)
 cd tools/geo; node --max-old-space-size=6144 build_geo.mjs --tiles-only
 # Pruebas (sin red; una guardia impide que escriban en datos reales)
-cd backend;  python -m pytest -q          # 314 pruebas
-cd frontend; npm run typecheck; npm test; npm run build   # 115 pruebas
+cd backend;  python -m pytest -q          # 370 pruebas
+cd frontend; npm run typecheck; npm test; npm run build   # 118 pruebas
 cd tools/geo; npm test                    # 8 pruebas
 # Verificación visual del mapa en Chrome headless (demo en marcha; herramienta del arquitecto, no versionada)
 python temp/osmap/tools/map_probe.py --shots <dir>
@@ -313,19 +355,21 @@ Configuración: `backend/.env` (plantilla `backend/.env.example`): `OPENSEARCH_U
 
 ```
 backend/atalaya/
-  config.py  search_client.py  llm.py  schema.py  store.py  load.py  privacy.py  export.py
+  config.py  search_client.py  llm.py  schema.py  store.py  load.py  privacy.py  export.py  viewer.py  submission.py
+  ops/      supervisor
   ingest/   common · ccpc · ccpc_features · inegi_iter · conapo · features · crosswalk · ine_results (heredado)
   model/    panel · forecast · build · risk · scenarios · recommend
-  api/      main · routes · deps · chat
+  api/      main · routes · deps · chat · security
   chat/     spec · guard · planner · executor · writer
   report/   facts · charts · map_capture · build_report · build_slides · map_print/ · templates/ · slides_templates/
 backend/scripts/   bootstrap_cluster.py · check_cluster.py · os_parity.py · smoke_llm.py · validate_build.py
-backend/tests/     314 pruebas offline
+backend/tests/     370 pruebas offline
 frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapSupport,mapRisk,useMapRisk,mocks}
 frontend/public/geo/   tiles/{z}/{x}/{y}.pbf + tiles.json (teselas MVT) y capas GeoJSON de respaldo (versionadas)
 tools/geo/         build_geo.mjs · build_tiles.mjs + pruebas
 data/seed/         catálogos y reglas curadas
-scripts/           build_all · start_demo · start_public · stop_demo · run-safe
+scripts/           build_all · start_demo · stop_demo · serve_public · get_caddy · Caddyfile.template · run-safe
+tools/caddy/       caddy.exe (descargado y verificado por get_caddy.ps1; no versionado)
 AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 .gitattributes     teselas y artefactos binarios
 ```
@@ -362,7 +406,11 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 
 **Mapa verificado en Chrome headless** (`map_probe.py`, 4/4): carga vectorial nacional, municipios con *feature-state* a zoom 9.5, comparador con dos mapas y recuperación tras pérdida de contexto WebGL sin tumbar la página.
 
-**Pendiente:**
-1. Etiqueta "Intervención" con acento en el panel de diagnóstico (pulido visual menor).
-2. Completar el nombre definitivo del equipo y la URL pública del repositorio en reporte y presentación (hoy: defaults `OXENT` y el repositorio de GitHub).
-3. Regenerar la presentación tras cambios de datos (la última se generó antes del ajuste de encuadre de mapas; usa el mapa estatal, que no cambió).
+**Publicación verificada** (2026-10-20): borde Caddy + supervisor en la ECS (EIP 46.250.172.193, puerto 8080), recuperación automática, admin cerrado, límite del chat por IP real; mapa 4/4 en `map_probe.py` a través del borde.
+
+**Entregables del Reto 2:** reporte 14 pp (cuartilla), presentación 10 diapositivas, GeoJSON, visor autónomo, base anonimizada y figuras; `atalaya.submission` los valida todos.
+
+**Pendiente (acciones del equipo, fuera del código):**
+1. Firmar las cartas de cesión de derechos y de decir verdad y colocarlas en `deliverables/entrega/cartas/`; regenerar el zip con `python -m atalaya.submission`.
+2. Instalar el arranque automático en la ECS (`serve_public.ps1 -Install`, consola de administrador) y abrir TCP 8080 en el *security group*.
+3. Hacer público el repositorio (o compartir el código) y enviar el zip antes del 31/10/2026 23:59.
