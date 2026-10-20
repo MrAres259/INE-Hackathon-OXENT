@@ -6,6 +6,7 @@ No quantitative figure should be calculated or hardcoded outside of this module.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from atalaya.model.scenarios import SCENARIOS, default_params, simulate
 
 DEFAULT_TEAM = "OXENT"
 DEFAULT_REPO_URL = "https://github.com/MrAres259/INE-Hackathon-OXENT"
+DEFAULT_APP_URL = os.getenv("ATALAYA_PUBLIC_URL", "http://46.250.172.193:8080")
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -77,6 +79,7 @@ def compute_facts(
     deliverables_dir: Path | None = None,
     team: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
+    app_url: str = DEFAULT_APP_URL,
 ) -> dict[str, Any]:
     """Computes all validated quantitative facts for ATALAYA report and slides.
 
@@ -900,6 +903,7 @@ def compute_facts(
         # Metadata & branding
         "team": team,
         "repo_url": repo_url,
+        "app_url": app_url,
         "target_year": target_year,
         "n_mun": n_mun,
         "n_states": n_states,

@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path
 import re
+import sys
 from typing import Any
 
 import jinja2
@@ -24,7 +25,7 @@ from atalaya.report.charts import (
     svg_line,
     svg_stacked_bars,
 )
-from atalaya.report.facts import DEFAULT_REPO_URL, DEFAULT_TEAM, compute_facts
+from atalaya.report.facts import DEFAULT_APP_URL, DEFAULT_REPO_URL, DEFAULT_TEAM, compute_facts
 
 try:
     from atalaya.report.map_capture import MapSpec, capture_maps, png_data_uri
@@ -75,11 +76,11 @@ def load_state_catalog(seed_dir: Path) -> dict[str, str]:
 
 
 def count_pdf_pages(pdf_path: Path) -> int:
-    """Counts pages in a generated PDF file using /Type /Page regex."""
+    """Counts pages in a generated PDF file using /Type /Page[^s] regex."""
     if not pdf_path.is_file():
         return 0
     content = pdf_path.read_bytes()
-    matches = re.findall(rb"/Type\s*/Page\b", content)
+    matches = re.findall(rb"/Type\s*/Page[^s]", content)
     return len(matches)
 
 
@@ -91,6 +92,7 @@ def generate_report(
     *,
     team: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
+    app_url: str = DEFAULT_APP_URL,
     svg_maps: bool = False,
 ) -> dict[str, Any]:
     """Generates the methodological report in HTML and PDF formats."""
@@ -101,7 +103,7 @@ def generate_report(
     o_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Compute all quantitative facts (single source of truth)
-    stats = compute_facts(b_dir, deliverables_dir=d_dir, team=team, repo_url=repo_url)
+    stats = compute_facts(b_dir, deliverables_dir=d_dir, team=team, repo_url=repo_url, app_url=app_url)
 
     # 2. Charts
     history_line_svg = svg_line(
@@ -216,19 +218,19 @@ def generate_report(
 
     fallback_svgs: dict[str, str] = {
         "state_part_2024": _add_map_figure_class(
-            svg_choropleth(state_geojson, fill_state_part, width=600, height=330)
+            svg_choropleth(state_geojson, fill_state_part, width=560, height=308)
         ),
         "state_semaforo": _add_map_figure_class(
-            svg_choropleth(state_geojson, fill_state_semaforo, width=600, height=330)
+            svg_choropleth(state_geojson, fill_state_semaforo, width=560, height=308)
         ),
         "mun_semaforo_base": _add_map_figure_class(
-            svg_choropleth(mun_geojson, fill_mun_base, width=600, height=340) if mun_geojson else "<svg></svg>"
+            svg_choropleth(mun_geojson, fill_mun_base, width=560, height=318) if mun_geojson else "<svg></svg>"
         ),
         "mun_semaforo_intervencion": _add_map_figure_class(
-            svg_choropleth(mun_geojson, fill_mun_interv, width=600, height=340) if mun_geojson else "<svg></svg>"
+            svg_choropleth(mun_geojson, fill_mun_interv, width=560, height=318) if mun_geojson else "<svg></svg>"
         ),
         "mun_diff": _add_map_figure_class(
-            svg_choropleth(mun_geojson, fill_mun_diff, width=600, height=340) if mun_geojson else "<svg></svg>"
+            svg_choropleth(mun_geojson, fill_mun_diff, width=560, height=318) if mun_geojson else "<svg></svg>"
         ),
     }
 
@@ -249,36 +251,36 @@ def generate_report(
                 name="state_part_2024",
                 level="state",
                 fill_by_id=fill_state_part,
-                width=600,
-                height=330,
+                width=560,
+                height=308,
             ),
             MapSpec(
                 name="state_semaforo",
                 level="state",
                 fill_by_id=fill_state_semaforo,
-                width=600,
-                height=330,
+                width=560,
+                height=308,
             ),
             MapSpec(
                 name="mun_semaforo_base",
                 level="mun",
                 fill_by_id=fill_mun_base,
-                width=600,
-                height=340,
+                width=560,
+                height=318,
             ),
             MapSpec(
                 name="mun_semaforo_intervencion",
                 level="mun",
                 fill_by_id=fill_mun_interv,
-                width=600,
-                height=340,
+                width=560,
+                height=318,
             ),
             MapSpec(
                 name="mun_diff",
                 level="mun",
                 fill_by_id=fill_mun_diff,
-                width=600,
-                height=340,
+                width=560,
+                height=318,
             ),
         ]
 
@@ -378,6 +380,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=DELIVERABLES_DIR, help="Directorio de salida para el reporte")
     parser.add_argument("--team", "--team-name", dest="team", type=str, default=DEFAULT_TEAM, help="Nombre del equipo")
     parser.add_argument("--repo-url", type=str, default=DEFAULT_REPO_URL, help="URL del repositorio")
+    parser.add_argument("--app-url", type=str, default=DEFAULT_APP_URL, help="URL pública de la aplicación")
     parser.add_argument("--svg-maps", action="store_true", help="Forzar el respaldo SVG sin intentar la captura MapLibre")
     args = parser.parse_args()
 
@@ -388,10 +391,14 @@ def main() -> None:
         out_dir=args.out,
         team=args.team,
         repo_url=args.repo_url,
+        app_url=args.app_url,
         svg_maps=args.svg_maps,
     )
     pages = res.get("pages", 0)
     print(f"Listo: {res['html_path']} y {res['pdf_path']} ({pages} páginas).")
+    if pages < 10 or pages > 15:
+        print(f"Error: El reporte tiene {pages} páginas (debe tener entre 10 y 15 páginas).", file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":

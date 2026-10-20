@@ -39,10 +39,14 @@ class Settings:
     maas_model: str = "glm-5.2"
     llm_enabled: bool = True
     target_year: int = 2027
+    admin_token: str = ""
+    chat_rate_per_min: int = 8
+    chat_rate_per_day: int = 200
 
     def __repr__(self) -> str:
         masked_pwd = "***" if self.search_password else ""
         masked_key = "***" if self.maas_api_key else ""
+        masked_tok = "***" if self.admin_token else ""
         return (
             f"Settings(search_urls={self.search_urls!r}, search_username={self.search_username!r}, "
             f"search_password={masked_pwd!r}, search_verify_certs={self.search_verify_certs!r}, "
@@ -50,7 +54,9 @@ class Settings:
             f"search_replicas={self.search_replicas!r}, index_prefix={self.index_prefix!r}, "
             f"store_mode={self.store_mode!r}, maas_base_url={self.maas_base_url!r}, "
             f"maas_api_key={masked_key!r}, maas_model={self.maas_model!r}, "
-            f"llm_enabled={self.llm_enabled!r}, target_year={self.target_year!r})"
+            f"llm_enabled={self.llm_enabled!r}, target_year={self.target_year!r}, "
+            f"admin_token={masked_tok!r}, chat_rate_per_min={self.chat_rate_per_min!r}, "
+            f"chat_rate_per_day={self.chat_rate_per_day!r})"
         )
 
 
@@ -116,6 +122,26 @@ def get_settings() -> Settings:
     except ValueError:
         target_year = 2027
 
+    admin_token = os.getenv("ATALAYA_ADMIN_TOKEN", "").strip()
+
+    raw_chat_min = os.getenv("ATALAYA_CHAT_RATE_PER_MIN")
+    if raw_chat_min is not None and raw_chat_min.strip():
+        try:
+            chat_rate_per_min = max(1, int(raw_chat_min.strip()))
+        except ValueError:
+            chat_rate_per_min = 8
+    else:
+        chat_rate_per_min = 8
+
+    raw_chat_day = os.getenv("ATALAYA_CHAT_RATE_PER_DAY")
+    if raw_chat_day is not None and raw_chat_day.strip():
+        try:
+            chat_rate_per_day = max(1, int(raw_chat_day.strip()))
+        except ValueError:
+            chat_rate_per_day = 200
+    else:
+        chat_rate_per_day = 200
+
     return Settings(
         search_urls=search_urls,
         search_username=search_username,
@@ -131,6 +157,9 @@ def get_settings() -> Settings:
         maas_model=maas_model,
         llm_enabled=llm_enabled,
         target_year=target_year,
+        admin_token=admin_token,
+        chat_rate_per_min=chat_rate_per_min,
+        chat_rate_per_day=chat_rate_per_day,
     )
 
 

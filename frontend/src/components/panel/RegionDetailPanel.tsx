@@ -604,13 +604,14 @@ export function RegionDetailPanel() {
           </div>
           <div className="space-y-2">
             {selectedDetail.scenarios.map((sc) => {
+              const isIntervencion = sc.scenario === "intervencion";
               const label =
                 sc.scenario === "base"
                   ? "Base (Inercial)"
-                  : sc.scenario === "intervencion"
+                  : isIntervencion
                   ? "Con Intervención"
                   : "Pesimista";
-              const val = sc.pred_abstention ?? 0.5;
+              const hasVal = sc.pred_abstention !== null && sc.pred_abstention !== undefined && !isNaN(sc.pred_abstention);
               const color = CATEGORY_COLORS[sc.category];
 
               const baseAbst = selectedDetail.scenarios.find((s) => s.scenario === "base")?.pred_abstention;
@@ -618,16 +619,25 @@ export function RegionDetailPanel() {
                 sc.scenario !== "base" &&
                 baseAbst !== undefined &&
                 baseAbst !== null &&
-                sc.pred_abstention !== null
-                  ? (sc.pred_abstention - baseAbst) * 100
+                hasVal
+                  ? (sc.pred_abstention! - baseAbst) * 100
                   : null;
 
               return (
-                <div key={sc.scenario}>
+                <div
+                  key={sc.scenario}
+                  className={`p-2 rounded-lg transition-colors ${
+                    isIntervencion
+                      ? "bg-emerald-950/30 border border-emerald-500/30"
+                      : "border border-transparent"
+                  }`}
+                >
                   <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-300 font-medium">{label}</span>
+                    <span className={isIntervencion ? "text-emerald-400 font-semibold" : "text-slate-300 font-medium"}>
+                      {label}
+                    </span>
                     <span className="font-mono font-bold text-white flex items-center gap-1.5">
-                      <span>{formatPct(sc.pred_abstention)}</span>
+                      <span>{hasVal ? formatPct(sc.pred_abstention) : "sin dato"}</span>
                       {scDelta !== null && (
                         <span
                           className={`text-[10px] ${getDeltaAbstentionColorClass(scDelta)}`}
@@ -639,10 +649,12 @@ export function RegionDetailPanel() {
                     </span>
                   </div>
                   <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-2 rounded-full"
-                      style={{ width: `${val * 100}%`, backgroundColor: color }}
-                    ></div>
+                    {hasVal ? (
+                      <div
+                        className="h-2 rounded-full"
+                        style={{ width: `${Math.min(100, Math.max(0, sc.pred_abstention! * 100))}%`, backgroundColor: color }}
+                      ></div>
+                    ) : null}
                   </div>
                 </div>
               );

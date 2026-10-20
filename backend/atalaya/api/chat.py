@@ -8,7 +8,7 @@ import queue
 import threading
 from typing import Any, AsyncIterator, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 from starlette.concurrency import run_in_threadpool
@@ -148,6 +148,14 @@ async def _chat_event_stream(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
 
 @router.post("/chat")
 @router.post("/api/chat")
-async def chat_endpoint(req: ChatRequest) -> EventSourceResponse:
+async def chat_endpoint(req: ChatRequest, request: Request) -> EventSourceResponse:
     """Handle chat messages with SSE streaming response."""
+    if len(req.message) > 1000:
+        raise HTTPException(
+            status_code=413,
+            detail="La pregunta es demasiado larga (máximo 1,000 caracteres).",
+        )
+    from atalaya.api.security import check_chat_rate_limit
+
+    check_chat_rate_limit(request)
     return EventSourceResponse(_chat_event_stream(req))

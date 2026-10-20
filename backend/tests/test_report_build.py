@@ -290,9 +290,9 @@ def test_build_report_with_maplibre_png_capture(synthetic_workspace, monkeypatch
     assert maps_meta.get("total_maps") == 5
     assert maps_meta.get("summary") == "mapas: maplibre 5/5"
 
-    # 5. Check new map dimensions in HTML (state 600x330, mun 600x340)
-    assert 'width="600" height="330"' in content
-    assert 'width="600" height="340"' in content
+    # 5. Check new map dimensions in HTML (state 560x308, mun 560x318)
+    assert 'width="560" height="308"' in content
+    assert 'width="560" height="318"' in content
 
 
 def test_build_report_fallback_when_capture_returns_none(synthetic_workspace, monkeypatch):
@@ -316,8 +316,8 @@ def test_build_report_fallback_when_capture_returns_none(synthetic_workspace, mo
 
     # 2. SVG maps are preserved with new dimensions
     assert "<svg" in content
-    assert 'viewBox="0 0 600 330"' in content
-    assert 'viewBox="0 0 600 340"' in content
+    assert 'viewBox="0 0 560 308"' in content
+    assert 'viewBox="0 0 560 318"' in content
     assert "Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL" not in content
 
     # 3. Traceability
@@ -347,4 +347,75 @@ def test_build_report_svg_maps_flag_bypasses_capture(synthetic_workspace, monkey
     assert called is False, "capture_maps should not be called when svg_maps=True"
     maps_meta = res.get("maps", {})
     assert maps_meta.get("maplibre_count") == 0
+
+
+def test_report_cuartilla_format_css(synthetic_workspace):
+    """Verifies that the body CSS specifies Arial 11 pt and 1.5 line height, and 2.5cm margin."""
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+    )
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    assert "font-size: 11pt" in content
+    assert "line-height: 1.5" in content
+    assert "margin: 2.5cm" in content
+
+
+def test_report_app_url_and_deliverables(synthetic_workspace):
+    """Verifies that custom --app-url is rendered in report HTML and references all required deliverables."""
+    custom_url = "http://46.250.172.193:8080"
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+        app_url=custom_url,
+    )
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    assert custom_url in content
+    assert "visor_escenarios.html" in content
+    assert "mapa_escenarios_estatal.geojson" in content
+    assert "mapa_escenarios_municipal.geojson" in content
+    assert "base_datos_atalaya.xlsx" in content
+
+
+def test_report_portada_compliance(synthetic_workspace):
+    """Verifies that the portada features team OXENT, axis, Hackathon INE 2026 Reto 2, and generation date."""
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+        team="OXENT",
+    )
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    assert "OXENT" in content
+    assert "Predicción y escenarios de riesgo de abstención" in content
+    assert "Hackathon INE 2026 · Reto 2" in content
+    assert "Fecha de generación" in content or "Octubre 2026" in content
+
+
+def test_report_page_count_validation_exits_2(monkeypatch):
+    """Verifies that build_report.main() exits with code 2 if the generated page count is 9 or 16."""
+    import sys
+    from atalaya.report import build_report
+
+    # Mock count to 9 pages -> exit 2
+    monkeypatch.setattr(build_report, "generate_report", lambda **kwargs: {"html_path": Path("dummy.html"), "pdf_path": Path("dummy.pdf"), "pages": 9})
+    monkeypatch.setattr(sys, "argv", ["build_report"])
+    with pytest.raises(SystemExit) as excinfo:
+        build_report.main()
+    assert excinfo.value.code == 2
+
+    # Mock count to 16 pages -> exit 2
+    monkeypatch.setattr(build_report, "generate_report", lambda **kwargs: {"html_path": Path("dummy.html"), "pdf_path": Path("dummy.pdf"), "pages": 16})
+    with pytest.raises(SystemExit) as excinfo:
+        build_report.main()
+    assert excinfo.value.code == 2
+
+    # Valid count: 14 pages -> exits 0 (does not raise SystemExit with error code)
+    monkeypatch.setattr(build_report, "generate_report", lambda **kwargs: {"html_path": Path("dummy.html"), "pdf_path": Path("dummy.pdf"), "pages": 14})
+    build_report.main()
 

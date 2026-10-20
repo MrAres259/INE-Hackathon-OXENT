@@ -319,3 +319,22 @@ def test_unequivocal_percentages_and_rojo_labeling(synthetic_build_env):
     assert "% de los municipios" in report_html or "% de municipios" in report_html
     assert "% de la LN" in report_html
 
+
+def test_facts_default_app_url_and_parameter(synthetic_build_env):
+    """Verifies that DEFAULT_APP_URL exists, defaults to port 8080 URL, and is respected by compute_facts."""
+    from atalaya.report.facts import DEFAULT_APP_URL, compute_facts
+
+    assert "8080" in DEFAULT_APP_URL
+    assert DEFAULT_APP_URL.startswith("http")
+
+    facts = compute_facts(synthetic_build_env["build_dir"], deliverables_dir=synthetic_build_env["deliv_dir"])
+    assert facts["app_url"] == DEFAULT_APP_URL
+
+    custom_url = "http://10.0.0.123:8080"
+    facts_custom = compute_facts(
+        synthetic_build_env["build_dir"],
+        deliverables_dir=synthetic_build_env["deliv_dir"],
+        app_url=custom_url,
+    )
+    assert facts_custom["app_url"] == custom_url
+

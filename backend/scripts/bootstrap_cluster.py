@@ -58,10 +58,14 @@ def _reload_api(api_base: str, timeout_s: float = 10.0) -> tuple[bool, str]:
     """Trigger POST /api/admin/reload. Returns (ok, message)."""
     target = f"{api_base.rstrip('/')}/api/admin/reload"
     try:
+        headers = {"Content-Type": "application/json"}
+        token = get_settings().admin_token
+        if token:
+            headers["X-Admin-Token"] = token
         req = urllib.request.Request(
             target,
             data=b"{}",
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:

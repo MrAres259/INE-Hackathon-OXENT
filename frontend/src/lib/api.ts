@@ -64,6 +64,8 @@ export function shouldFallbackToMock(err: unknown): boolean {
   if (err instanceof ApiError) {
     // 422 Validation error: do NOT fallback to mock; UI needs the backend error message
     if (err.status === 422) return false;
+    // 429 Rate limit and 413 Payload Too Large: do NOT fallback to mock
+    if (err.status === 429 || err.status === 413) return false;
     // 404 endpoint not implemented on backend or 5xx server error: fallback
     return err.status === 404 || err.status >= 500;
   }
@@ -343,7 +345,17 @@ export async function streamChat(
     });
 
     if (!res.ok) {
-      const err = new ApiError(`HTTP ${res.status}: ${res.statusText}`, res.status);
+      let detail = "";
+      try {
+        const errorJson = await res.json();
+        if (errorJson && typeof errorJson === "object" && "detail" in errorJson) {
+          detail = typeof errorJson.detail === "string" ? errorJson.detail : JSON.stringify(errorJson.detail);
+        }
+      } catch {
+        // failed to parse json
+      }
+      const message = detail || `HTTP ${res.status}: ${res.statusText}`;
+      const err = new ApiError(message, res.status, { detail });
       if (shouldFallbackToMock(err)) {
         setMockActive(true);
         return streamMockChat(req, handlers, signal);
@@ -431,6 +443,10 @@ export async function streamChat(
       setMockActive(true);
       return streamMockChat(req, handlers, signal);
     }
-    handlers.onError?.({ message: (err as Error)?.message || "Error al conectar con el asistente" });
+    if (handlers.onError) {
+      handlers.onError({ message: (err as Error)?.message || "Error al conectar con el asistente" });
+    } else {
+      throw err;
+    }
   }
 }

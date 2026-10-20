@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATALAYA — Visor Autónomo de Escenarios de Abstención 2027</title>
+  <style>
+/* __MAPLIBRE_CSS__ */
+  </style>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-surface: #0f172a;
+      --bg-card: #1e293b;
+      --border-color: #334155;
+      --border-highlight: #475569;
+      --text-white: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent-emerald: #10b981;
+      --accent-emerald-subtle: rgba(16, 185, 129, 0.15);
+      --cat-verde: #2e7d32;
+      --cat-amarillo: #f9a825;
+      --cat-naranja: #ef6c00;
+      --cat-rojo: #c62828;
+      --cat-sin-dato: #64748b;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: var(--font-family);
+      background-color: var(--bg-dark);
+      color: var(--text-white);
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #app-container {
+      display: flex;
+      flex-direction: column;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* TOP HEADER */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 58px;
+      padding: 0 16px;
+      background-color: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      z-index: 20;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-badge {
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      color: var(--accent-emerald);
+      background: var(--accent-emerald-subtle);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+
+    .brand-titles {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-white);
+      line-height: 1.2;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .controls-section {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .button-group {
+      display: flex;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .ctrl-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 11px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .ctrl-btn:hover {
+      color: var(--text-white);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .ctrl-btn.active {
+      color: var(--text-white);
+      background: var(--cat-verde);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    .ctrl-btn.active-emerald {
+      color: #ffffff;
+      background: #059669;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    /* SEARCH SECTION */
+    .search-section {
+      position: relative;
+      width: 240px;
+    }
+
+    .search-input {
+      width: 100%;
+      background: #090d16;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 6px 12px 6px 30px;
+      font-size: 12px;
+      color: var(--text-white);
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent-emerald);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+
+    .search-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      margin-top: 4px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 100;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      display: none;
+    }
+
+    .search-item {
+      padding: 8px 12px;
+      font-size: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .search-item:hover {
+      background: rgba(16, 185, 129, 0.1);
+    }
+
+    .search-item-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .search-item-name {
+      font-weight: 600;
+      color: var(--text-white);
+    }
+
+    .search-item-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    /* MAIN MAP AREA */
+    #map-wrapper {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      height: calc(100% - 58px - 34px);
+      overflow: hidden;
+      background: var(--bg-dark);
+    }
+
+    .map-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* COMPARE SLIDER DIVIDER */
+    #compare-slider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #ffffff;
+      z-index: 15;
+      cursor: ew-resize;
+      display: none;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+    }
+
+    .slider-handle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 38px;
+      height: 38px;
+      background: #1e293b;
+      border: 2px solid #ffffff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+      color: #ffffff;
+    }
+
+    /* COMPARE BADGES */
+    .compare-badge {
+      position: absolute;
+      top: 14px;
+      padding: 6px 14px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      backdrop-filter: blur(8px);
+      z-index: 10;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+
+    #badge-base {
+      left: 14px;
+      color: #94a3b8;
+      border-color: #64748b;
+    }
+
+    #badge-intervencion {
+      right: 14px;
+      color: var(--accent-emerald);
+      border-color: var(--accent-emerald);
+      background: rgba(6, 78, 59, 0.7);
+    }
+
+    /* FLOATING LEGEND CARD */
+    #legend-card {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 12px 16px;
+      width: 250px;
+      z-index: 10;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    }
+
+    .legend-title {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .legend-items {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+
+    .legend-color-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+
+    .legend-item-left {
+      display: flex;
+      align-items: center;
+      color: var(--text-white);
+    }
+
+    .legend-item-count {
+      font-family: monospace;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    /* CURSOR TOOLTIP */
+    #tooltip {
+      position: absolute;
+      display: none;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 14px;
+      width: 280px;
+      z-index: 100;
+      pointer-events: none;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(10px);
+    }
+
+    .tooltip-header {
+      margin-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 6px;
+    }
+
+    .tooltip-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text-white);
+    }
+
+    .tooltip-subtitle {
+      font-size: 11px;
+      color: var(--accent-emerald);
+      font-weight: 600;
+    }
+
+    .tooltip-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      color: #ffffff;
+    }
+
+    .tooltip-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+
+    .tooltip-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tooltip-label {
+      color: var(--text-muted);
+    }
+
+    .tooltip-val {
+      font-family: monospace;
+      font-weight: 700;
+      color: var(--text-white);
+    }
+
+    .tooltip-reco {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .tooltip-reco-title {
+      color: var(--accent-emerald);
+      font-weight: 700;
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .tooltip-reco-text {
+      color: var(--text-white);
+    }
+
+    /* FOOTER */
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 34px;
+      padding: 0 16px;
+      background-color: var(--bg-surface);
+      border-top: 1px solid var(--border-color);
+      font-size: 11px;
+      color: var(--text-dim);
+      z-index: 20;
+      flex-shrink: 0;
+      gap: 12px;
+    }
+
+    .footer-left {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .footer-right {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 900px) {
+      .brand-titles { display: none; }
+      .search-section { width: 160px; }
+      .footer-right { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app-container">
+    <!-- TOP TOOLBAR -->
+    <header>
+      <div class="brand-section">
+        <span class="brand-badge">ATALAYA</span>
+        <div class="brand-titles">
+          <span class="brand-title">Visor Autónomo de Escenarios</span>
+          <span class="brand-subtitle">Predicción de Abstención Electoral 2027</span>
+        </div>
+      </div>
+
+      <div class="controls-section">
+        <!-- Level Switcher -->
+        <div class="button-group" id="level-group">
+          <button type="button" class="ctrl-btn active" id="btn-level-states" onclick="setLevel('states')">Estados</button>
+          <button type="button" class="ctrl-btn" id="btn-level-mun" onclick="setLevel('mun')">Municipios</button>
+        </div>
+
+        <!-- Mode Switcher -->
+        <div class="button-group" id="mode-group">
+          <button type="button" class="ctrl-btn active" id="btn-mode-base" onclick="setMode('base')">Semáforo Base</button>
+          <button type="button" class="ctrl-btn" id="btn-mode-intervencion" onclick="setMode('intervencion')">Con Intervención</button>
+          <button type="button" class="ctrl-btn" id="btn-mode-delta" onclick="setMode('delta')">Cambio Δ (pp)</button>
+          <button type="button" class="ctrl-btn" id="btn-mode-comparar" onclick="setMode('comparar')">Comparar</button>
+        </div>
+
+        <!-- Search Input -->
+        <div class="search-section">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="search-input" class="search-input" placeholder="Buscar por nombre..." oninput="handleSearch(this.value)" />
+          <div id="search-results" class="search-results"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAP WRAPPER -->
+    <main id="map-wrapper">
+      <div id="map-a" class="map-container"></div>
+      <div id="map-b" class="map-container" style="display: none;"></div>
+
+      <!-- Compare Mode Divider -->
+      <div id="compare-slider">
+        <div class="slider-handle">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:-6px;">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Compare Floating Badges -->
+      <div id="badge-base" class="compare-badge">← Base (Sin intervención)</div>
+      <div id="badge-intervencion" class="compare-badge">Con Intervención →</div>
+
+      <!-- Dynamic Legend Card -->
+      <div id="legend-card">
+        <div class="legend-title" id="legend-title">Semáforo Base</div>
+        <div class="legend-items" id="legend-items"></div>
+      </div>
+
+      <!-- Cursor Tooltip -->
+      <div id="tooltip"></div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer>
+      <div class="footer-left">
+        Fuente: INE CCPC 2009–2024 · INEGI MG 2024 · CONAPO 2020 · ATALAYA, equipo OXENT
+      </div>
+      <div class="footer-right">
+        Parámetros: Promoción del voto joven en zonas rojo/naranja · Efecto máx.: +3.0 pp · Cobertura: 100%
+      </div>
+    </footer>
+  </div>
+
+  <!-- EMBEDDED GEOJSON DATA -->
+  <script type="application/json" id="data-states">
+/* __DATA_STATES__ */
+  </script>
+  <script type="application/json" id="data-mun">
+/* __DATA_MUN__ */
+  </script>
+
+  <!-- MAPLIBRE GL JS -->
+  <script>
+/* __MAPLIBRE_JS__ */
+  </script>
+
+  <!-- VIEWER LOGIC -->
+  <script>
+    const STATE_NAMES = {
+      '01': 'Aguascalientes', '02': 'Baja California', '03': 'Baja California Sur', '04': 'Campeche',
+      '05': 'Coahuila', '06': 'Colima', '07': 'Chiapas', '08': 'Chihuahua',
+      '09': 'Ciudad de México', '10': 'Durango', '11': 'Guanajuato', '12': 'Guerrero',
+      '13': 'Hidalgo', '14': 'Jalisco', '15': 'México', '16': 'Michoacán',
+      '17': 'Morelos', '18': 'Nayarit', '19': 'Nuevo León', '20': 'Oaxaca',
+      '21': 'Puebla', '22': 'Querétaro', '23': 'Quintana Roo', '24': 'San Luis Potosí',
+      '25': 'Sinaloa', '26': 'Sonora', '27': 'Tabasco', '28': 'Tamaulipas',
+      '29': 'Tlaxcala', '30': 'Veracruz', '31': 'Yucatán', '32': 'Zacatecas'
+    };
+
+    const CATEGORY_COLORS = {
+      verde: '#2e7d32',
+      amarillo: '#f9a825',
+      naranja: '#ef6c00',
+      rojo: '#c62828',
+      sin_dato: '#64748b'
+    };
+
+    const CATEGORY_LABELS = {
+      verde: 'Riesgo Bajo',
+      amarillo: 'Riesgo Moderado',
+      naranja: 'Riesgo Alto',
+      rojo: 'Riesgo Crítico',
+      sin_dato: 'Sin dato'
+    };
+
+    let statesData = null;
+    let munData = null;
+    let mapA = null;
+    let mapB = null;
+    let currentLevel = 'states'; // 'states' | 'mun'
+    let currentMode = 'base'; // 'base' | 'intervencion' | 'delta' | 'comparar'
+    let sliderFraction = 0.5;
+    let isDraggingSlider = false;
+    let isSyncing = false;
+
+    function getFillExpression(mode) {
+      if (mode === 'base') {
+        return [
+          'match',
+          ['coalesce', ['get', 'category_base'], 'sin_dato'],
+          'verde', CATEGORY_COLORS.verde,
+          'amarillo', CATEGORY_COLORS.amarillo,
+          'naranja', CATEGORY_COLORS.naranja,
+          'rojo', CATEGORY_COLORS.rojo,
+          CATEGORY_COLORS.sin_dato
+        ];
+      }
+      if (mode === 'intervencion') {
+        return [
+          'match',
+          ['coalesce', ['get', 'category_intervencion'], 'sin_dato'],
+          'verde', CATEGORY_COLORS.verde,
+          'amarillo', CATEGORY_COLORS.amarillo,
+          'naranja', CATEGORY_COLORS.naranja,
+          'rojo', CATEGORY_COLORS.rojo,
+          CATEGORY_COLORS.sin_dato
+        ];
+      }
+      if (mode === 'delta') {
+        return [
+          'step',
+          ['coalesce', ['get', 'delta_pp_intervencion'], 0],
+          '#047857', // <= -3.0 pp (Reducción alta)
+          -3.0, '#10b981', // -3.0 a -1.5 pp
+          -1.5, '#6ee7b7', // -1.5 a 0 pp
+          0.0, '#64748b', // 0 pp
+          0.01, '#f43f5e' // > 0 pp (Aumento de abstención)
+        ];
+      }
+      return CATEGORY_COLORS.sin_dato;
+    }
+
+    function createMapStyle(mode) {
+      return {
+        version: 8,
+        sources: {
+          states: { type: 'geojson', data: statesData },
+          mun: { type: 'geojson', data: munData }
+        },
+        layers: [
+          {
+            id: 'background',
+            type: 'background',
+            paint: { 'background-color': '#090d16' }
+          },
+          {
+            id: 'states-fill',
+            type: 'fill',
+            source: 'states',
+            layout: { visibility: currentLevel === 'states' ? 'visible' : 'none' },
+            paint: {
+              'fill-color': getFillExpression(mode),
+              'fill-opacity': 0.88
+            }
+          },
+          {
+            id: 'states-line',
+            type: 'line',
+            source: 'states',
+            layout: { visibility: currentLevel === 'states' ? 'visible' : 'none' },
+            paint: {
+              'line-color': '#cbd5e1',
+              'line-width': 1.1,
+              'line-opacity': 0.75
+            }
+          },
+          {
+            id: 'mun-fill',
+            type: 'fill',
+            source: 'mun',
+            layout: { visibility: currentLevel === 'mun' ? 'visible' : 'none' },
+            paint: {
+              'fill-color': getFillExpression(mode),
+              'fill-opacity': 0.88
+            }
+          },
+          {
+            id: 'mun-line',
+            type: 'line',
+            source: 'mun',
+            layout: { visibility: currentLevel === 'mun' ? 'visible' : 'none' },
+            paint: {
+              'line-color': '#334155',
+              'line-width': 0.35,
+              'line-opacity': 0.6
+            }
+          },
+          {
+            id: 'states-hover',
+            type: 'line',
+            source: 'states',
+            filter: ['==', 'id', ''],
+            paint: {
+              'line-color': '#38bdf8',
+              'line-width': 2.4
+            }
+          },
+          {
+            id: 'mun-hover',
+            type: 'line',
+            source: 'mun',
+            filter: ['==', 'id', ''],
+            paint: {
+              'line-color': '#38bdf8',
+              'line-width': 2.0
+            }
+          }
+        ]
+      };
+    }
+
+    function initApp() {
+      try {
+        const statesEl = document.getElementById('data-states');
+        const munEl = document.getElementById('data-mun');
+        statesData = JSON.parse(statesEl.textContent);
+        munData = JSON.parse(munEl.textContent);
+      } catch (err) {
+        console.error('Error parseando datos GeoJSON incrustados:', err);
+        return;
+      }
+
+      const MEXICO_BOUNDS = [[-118.6, 14.3], [-86.5, 32.8]];
+
+      mapA = new maplibregl.Map({
+        container: 'map-a',
+        style: createMapStyle('base'),
+        center: [-102.5, 23.6],
+        zoom: 4.5,
+        minZoom: 3,
+        maxZoom: 12,
+        attributionControl: false
+      });
+
+      mapB = new maplibregl.Map({
+        container: 'map-b',
+        style: createMapStyle('intervencion'),
+        center: [-102.5, 23.6],
+        zoom: 4.5,
+        minZoom: 3,
+        maxZoom: 12,
+        attributionControl: false
+      });
+
+      mapA.fitBounds(MEXICO_BOUNDS, { padding: 25, duration: 0 });
+      mapB.fitBounds(MEXICO_BOUNDS, { padding: 25, duration: 0 });
+
+      setupMapEvents(mapA, false);
+      setupMapEvents(mapB, true);
+      setupCompareSync();
+      setupSliderDrag();
+      mapA.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+
+      updateLegend();
+    }
+
+    function setupMapEvents(mapInstance, isMapB) {
+      ['states-fill', 'mun-fill'].forEach(layerId => {
+        mapInstance.on('mousemove', layerId, (e) => {
+          if (!e.features || !e.features.length) return;
+          mapInstance.getCanvas().style.cursor = 'pointer';
+          const f = e.features[0];
+          const p = f.properties;
+
+          const hoverLayer = layerId === 'states-fill' ? 'states-hover' : 'mun-hover';
+          mapInstance.setFilter(hoverLayer, ['==', 'id', p.id]);
+          if (currentMode === 'comparar') {
+            const other = isMapB ? mapA : mapB;
+            other.setFilter(hoverLayer, ['==', 'id', p.id]);
+          }
+
+          showTooltip(e, p, layerId === 'mun-fill');
+        });
+
+        mapInstance.on('mouseleave', layerId, () => {
+          mapInstance.getCanvas().style.cursor = '';
+          mapInstance.setFilter('states-hover', ['==', 'id', '']);
+          mapInstance.setFilter('mun-hover', ['==', 'id', '']);
+          if (currentMode === 'comparar') {
+            const other = isMapB ? mapA : mapB;
+            other.setFilter('states-hover', ['==', 'id', '']);
+            other.setFilter('mun-hover', ['==', 'id', '']);
+          }
+          hideTooltip();
+        });
+      });
+    }
+
+    function setupCompareSync() {
+      function sync(source, target) {
+        if (isSyncing || currentMode !== 'comparar') return;
+        isSyncing = true;
+        target.jumpTo({
+          center: source.getCenter(),
+          zoom: source.getZoom(),
+          bearing: source.getBearing(),
+          pitch: source.getPitch()
+        });
+        isSyncing = false;
+      }
+
+      mapA.on('move', () => sync(mapA, mapB));
+      mapB.on('move', () => sync(mapB, mapA));
+    }
+
+    function setLevel(lvl) {
+      currentLevel = lvl;
+      document.getElementById('btn-level-states').className = lvl === 'states' ? 'ctrl-btn active' : 'ctrl-btn';
+      document.getElementById('btn-level-mun').className = lvl === 'mun' ? 'ctrl-btn active' : 'ctrl-btn';
+
+      const sVis = lvl === 'states' ? 'visible' : 'none';
+      const mVis = lvl === 'mun' ? 'visible' : 'none';
+
+      [mapA, mapB].forEach(m => {
+        if (!m.isStyleLoaded()) return;
+        m.setLayoutProperty('states-fill', 'visibility', sVis);
+        m.setLayoutProperty('states-line', 'visibility', sVis);
+        m.setLayoutProperty('mun-fill', 'visibility', mVis);
+        m.setLayoutProperty('mun-line', 'visibility', mVis);
+      });
+
+      updateLegend();
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      ['base', 'intervencion', 'delta', 'comparar'].forEach(m => {
+        const btn = document.getElementById('btn-mode-' + m);
+        if (btn) btn.className = m === mode ? 'ctrl-btn active-emerald' : 'ctrl-btn';
+      });
+
+      const mapBEl = document.getElementById('map-b');
+      const sliderEl = document.getElementById('compare-slider');
+      const badgeBaseEl = document.getElementById('badge-base');
+      const badgeIntEl = document.getElementById('badge-intervencion');
+
+      if (mode === 'comparar') {
+        mapBEl.style.display = 'block';
+        sliderEl.style.display = 'block';
+        badgeBaseEl.style.display = 'block';
+        badgeIntEl.style.display = 'block';
+
+        isSyncing = true;
+        mapB.resize();
+        mapB.jumpTo({
+          center: mapA.getCenter(),
+          zoom: mapA.getZoom(),
+          bearing: mapA.getBearing(),
+          pitch: mapA.getPitch()
+        });
+        setTimeout(() => { isSyncing = false; }, 100);
+
+        if (mapA.isStyleLoaded()) {
+          mapA.setPaintProperty('states-fill', 'fill-color', getFillExpression('base'));
+          mapA.setPaintProperty('mun-fill', 'fill-color', getFillExpression('base'));
+        }
+        if (mapB.isStyleLoaded()) {
+          mapB.setPaintProperty('states-fill', 'fill-color', getFillExpression('intervencion'));
+          mapB.setPaintProperty('mun-fill', 'fill-color', getFillExpression('intervencion'));
+        }
+        updateSliderPosition();
+      } else {
+        mapBEl.style.display = 'none';
+        sliderEl.style.display = 'none';
+        badgeBaseEl.style.display = 'none';
+        badgeIntEl.style.display = 'none';
+
+        if (mapA.isStyleLoaded()) {
+          mapA.setPaintProperty('states-fill', 'fill-color', getFillExpression(mode));
+          mapA.setPaintProperty('mun-fill', 'fill-color', getFillExpression(mode));
+        }
+      }
+
+      updateLegend();
+    }
+
+    function setupSliderDrag() {
+      const sliderEl = document.getElementById('compare-slider');
+      sliderEl.addEventListener('mousedown', (e) => {
+        isDraggingSlider = true;
+        e.preventDefault();
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDraggingSlider) return;
+        const container = document.getElementById('map-wrapper');
+        const rect = container.getBoundingClientRect();
+        const clientX = e.clientX - rect.left;
+        sliderFraction = Math.max(0.05, Math.min(0.95, clientX / rect.width));
+        updateSliderPosition();
+      });
+
+      window.addEventListener('mouseup', () => {
+        isDraggingSlider = false;
+      });
+
+      sliderEl.addEventListener('touchstart', () => {
+        isDraggingSlider = true;
+      }, { passive: true });
+
+      window.addEventListener('touchmove', (e) => {
+        if (!isDraggingSlider || !e.touches[0]) return;
+        const container = document.getElementById('map-wrapper');
+        const rect = container.getBoundingClientRect();
+        const clientX = e.touches[0].clientX - rect.left;
+        sliderFraction = Math.max(0.05, Math.min(0.95, clientX / rect.width));
+        updateSliderPosition();
+      }, { passive: true });
+
+      window.addEventListener('touchend', () => {
+        isDraggingSlider = false;
+      });
+
+      window.addEventListener('resize', () => {
+        if (currentMode === 'comparar') {
+          updateSliderPosition();
+          mapA.resize();
+          mapB.resize();
+        }
+      });
+    }
+
+    function updateSliderPosition() {
+      const container = document.getElementById('map-wrapper');
+      const width = container.clientWidth;
+      const px = width * sliderFraction;
+      const sliderEl = document.getElementById('compare-slider');
+      sliderEl.style.left = px + 'px';
+
+      const mapBEl = document.getElementById('map-b');
+      mapBEl.style.clipPath = 'polygon(' + px + 'px 0, 100% 0, 100% 100%, ' + px + 'px 100%)';
+    }
+
+    function updateLegend() {
+      const titleEl = document.getElementById('legend-title');
+      const itemsEl = document.getElementById('legend-items');
+      const dataset = currentLevel === 'states' ? statesData : munData;
+      if (!dataset) return;
+
+      const total = dataset.features.length;
+
+      if (currentMode === 'base' || currentMode === 'intervencion') {
+        const isBase = currentMode === 'base';
+        titleEl.textContent = isBase ? 'Semáforo Base' : 'Semáforo con Intervención';
+        const key = isBase ? 'category_base' : 'category_intervencion';
+
+        const counts = { verde: 0, amarillo: 0, naranja: 0, rojo: 0, sin_dato: 0 };
+        dataset.features.forEach(f => {
+          const cat = f.properties[key] || 'sin_dato';
+          if (counts[cat] !== undefined) counts[cat]++;
+          else counts.sin_dato++;
+        });
+
+        itemsEl.innerHTML = `
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.verde};"></span>Bajo</span>
+            <span class="legend-item-count">${counts.verde} (${Math.round(counts.verde*100/total)}%)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.amarillo};"></span>Moderado</span>
+            <span class="legend-item-count">${counts.amarillo} (${Math.round(counts.amarillo*100/total)}%)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.naranja};"></span>Alto</span>
+            <span class="legend-item-count">${counts.naranja} (${Math.round(counts.naranja*100/total)}%)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.rojo};"></span>Crítico</span>
+            <span class="legend-item-count">${counts.rojo} (${Math.round(counts.rojo*100/total)}%)</span>
+          </div>
+          ${counts.sin_dato > 0 ? `
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.sin_dato};"></span>Sin dato</span>
+            <span class="legend-item-count">${counts.sin_dato}</span>
+          </div>` : ''}
+        `;
+      } else if (currentMode === 'delta') {
+        titleEl.textContent = 'Variación Δ Abstención (pp)';
+        const counts = { high_red: 0, mod_red: 0, low_red: 0, no_change: 0, inc: 0 };
+        dataset.features.forEach(f => {
+          const d = f.properties.delta_pp_intervencion;
+          if (d === null || d === undefined || isNaN(d) || d === 0) counts.no_change++;
+          else if (d <= -3.0) counts.high_red++;
+          else if (d <= -1.5) counts.mod_red++;
+          else if (d < 0) counts.low_red++;
+          else counts.inc++;
+        });
+
+        itemsEl.innerHTML = `
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#047857;"></span>≤ −3.0 pp (Alta)</span>
+            <span class="legend-item-count">${counts.high_red}</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#10b981;"></span>−3.0 a −1.5 pp</span>
+            <span class="legend-item-count">${counts.mod_red}</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#6ee7b7;"></span>−1.5 a 0.0 pp</span>
+            <span class="legend-item-count">${counts.low_red}</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#64748b;"></span>0.0 pp (Sin cambio)</span>
+            <span class="legend-item-count">${counts.no_change}</span>
+          </div>
+          ${counts.inc > 0 ? `
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#f43f5e;"></span>> 0.0 pp (Aumento)</span>
+            <span class="legend-item-count">${counts.inc}</span>
+          </div>` : ''}
+        `;
+      } else if (currentMode === 'comparar') {
+        titleEl.textContent = 'Comparativa de Escenarios';
+        const cb = { verde: 0, amarillo: 0, naranja: 0, rojo: 0 };
+        const ci = { verde: 0, amarillo: 0, naranja: 0, rojo: 0 };
+        dataset.features.forEach(f => {
+          const b = f.properties.category_base;
+          const i = f.properties.category_intervencion;
+          if (cb[b] !== undefined) cb[b]++;
+          if (ci[i] !== undefined) ci[i]++;
+        });
+
+        const fmtDif = (diff) => diff > 0 ? `+${diff}` : `${diff}`;
+        itemsEl.innerHTML = `
+          <div class="legend-item" style="font-weight:700; color:#94a3b8; border-bottom:1px solid #334155; padding-bottom:3px;">
+            <span>Categoría</span>
+            <span>Base | Interv. | Dif</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.verde};"></span>Bajo</span>
+            <span class="legend-item-count">${cb.verde} → ${ci.verde} (${fmtDif(ci.verde - cb.verde)})</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.amarillo};"></span>Moderado</span>
+            <span class="legend-item-count">${cb.amarillo} → ${ci.amarillo} (${fmtDif(ci.amarillo - cb.amarillo)})</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.naranja};"></span>Alto</span>
+            <span class="legend-item-count">${cb.naranja} → ${ci.naranja} (${fmtDif(ci.naranja - cb.naranja)})</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:${CATEGORY_COLORS.rojo};"></span>Crítico</span>
+            <span class="legend-item-count">${cb.rojo} → ${ci.rojo} (${fmtDif(ci.rojo - cb.rojo)})</span>
+          </div>
+        `;
+      }
+    }
+
+    function showTooltip(e, p, isMun) {
+      const tooltip = document.getElementById('tooltip');
+      const name = p.name || 'Sin nombre';
+      const stateName = isMun ? (STATE_NAMES[p.ent] || ('Estado ' + p.ent)) : 'Entidad Federativa';
+
+      const activeCat = currentMode === 'intervencion' ? p.category_intervencion : p.category_base;
+      const catColor = CATEGORY_COLORS[activeCat] || CATEGORY_COLORS.sin_dato;
+      const catLabel = CATEGORY_LABELS[activeCat] || 'Sin dato';
+
+      const predBase = p.pred_abstention_base;
+      const predInt = p.pred_abstention_intervencion;
+      const delta = p.delta_pp_intervencion;
+      const ln = p.lista_nominal;
+
+      const formatPct = (v) => (v !== null && v !== undefined && !isNaN(v)) ? (v * 100).toFixed(1) + '%' : '—';
+      const formatPp = (v) => {
+        if (v === null || v === undefined || isNaN(v)) return '—';
+        return (v > 0 ? '+' : '') + Number(v).toFixed(1) + ' pp';
+      };
+      const formatInt = (v) => (v !== null && v !== undefined && !isNaN(v)) ? Math.round(v).toLocaleString('es-MX') : '—';
+
+      const baseExp = (predBase !== null && predBase !== undefined && ln) ? Math.round(predBase * ln) : null;
+      const intExp = (predInt !== null && predInt !== undefined && ln) ? Math.round(predInt * ln) : null;
+
+      const deltaClass = (delta !== null && delta !== undefined) ? (delta < 0 ? 'text-emerald' : delta > 0 ? 'text-rose' : '') : '';
+
+      tooltip.innerHTML = `
+        <div class="tooltip-header">
+          <div class="tooltip-title">${name}</div>
+          <div class="tooltip-subtitle">${stateName}</div>
+        </div>
+        <div class="tooltip-badge" style="background-color: ${catColor};">
+          ${catLabel}
+        </div>
+        <div class="tooltip-grid">
+          <div class="tooltip-row">
+            <span class="tooltip-label">Abstención base:</span>
+            <span class="tooltip-val">${formatPct(predBase)}</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Con intervención:</span>
+            <span class="tooltip-val" style="color:var(--accent-emerald);">${formatPct(predInt)}</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Variación Δ:</span>
+            <span class="tooltip-val" style="color:${delta < 0 ? '#10b981' : delta > 0 ? '#f43f5e' : '#f8fafc'};">${formatPp(delta)}</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Abstención esperada:</span>
+            <span class="tooltip-val">${formatInt(currentMode === 'intervencion' ? intExp : baseExp)} electores</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Lista nominal:</span>
+            <span class="tooltip-val">${formatInt(ln)} electores</span>
+          </div>
+        </div>
+        ${p.top_recommendation ? `
+        <div class="tooltip-reco">
+          <span class="tooltip-reco-title">Recomendación prioritaria:</span>
+          <span class="tooltip-reco-text">${p.top_recommendation}</span>
+        </div>` : ''}
+      `;
+
+      tooltip.style.display = 'block';
+
+      const pad = 16;
+      let x = e.point.x + pad;
+      let y = e.point.y + pad;
+      const w = tooltip.offsetWidth || 280;
+      const h = tooltip.offsetHeight || 220;
+      const container = document.getElementById('map-wrapper');
+      if (x + w > container.clientWidth - 15) {
+        x = e.point.x - w - pad;
+      }
+      if (y + h > container.clientHeight - 15) {
+        y = e.point.y - h - pad;
+      }
+      tooltip.style.left = Math.max(10, x) + 'px';
+      tooltip.style.top = Math.max(10, y) + 'px';
+    }
+
+    function hideTooltip() {
+      document.getElementById('tooltip').style.display = 'none';
+    }
+
+    function normalizeText(txt) {
+      return (txt || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    }
+
+    function handleSearch(query) {
+      const resultsEl = document.getElementById('search-results');
+      const q = normalizeText(query);
+      if (!q || q.length < 2) {
+        resultsEl.style.display = 'none';
+        resultsEl.innerHTML = '';
+        return;
+      }
+
+      const matches = [];
+
+      // Search states
+      if (statesData) {
+        statesData.features.forEach(f => {
+          if (normalizeText(f.properties.name).includes(q)) {
+            matches.push({
+              level: 'states',
+              id: f.properties.id,
+              name: f.properties.name,
+              sub: 'Entidad Federativa',
+              cat: currentMode === 'intervencion' ? f.properties.category_intervencion : f.properties.category_base,
+              feature: f
+            });
+          }
+        });
+      }
+
+      // Search municipalities
+      if (munData) {
+        for (const f of munData.features) {
+          if (normalizeText(f.properties.name).includes(q)) {
+            const stName = STATE_NAMES[f.properties.ent] || ('Estado ' + f.properties.ent);
+            matches.push({
+              level: 'mun',
+              id: f.properties.id,
+              name: f.properties.name,
+              sub: stName,
+              cat: currentMode === 'intervencion' ? f.properties.category_intervencion : f.properties.category_base,
+              feature: f
+            });
+            if (matches.length >= 25) break;
+          }
+        }
+      }
+
+      if (!matches.length) {
+        resultsEl.innerHTML = '<div class="search-item" style="color:var(--text-muted); cursor:default;">Sin resultados</div>';
+        resultsEl.style.display = 'block';
+        return;
+      }
+
+      resultsEl.innerHTML = matches.slice(0, 8).map((m, idx) => `
+        <div class="search-item" onclick="selectSearchResult(${idx})">
+          <div class="search-item-info">
+            <span class="search-item-name">${m.name}</span>
+            <span class="search-item-sub">${m.sub}</span>
+          </div>
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${CATEGORY_COLORS[m.cat] || CATEGORY_COLORS.sin_dato};"></span>
+        </div>
+      `).join('');
+      resultsEl.style.display = 'block';
+
+      window._currentSearchResults = matches.slice(0, 8);
+    }
+
+    function selectSearchResult(idx) {
+      const match = (window._currentSearchResults || [])[idx];
+      if (!match) return;
+
+      document.getElementById('search-results').style.display = 'none';
+      document.getElementById('search-input').value = match.name;
+
+      if (currentLevel !== match.level) {
+        setLevel(match.level);
+      }
+
+      // Calculate bounds
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      function traverse(coords) {
+        if (typeof coords[0] === 'number') {
+          const x = coords[0], y = coords[1];
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        } else {
+          coords.forEach(traverse);
+        }
+      }
+      traverse(match.feature.geometry.coordinates);
+
+      const bounds = [[minX, minY], [maxX, maxY]];
+      const maxZoom = match.level === 'states' ? 7 : 11;
+
+      mapA.fitBounds(bounds, { padding: 80, maxZoom: maxZoom });
+      if (currentMode === 'comparar') {
+        mapB.fitBounds(bounds, { padding: 80, maxZoom: maxZoom });
+      }
+
+      const hoverLayer = match.level === 'states' ? 'states-hover' : 'mun-hover';
+      mapA.setFilter(hoverLayer, ['==', 'id', match.id]);
+      if (currentMode === 'comparar') {
+        mapB.setFilter(hoverLayer, ['==', 'id', match.id]);
+      }
+    }
+
+    // Hide search results on outside click
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-section')) {
+        document.getElementById('search-results').style.display = 'none';
+      }
+    });
+
+    // Start on DOM ready
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>

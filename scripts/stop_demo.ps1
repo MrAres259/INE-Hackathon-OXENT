@@ -1,4 +1,4 @@
-﻿# ATALAYA - Stop Demo Server Processes
+# ATALAYA - Stop Demo Server Processes
 # Compatible with PowerShell 5.1
 
 $ErrorActionPreference = "Stop"
@@ -206,6 +206,30 @@ function Stop-RepoProcessOnPort {
         }
     }
     return $stopped
+}
+
+# 0. Stop supervisor if running
+$supPidFile = Join-Path $cacheDir "supervisor.pid"
+if (Test-Path $supPidFile) {
+    try {
+        $supVal = (Get-Content -Path $supPidFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($supVal -match '^\d+$') {
+            $supPid = [int]$supVal
+            $supProc = Get-Process -Id $supPid -ErrorAction SilentlyContinue
+            if ($supProc) {
+                Write-Host "Supervisor detected (PID: $supPid). Stopping supervisor..." -ForegroundColor Yellow
+                $backendDir = Join-Path $repoRoot "backend"
+                Push-Location $backendDir
+                try {
+                    & python -m atalaya.ops.supervisor stop
+                } finally {
+                    Pop-Location
+                }
+            }
+        }
+    } catch {
+        Write-Host "Warning: Could not stop supervisor via CLI: $_" -ForegroundColor Yellow
+    }
 }
 
 Write-Host "Stopping ATALAYA demo processes on ports 8001 and 3000..." -ForegroundColor Cyan

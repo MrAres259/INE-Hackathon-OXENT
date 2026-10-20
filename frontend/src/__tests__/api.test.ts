@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   shouldFallbackToMock,
   ApiError,
@@ -6,6 +6,8 @@ import {
   getMetrics,
   getRisk,
   setMockActive,
+  isMockEnabled,
+  streamChat,
 } from "../lib/api";
 
 describe("API Client Error and Mock Fallback Rules", () => {
@@ -14,6 +16,68 @@ describe("API Client Error and Mock Fallback Rules", () => {
       detail: [{ loc: ["body", "params", "effect_pp"], msg: "Must be <= 10.0" }],
     });
     expect(shouldFallbackToMock(error422)).toBe(false);
+  });
+
+  it("does NOT fallback to mock on HTTP 429 (rate limit) or HTTP 413 (payload too large)", () => {
+    const error429 = new ApiError("Demasiadas preguntas seguidas. Intenta de nuevo en unos segundos.", 429);
+    expect(shouldFallbackToMock(error429)).toBe(false);
+
+    const error413 = new ApiError("La pregunta es demasiado larga (máximo 1,000 caracteres).", 413);
+    expect(shouldFallbackToMock(error413)).toBe(false);
+  });
+
+  it("streamChat delivers server error message on 429 without activating mocks", async () => {
+    setMockActive(false);
+    const origFetch = global.fetch;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      statusText: "Too Many Requests",
+      json: async () => ({
+        detail: "Demasiadas preguntas seguidas. Intenta de nuevo en unos segundos.",
+      }),
+    } as unknown as Response);
+
+    let reportedError = "";
+    await streamChat(
+      { message: "¿Pregunta de prueba?", history: [] },
+      {
+        onError: (err) => {
+          reportedError = err.message;
+        },
+      }
+    );
+
+    expect(reportedError).toBe("Demasiadas preguntas seguidas. Intenta de nuevo en unos segundos.");
+    expect(isMockEnabled()).toBe(false);
+    global.fetch = origFetch;
+  });
+
+  it("streamChat delivers server error message on 413 without activating mocks", async () => {
+    setMockActive(false);
+    const origFetch = global.fetch;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 413,
+      statusText: "Payload Too Large",
+      json: async () => ({
+        detail: "La pregunta es demasiado larga (máximo 1,000 caracteres).",
+      }),
+    } as unknown as Response);
+
+    let reportedError = "";
+    await streamChat(
+      { message: "a".repeat(1001), history: [] },
+      {
+        onError: (err) => {
+          reportedError = err.message;
+        },
+      }
+    );
+
+    expect(reportedError).toBe("La pregunta es demasiado larga (máximo 1,000 caracteres).");
+    expect(isMockEnabled()).toBe(false);
+    global.fetch = origFetch;
   });
 
   it("falls back to mock on HTTP 404 (endpoint not implemented) and 5xx (server error)", () => {

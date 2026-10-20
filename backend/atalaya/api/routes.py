@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from atalaya.api.deps import (
@@ -734,7 +734,10 @@ def get_metrics() -> dict[str, Any]:
 
 
 @router.post("/admin/reload")
-def post_reload() -> dict[str, Any]:
+def post_reload(request: Request) -> dict[str, Any]:
+    from atalaya.api.security import verify_admin_access
+
+    verify_admin_access(request)
     try:
         _CLUSTER_INFO_CACHE["info"] = None
         _CLUSTER_INFO_CACHE["expires_at"] = 0.0

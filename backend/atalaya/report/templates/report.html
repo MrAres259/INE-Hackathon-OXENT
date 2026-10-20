@@ -6,7 +6,7 @@
 <style>
   @page {
     size: letter portrait;
-    margin: 2.2cm 2.0cm;
+    margin: 2.5cm;
     @bottom-right {
       content: "Página " counter(page);
       font-family: Arial, sans-serif;
@@ -23,8 +23,8 @@
 
   body {
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 10pt;
-    line-height: 1.45;
+    font-size: 11pt;
+    line-height: 1.5;
     color: #1a1a1a;
     margin: 0;
     padding: 0;
@@ -33,7 +33,6 @@
   .page {
     page-break-after: always;
     break-after: page;
-    height: 100%;
     box-sizing: border-box;
   }
 
@@ -44,8 +43,8 @@
 
   .header-banner {
     border-bottom: 2.5px solid #002f6c;
-    padding-bottom: 5px;
-    margin-bottom: 10px;
+    padding-bottom: 4px;
+    margin-bottom: 8px;
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
@@ -55,7 +54,7 @@
     font-size: 9.5pt;
     font-weight: bold;
     color: #002f6c;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     text-transform: uppercase;
   }
 
@@ -63,10 +62,11 @@
     font-size: 8pt;
     color: #666666;
     text-align: right;
+    line-height: 1.25;
   }
 
   h1.report-title {
-    font-size: 17pt;
+    font-size: 16pt;
     font-weight: bold;
     color: #002f6c;
     line-height: 1.2;
@@ -74,20 +74,21 @@
   }
 
   .report-subtitle {
-    font-size: 10.5pt;
+    font-size: 10pt;
     color: #455a64;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     font-weight: 500;
+    line-height: 1.3;
   }
 
   h2 {
-    font-size: 12.5pt;
+    font-size: 12pt;
     font-weight: bold;
     color: #002f6c;
     border-bottom: 1.5px solid #cfd8dc;
     padding-bottom: 2px;
-    margin-top: 10px;
-    margin-bottom: 6px;
+    margin-top: 8px;
+    margin-bottom: 5px;
     page-break-after: avoid;
   }
 
@@ -95,20 +96,20 @@
     font-size: 10.5pt;
     font-weight: bold;
     color: #263238;
-    margin-top: 8px;
-    margin-bottom: 4px;
+    margin-top: 6px;
+    margin-bottom: 3px;
     page-break-after: avoid;
   }
 
   p {
     margin-top: 0;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
     text-align: justify;
   }
 
   ul, ol {
     margin-top: 0;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
     padding-left: 18px;
   }
 
@@ -123,7 +124,7 @@
     padding: 6px 10px;
     margin: 6px 0;
     border-radius: 2px;
-    font-size: 9pt;
+    font-size: 9.5pt;
     line-height: 1.35;
   }
 
@@ -135,19 +136,19 @@
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
-    margin: 8px 0;
+    margin: 6px 0;
   }
 
   .stat-card {
     background-color: #f7f9fb;
     border: 1px solid #d9e2ec;
     border-radius: 4px;
-    padding: 6px 4px;
+    padding: 5px 3px;
     text-align: center;
   }
 
   .stat-card-num {
-    font-size: 13pt;
+    font-size: 12.5pt;
     font-weight: bold;
     color: #002f6c;
     line-height: 1.1;
@@ -163,8 +164,8 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    margin: 6px 0;
-    font-size: 8pt;
+    margin: 5px 0;
+    font-size: 9pt;
     line-height: 1.2;
     page-break-inside: avoid;
   }
@@ -183,6 +184,15 @@
 
   tr:nth-child(even) td {
     background-color: #f8fafb;
+  }
+
+  .table-compact {
+    font-size: 8pt;
+    line-height: 1.15;
+  }
+
+  .table-compact th, .table-compact td {
+    padding: 2px 4px;
   }
 
   .text-right {
@@ -210,7 +220,7 @@
   .badge-sin_dato { background-color: #9e9e9e; }
 
   .figure-container {
-    margin: 6px 0;
+    margin: 5px 0;
     text-align: center;
     page-break-inside: avoid;
     break-inside: avoid;
@@ -219,17 +229,20 @@
   .map-figure {
     display: block;
     width: 100%;
+    max-width: 560px;
     height: auto;
+    margin: 0 auto;
     image-rendering: auto;
     page-break-inside: avoid;
     break-inside: avoid;
   }
 
   .figure-caption {
-    font-size: 7.5pt;
+    font-size: 8.5pt;
+    line-height: 1.2;
     color: #546e7a;
     font-style: italic;
-    margin-top: 2px;
+    margin-top: 3px;
     text-align: center;
   }
 
@@ -242,15 +255,6 @@
   .two-col > div {
     flex: 1;
   }
-
-  .table-compact {
-    font-size: 7pt;
-    line-height: 1.1;
-  }
-
-  .table-compact th, .table-compact td {
-    padding: 1.5px 3px;
-  }
 </style>
 </head>
 <body>
@@ -259,26 +263,27 @@
 <div class="page">
   <div class="header-banner">
     <div>
-      <div class="header-institution">Propuesta del equipo {{ stats.team }} · Hackathon INE 2026 «Hackea la participación» · Reto 2</div>
-      <div style="font-size: 8.5pt; color: #555;">Convocado por el Instituto Nacional Electoral</div>
+      <div class="header-institution">Equipo {{ stats.team }} · Eje: Predicción y escenarios de riesgo de abstención</div>
+      <div style="font-size: 8.5pt; color: #555;">Hackathon INE 2026 · Reto 2 · «Hackea la participación»</div>
     </div>
     <div class="header-tag">
-      Propuesta de Solución<br>
-      Octubre 2026
+      Reporte Metodológico y Preventivo<br>
+      Fecha de generación: 20 de octubre de 2026
     </div>
   </div>
 
   <h1 class="report-title">ATALAYA: Reporte Metodológico y Preventivo</h1>
   <div class="report-subtitle">Marco Analítico Predictivo de Riesgo de Abstención y Priorización Territorial rumbo a la Elección Federal 2027</div>
 
-  <div class="callout-box" style="margin-bottom: 8px;">
-    <strong>Pregunta Guía del Reto:</strong> <em>¿Qué zonas podrían presentar mayor abstención en el futuro si no se interviene?</em><br>
-    <strong>Propósito Institucional:</strong> Proveer al INE herramientas analíticas rigurosas para la planeación anticipada, focalización territorial y priorización estratégica de recursos hacia la jornada del 6 de junio de 2027.
+  <div class="callout-box">
+    <strong>Convocatoria:</strong> Hackathon INE 2026 · Reto 2 | <strong>Equipo:</strong> {{ stats.team }}<br>
+    <strong>Eje Temático:</strong> Predicción y escenarios de riesgo de abstención<br>
+    <strong>Fecha de generación:</strong> 20 de octubre de 2026 | <strong>Objetivo:</strong> Anticipar zonas de abstención y priorizar recursos institucionales hacia 2027.
   </div>
 
   <h2>1. Resumen Ejecutivo</h2>
   <p>
-    El proyecto <strong>ATALAYA</strong> constituye una plataforma integral de analítica predictiva diseñada para anticipar el riesgo de abstención electoral en los <strong>{{ stats.n_mun }} municipios</strong> de México hacia las elecciones de diputaciones federales de 2027. Desarrollado a partir de la <em>Plataforma de Conteos Censales de Participación Ciudadana (CCPC 2009–2024)</em> del INE, el Censo 2020 de INEGI y el Índice de Marginación de CONAPO, ATALAYA combina tendencias históricas y perfiles estructurales en un semáforo de riesgo territorial accionable de cuatro categorías: Verde, Amarillo, Naranja y Rojo.
+    El proyecto <strong>ATALAYA</strong> constituye una plataforma integral de analítica predictiva diseñada para anticipar el riesgo de abstención electoral en los <strong>{{ stats.n_mun }} municipios</strong> de México hacia la elección federal intermedia de 2027. Desarrollado a partir de los <em>Conteos Censales de Participación Ciudadana (CCPC 2009–2024)</em> del INE, el Censo 2020 de INEGI y el Grado de Marginación de CONAPO, ATALAYA combina inercia temporal y vulnerabilidad estructural en un semáforo territorial explicable de cuatro categorías: Verde, Amarillo, Naranja y Rojo.
   </p>
 
   <div class="stat-grid">
@@ -296,41 +301,39 @@
     </div>
     <div class="stat-card">
       <div class="stat-card-num">{{ stats.model.top_structural_factor }}</div>
-      <div class="stat-card-desc">Factor Explicativo Estructural Clave</div>
+      <div class="stat-card-desc">Factor Estructural Explicativo Clave</div>
     </div>
   </div>
 
-  <p>
-    <strong>Principales Hallazgos Cuantitativos:</strong>
-  </p>
+  <p><strong>Principales Hallazgos Cuantitativos:</strong></p>
   <ul>
-    <li><strong>Concentración del riesgo crítico:</strong> El modelo identifica <strong>{{ stats.categories.base.rojo.n }} municipios en nivel Rojo</strong> ({{ stats.categories.base.rojo.pct_n_label }}; {{ stats.categories.base.rojo.ln_m_fmt }} electores, {{ stats.categories.base.rojo.pct_ln_label }}) y <strong>{{ stats.categories.base.naranja.n }} municipios en Naranja</strong> ({{ stats.categories.base.naranja.pct_n_label }}; {{ stats.categories.base.naranja.ln_m_fmt }} electores, {{ stats.categories.base.naranja.pct_ln_label }}). En conjunto, el <strong>{{ stats.ln_risk.base.pct_fmt }} de la Lista Nominal (LN) ({{ stats.ln_risk.base.millones_fmt }})</strong> habita en municipios clasificados en riesgo alto o muy alto (Naranja y Rojo, {{ stats.ln_risk.base.pct_mun_label }}). Asimismo, el {{ stats.ln_risk.base.arn_pct_fmt }} de la LN habita en zonas con riesgo moderado a muy alto (Amarillo, Naranja y Rojo).</li>
+    <li><strong>Concentración del riesgo crítico:</strong> El modelo identifica <strong>{{ stats.categories.base.rojo.n }} municipios en nivel Rojo</strong> ({{ stats.categories.base.rojo.pct_n_label }}; {{ stats.categories.base.rojo.ln_m_fmt }} electores, {{ stats.categories.base.rojo.pct_ln_label }}) y <strong>{{ stats.categories.base.naranja.n }} municipios en Naranja</strong> ({{ stats.categories.base.naranja.pct_n_label }}; {{ stats.categories.base.naranja.ln_m_fmt }} electores, {{ stats.categories.base.naranja.pct_ln_label }}). En conjunto, el <strong>{{ stats.ln_risk.base.pct_fmt }} de la Lista Nominal (LN) ({{ stats.ln_risk.base.millones_fmt }})</strong> habita en municipios en riesgo alto o muy alto (Naranja y Rojo, {{ stats.ln_risk.base.pct_mun_label }}). Asimismo, el {{ stats.ln_risk.base.arn_pct_fmt }} de la LN habita en riesgo moderado a muy alto (Amarillo, Naranja y Rojo).</li>
     <li><strong>Focos territoriales:</strong> Las entidades federativas con mayor porcentaje de su Lista Nominal en riesgo alto o muy alto son <strong>{{ stats.state_extremes.top_state_1 }} ({{ stats.state_extremes.top_state_1_pct }}% de su LN)</strong>, <strong>{{ stats.state_extremes.top_state_2 }} ({{ stats.state_extremes.top_state_2_pct }}% de su LN)</strong> y <strong>{{ stats.state_extremes.top_state_3 }} ({{ stats.state_extremes.top_state_3_pct }}% de su LN)</strong>.</li>
-    <li><strong>Impacto de la intervención:</strong> En el escenario de intervención preventiva, se estima una movilización neta de <strong>+{{ stats.votes.intervencion.votos_fmt }} votos adicionales</strong>, reduciendo en un {{ stats.transitions.pct_rojo_reduction_fmt }} el número de municipios en categoría Roja ({{ stats.transitions.rojo_net_reduction }} municipios dejan la alerta roja neta: {{ stats.transitions.rojo_salidas }} municipios desescalan de Rojo).</li>
-    <li><strong>Determinantes estructurales:</strong> El factor sociodemográfico con mayor capacidad explicativa de la abstención promedio es la <strong>{{ stats.model.top_structural_factor }}</strong> (coeficiente de {{ stats.model.top_structural_coef }} pp por desviación estándar), seguido de la proporción de población joven (18 a 24 años).</li>
+    <li><strong>Impacto de la intervención:</strong> En el escenario preventivo, se estima una movilización neta de <strong>+{{ stats.votes.intervencion.votos_fmt }} votos adicionales</strong>, reduciendo en un {{ stats.transitions.pct_rojo_reduction_fmt }} el número de municipios en categoría Roja ({{ stats.transitions.rojo_net_reduction }} municipios dejan la alerta roja neta: {{ stats.transitions.rojo_salidas }} municipios desescalan de Rojo).</li>
+    <li><strong>Determinantes estructurales:</strong> El factor sociodemográfico con mayor capacidad explicativa es la <strong>{{ stats.model.top_structural_factor }}</strong> (coeficiente de {{ stats.model.top_structural_coef }} pp por desviación estándar), seguido de la juventud (18 a 24 años).</li>
   </ul>
 </div>
 
 <!-- PÁGINA 2: OBJETIVOS, DATOS Y FUENTES -->
 <div class="page">
-  <h2>2. Objetivo, Alcance y Principios Rectores</h2>
+  <h2>2. Objetivo, Alcance y Principios</h2>
   <p>
-    <strong>Objetivo General:</strong> Proporcionar a los órganos técnicos del Instituto y a las 32 Juntas Locales y Distritales Ejecutivas una base metodológica y predictiva para orientar brigadas de campo, instalación de casillas extraordinarias y campañas diferenciadas de educación cívica hacia el 6 de junio de 2027.
+    <strong>Objetivo Institucional:</strong> Proporcionar a los órganos técnicos del Instituto y a las 32 Juntas Locales y 300 Distritales una base predictiva rigurosa para orientar brigadas de campo, instalación de casillas extraordinarias y campañas cívicas hacia el 6 de junio de 2027.
   </p>
   <p>
-    <strong>Principios Rectores de Protección de Datos:</strong>
+    <strong>Principios de Protección de Datos Personales y Neutralidad:</strong>
   </p>
   <ul>
-    <li><em>Diseñado conforme a principios de la Ley General de Protección de Datos Personales en Posesión de Sujetos Obligados:</em> Se prohíbe el uso de padrones o listas nominales con datos individuales. Toda la analítica opera a nivel agregado (sección, municipio o entidad).</li>
-    <li><em>Supresión estadística (&lt;10 registros):</em> Toda celda con Lista Nominal menor a 10 registros es suprimida para impedir reidentificación. Los registros no binarios («X») solo se difunden a nivel estatal y nacional.</li>
-    <li><em>Neutralidad y ausencia de sesgo político:</em> El modelo descarta variables partidistas o encuestas; se fundamenta exclusivamente en dinámicas cívicas estructurales y demográficas oficiales.</li>
+    <li><em>Apego a la LGPDPPSO:</em> Se prohíbe el uso de datos nominales o individuales. Todo el análisis opera con agregaciones censales a nivel sección, municipio y entidad federativa.</li>
+    <li><em>Supresión estadística (&lt;10 registros):</em> Toda celda demográfica con Lista Nominal menor a 10 registros es suprimida para impedir reidentificación. Los registros no binarios («X») se difunden únicamente a nivel estatal y nacional.</li>
+    <li><em>Imparcialidad cívica:</em> Se excluyen variables de encuestas o afiliación partidista; la predicción se fundamenta estrictamente en dinámica histórica institucional y demografía oficial.</li>
   </ul>
 
   <h2>3. Datos y Variables</h2>
-  <table>
+  <table class="table-compact">
     <thead>
       <tr>
-        <th style="width: 25%;">Fuente Oficial</th>
+        <th style="width: 24%;">Fuente Oficial</th>
         <th style="width: 14%;">Periodo</th>
         <th style="width: 16%;">Nivel</th>
         <th>Descripción y Contenido</th>
@@ -347,41 +350,41 @@
         <td><strong>INE CCPC PJF</strong></td>
         <td>2025</td>
         <td>Sección, Mun, Est</td>
-        <td>Participación en la elección judicial federal extraordinaria. Serie independiente.</td>
+        <td>Participación en la elección judicial extraordinaria. Serie informativa independiente.</td>
       </tr>
       <tr>
         <td><strong>INEGI ITER</strong></td>
         <td>2020</td>
         <td>Municipio</td>
-        <td>Población total, grupos de edad, escolaridad (GRAPROES), lengua indígena y ruralidad.</td>
+        <td>Población adulta, escolaridad promedio (GRAPROES), lengua indígena y ruralidad.</td>
       </tr>
       <tr>
         <td><strong>CONAPO IMM</strong></td>
         <td>2020</td>
         <td>Municipio</td>
-        <td>Índice y Grado de Marginación Municipal (analfabetismo, viviendas precarias, ingresos).</td>
+        <td>Índice y Grado de Marginación Municipal (vivienda, analfabetismo, ingresos).</td>
       </tr>
       <tr>
         <td><strong>INEGI MG</strong></td>
         <td>2024</td>
         <td>Cartográfico</td>
-        <td>Marco Geoestadístico 2024: límites oficiales de 32 estados y 2,478 municipios canónicos.</td>
+        <td>Marco Geoestadístico 2024: 32 entidades y 2,478 municipios canónicos.</td>
       </tr>
     </tbody>
   </table>
 
   <h3>Fórmula Oficial CCPC y Regla de Calidad Metodológica</h3>
-  <div class="callout-box text-center" style="font-weight: bold; background-color: #ffffff; border: 1px solid #002f6c;">
+  <div class="callout-box text-center" style="font-weight: bold; background-color: #ffffff; border: 1px solid #002f6c; margin: 4px 0;">
     Participación Oficial CCPC = SV / (SV + NV)
   </div>
   <p>
-    Donde <strong>SV</strong> = registros con marca de voto, <strong>NV</strong> = registros sin marca, y <strong>NS</strong> = registros "No Especificados" (cuadernillos deteriorados o no devueltos), los cuales se excluyen para evitar subestimaciones artificiales.
+    Donde <strong>SV</strong> = votos asentados y <strong>NV</strong> = electores sin marca de voto. Los registros <strong>NS</strong> (cuadernillos deteriorados o no devueltos) se excluyen para evitar subestimaciones artificiales.
   </p>
   <p>
-    <strong>Filtro de Confiabilidad Estadística:</strong> Se define como confiable a todo municipio-año con <code>ns_rate &le; 0.50</code> y participación <code>&ge; 2.0%</code>. Los casos no confiables no se usan como variable objetivo ni rezago, clasificándose como "sin información confiable".
+    <strong>Filtro de Confiabilidad Estadística:</strong> Se define como confiable a todo municipio-año con <code>ns_rate &le; 0.50</code> y participación <code>&ge; 2.0%</code>. Los casos anómalos se clasifican como "sin dato confiable" y se excluyen del entrenamiento.
   </p>
 
-  <table>
+  <table class="table-compact">
     <thead>
       <tr>
         <th>Elección Federal</th>
@@ -404,8 +407,8 @@
       </tr>
     </tbody>
   </table>
-  <p style="font-size: 8pt; color: #555;">
-    <em>Cruce INE &rarr; INEGI:</em> Cobertura del 100% de los 2,478 municipios gracias al motor de crosswalk algorítmico y catálogo de overrides oficiales.
+  <p style="font-size: 8.5pt; color: #555;">
+    <em>Cobertura Cartográfica:</em> Cobertura del 100% de los 2,478 municipios canónicos mediante crosswalk INE &rarr; INEGI y catálogo de homologación oficial.
   </p>
 </div>
 
@@ -413,7 +416,7 @@
 <div class="page">
   <h2>4. Panorama Histórico de la Participación Ciudadana</h2>
   <p>
-    La serie histórica del CCPC 2009–2024 ilustra la alternancia recurrente entre elecciones concurrentes presidenciales (alrededor del 60–62%) e intermedias (entre 44% y 52%):
+    La serie histórica oficial del CCPC 2009–2024 evidencia el ciclo estructural entre comicios presidenciales (alrededor del 60–62%) e intermedios (44% a 52%):
   </p>
 
   <div class="figure-container">
@@ -421,33 +424,41 @@
     <div class="figure-caption">Figura 4.1: Participación ciudadana oficial nacional CCPC (Diputaciones Federales 2009–2024 y Elección Judicial 2025). Fuente: Elaboración propia con datos CCPC (INE).</div>
   </div>
 
-  <p>
-    <strong>Dinámica Histórica Observada:</strong>
-  </p>
+  <p><strong>Comportamiento Cívico por Ciclo Electoral:</strong></p>
   <ul>
-    <li><strong>Elecciones Intermedias (44.06% en 2009, 47.07% en 2015, 51.84% en 2021):</strong> Crecimiento sostenido impulsado en 2021 por la concurrencia masiva con elecciones locales a gubernaturas, congresos locales y ayuntamientos en 30 entidades federativas.</li>
-    <li><strong>Elecciones Presidenciales (62.08% en 2012, 62.37% en 2018, 59.67% en 2024):</strong> Mayor intensidad cívica con una brecha constante de +8 a +15 pp sobre los comicios intermedios.</li>
-    <li><strong>Elección Judicial 2025:</strong> Registró una participación nacional del <strong>{{ stats.part_pj_2025 }}%</strong> (12.72 millones de votantes de 99.09 M inscritos). Se evalúa como serie informativa independiente dado su diseño comicial extraordinario.</li>
+    <li><strong>Elecciones Intermedias (44.06% en 2009, 47.07% en 2015, 51.84% en 2021):</strong> Crecimiento sostenido impulsado en 2021 por la concurrencia masiva con comicios locales a gubernaturas, congresos locales y ayuntamientos en 30 entidades federativas.</li>
+    <li><strong>Elecciones Presidenciales (62.08% en 2012, 62.37% en 2018, 59.67% en 2024):</strong> Mayor afluencia con una brecha constante de +8 a +15 pp sobre las elecciones intermedias.</li>
+    <li><strong>Elección Judicial 2025:</strong> Registró una participación del <strong>{{ stats.part_pj_2025 }}%</strong> (12.72 millones de votantes de 99.09 M inscritos). Se evalúa como serie informativa independiente dado su diseño comicial extraordinario.</li>
   </ul>
 
   <div class="callout-box">
-    <strong>Supuesto Base para 2027:</strong> El proceso de 2027 renueva la Cámara de Diputados en comicios intermedios concurrentes con 17 gubernaturas estatales. El nivel base calibrado adopta la tasa intermedia observada en 2021 (<strong>51.84%</strong>).
+    <strong>Supuesto Base para 2027:</strong> El proceso 2027 renueva la Cámara de Diputados en comicios intermedios concurrentes con 17 gubernaturas estatales. El nivel base calibrado adopta la tasa intermedia observada en 2021 (<strong>51.84%</strong>).
   </div>
 </div>
 
-<!-- PÁGINA 4: DISTRIBUCIÓN 2024 Y BRECHAS DEMOGRÁFICAS -->
+<!-- PÁGINA 4: CARTOGRAFÍA ESTATAL 2024 -->
 <div class="page">
   <h3>Distribución Territorial de la Participación en 2024</h3>
+  <p>
+    En la Elección Federal de 2024, la afluencia ciudadana mostró contrastes espaciales significativos a nivel nacional, oscilando entre entidades con alta participación (&gt;65%) en el centro y sureste y entidades con afluencia inferior al 50% en el noroeste del país:
+  </p>
   <div class="figure-container">
     {{ charts.map_part_2024 | safe }}
     <div class="figure-caption">Figura 4.2: Participación ciudadana oficial por entidad federativa en la Elección Federal 2024.{% if map_engines and map_engines.map_part_2024 == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
 
+  <p>
+    Este patrón geográfico refleja la persistencia de corredores de abstención estructural en los estados fronterizos y costeros del norte, contrastando con la mayor estabilidad participativa en el altiplano central y la península de Yucatán.
+  </p>
+</div>
+
+<!-- PÁGINA 5: BRECHAS DEMOGRÁFICAS -->
+<div class="page">
   <h3>Brecha Generacional y de Género (2009 vs 2024)</h3>
   <div class="two-col">
     <div>
-      <p style="font-size: 8.5pt;">
-        <strong>Doble Brecha Demográfica:</strong> La población en los grupos de 18-24 y 25-34 años presenta tasas de votación por debajo del promedio nacional (brechas de {{ stats.youth_gap_pp.gap_18_24_pp_fmt }} y {{ stats.youth_gap_pp.gap_25_34_pp_fmt }} respectivamente). En contraste, las mujeres registran mayor afluencia que los hombres en 2024 (brecha nacional de {{ stats.gender_gap_pp.gap_2024_pp_fmt }}).
+      <p style="font-size: 9pt;">
+        <strong>Doble Brecha Demográfica:</strong> La población en los grupos de 18-24 y 25-34 años presenta tasas de votación marcadamente inferiores al promedio nacional (brechas de {{ stats.youth_gap_pp.gap_18_24_pp_fmt }} y {{ stats.youth_gap_pp.gap_25_34_pp_fmt }} respectivamente). En contraste, las mujeres registran mayor afluencia que los hombres en 2024 (brecha nacional de {{ stats.gender_gap_pp.gap_2024_pp_fmt }}).
       </p>
     </div>
     <div>
@@ -456,7 +467,7 @@
     </div>
   </div>
 
-  <h3>Brechas de Participación Juvenil y de Género por Estado (2024)</h3>
+  <h3>Brechas de Participación Juvenil y de Género por Entidad Federativa (2024)</h3>
   <table>
     <thead>
       <tr>
@@ -487,20 +498,14 @@
   </table>
 </div>
 
-<!-- PÁGINA 5: MODELO DE RIESGO Y BACKTEST -->
+<!-- PÁGINA 6: MODELO DE RIESGO -->
 <div class="page">
   <h2>5. Modelo de Riesgo</h2>
   <p>
-    El pronóstico municipal de abstención para 2027 adopta una metodología de dos etapas diseñada para superar las limitaciones de los modelos autorregresivos convencionales:
+    El pronóstico municipal de abstención para 2027 adopta una metodología rigurosa de dos etapas: modelación de la desviación relativa respecto a la media de cada comicio (<code>dev_{i,T} = 100 &middot; participacion_{i,T} &minus; media_T</code>) y evaluación honesta en validación temporal hacia atrás (backtest) en dos ventanas críticas (&le;2018 para predecir 2021, y &le;2021 para predecir 2024):
   </p>
-  <ol>
-    <li><strong>Modelación de la Desviación Relativa:</strong> En lugar de proyectar tasas absolutas (sensibles a choques macroelectorales de alta varianza entre elecciones), se modela la <em>desviación relativa</em> municipal respecto a la media de cada elección:
-      <code>dev_{i,T} = 100 &middot; participacion_{i,T} &minus; media_no_ponderada_T</code>.
-    </li>
-    <li><strong>Selección Honesta entre Modelos Candidatos:</strong> Se evaluaron cuatro especificaciones en validación temporal hacia atrás (backtest) en dos ventanas críticas: entrenamiento &le;2018 para predecir 2021, y entrenamiento &le;2021 para predecir 2024.</li>
-  </ol>
 
-  <table>
+  <table class="table-compact">
     <thead>
       <tr>
         <th>Modelo Candidato</th>
@@ -528,15 +533,15 @@
   </table>
 
   <p>
-    <strong>Justificación Técnica de la Elección:</strong> El modelo de persistencia relativa de primer rezago (<code>persist_l1</code>), basado en la posición relativa en la elección federal anterior, 2024, obtuvo el menor Error Absoluto Medio promedio (<strong>6.00 pp</strong>), manteniendo correlaciones de ordenamiento de Spearman excepcionalmente altas (<strong>0.84</strong> en 2021 y <strong>0.81</strong> en 2024) y una capacidad de captura de los municipios más críticos de abstención del <strong>70%</strong>. Modelos más complejos con regularización Ridge sobreestimaron el efecto de concurrencia local de 2018 al proyectar 2021.
+    <strong>Justificación Técnica:</strong> El modelo de persistencia relativa de primer rezago (<code>persist_l1</code>), basado en la posición relativa en la elección federal anterior, 2024, obtuvo el menor Error Absoluto Medio (<strong>6.00 pp</strong>), alta correlación de Spearman (<strong>0.84</strong> y <strong>0.81</strong>) y capacidad de captura del <strong>70%</strong> en los municipios más críticos.
   </p>
 
   <h3>Perfil Estructural y R² (Vulnerabilidad Sociodemográfica)</h3>
   <p>
-    Para explicar las causas profundas de la abstención, se estimó un modelo estructural Ridge sobre las variables de Censo 2020 y CONAPO. La descomposición de varianza revela que el <strong>47% de la varianza en la participación es entre entidades federativas</strong>. La validación cruzada aleatoria de 5 pliegues alcanza un <strong>R² = {{ stats.structural_r2 }}</strong>.
+    El modelo estructural Ridge sobre variables censales alcanza un <strong>R² = {{ stats.structural_r2 }}</strong> en validación cruzada. La descomposición muestra que el <strong>47% de la varianza en la participación es entre entidades federativas</strong>.
   </p>
 
-  <table>
+  <table class="table-compact">
     <thead>
       <tr>
         <th>Variable Sociodemográfica</th>
@@ -557,28 +562,25 @@
     </tbody>
   </table>
   <p style="font-size: 8pt; color: #555;">
-    <em>Calibración e Intervalos 2027:</em> Supuesto base nacional = 51.84%. Se aplica una constante de calibración para ajuste exacto a &plusmn;0.01 pp ponderado por LN. Intervalo al 90% = &plusmn;13.68 pp (&plusmn;1.645&middot;&sigma; con &sigma; = 8.32 pp).
+    <em>Calibración 2027:</em> Supuesto base nacional = 51.84%. Intervalo al 90% = &plusmn;13.68 pp (&plusmn;1.645&middot;&sigma; con &sigma; = 8.32 pp).
   </p>
 </div>
 
-<!-- PÁGINA 6: SEMÁFORO DE RIESGO ESTATAL -->
+<!-- PÁGINA 7: SEMÁFORO DE RIESGO ESTATAL -->
 <div class="page">
-  <h2>6. Semáforo de Riesgo Territorial para 2027</h2>
+  <h2>6. Semáforo de Riesgo Territorial</h2>
   <p>
-    El índice sintético de riesgo ATALAYA (<code>risk_score</code>, escala 0 a 100) equilibra de manera rigurosa la inercia electoral histórica con la vulnerabilidad sociodemográfica estructural del territorio:
+    El índice de riesgo sintético ATALAYA (<code>risk_score</code>, 0 a 100) equilibra inercia electoral y vulnerabilidad estructural:
   </p>
-  <div class="callout-box text-center" style="font-size: 8.5pt; background-color: #fafbfc; border: 1.5px solid #002f6c;">
-    <strong>risk_score</strong> = 100 &middot; [ 0.50 &middot; Rank(Abstención Pronosticada) + 0.20 &middot; Rank(Vulnerabilidad Estructural) + 0.15 &middot; Rank(&minus;Tendencia) + 0.15 &middot; Rank(Volatilidad) ]
+  <div class="callout-box text-center" style="font-size: 9pt; background-color: #fafbfc; border: 1.5px solid #002f6c;">
+    <strong>risk_score</strong> = 100 &middot; [ 0.50 &middot; Rank(Abstención) + 0.20 &middot; Rank(Vulnerabilidad) + 0.15 &middot; Rank(&minus;Tendencia) + 0.15 &middot; Rank(Volatilidad) ]
   </div>
 
-  <p>
-    Donde cada componente representa el percentil relativo normalizado (0 a 1) dentro de la distribución nacional. Los umbrales institucionales del semáforo son:
-  </p>
-  <div style="display: flex; gap: 8px; margin: 6px 0; justify-content: space-around;">
-    <div style="background-color: #c62828; color: white; padding: 3px 8px; border-radius: 2px; font-size: 8pt; font-weight: bold;">Rojo: &ge; 75.0 (Riesgo Muy Alto)</div>
-    <div style="background-color: #ef6c00; color: white; padding: 3px 8px; border-radius: 2px; font-size: 8pt; font-weight: bold;">Naranja: 55.0 – 74.9 (Riesgo Alto)</div>
-    <div style="background-color: #f9a825; color: black; padding: 3px 8px; border-radius: 2px; font-size: 8pt; font-weight: bold;">Amarillo: 35.0 – 54.9 (Riesgo Medio)</div>
-    <div style="background-color: #2e7d32; color: white; padding: 3px 8px; border-radius: 2px; font-size: 8pt; font-weight: bold;">Verde: &lt; 35.0 (Riesgo Bajo)</div>
+  <div style="display: flex; gap: 8px; margin: 5px 0; justify-content: space-around;">
+    <div style="background-color: #c62828; color: white; padding: 2px 6px; border-radius: 2px; font-size: 7.5pt; font-weight: bold;">Rojo: &ge; 75.0 (Riesgo Muy Alto)</div>
+    <div style="background-color: #ef6c00; color: white; padding: 2px 6px; border-radius: 2px; font-size: 7.5pt; font-weight: bold;">Naranja: 55.0 – 74.9 (Riesgo Alto)</div>
+    <div style="background-color: #f9a825; color: black; padding: 2px 6px; border-radius: 2px; font-size: 7.5pt; font-weight: bold;">Amarillo: 35.0 – 54.9 (Riesgo Medio)</div>
+    <div style="background-color: #2e7d32; color: white; padding: 2px 6px; border-radius: 2px; font-size: 7.5pt; font-weight: bold;">Verde: &lt; 35.0 (Riesgo Bajo)</div>
   </div>
 
   <div class="figure-container">
@@ -587,11 +589,11 @@
   </div>
 
   <p>
-    <strong>Diagnóstico Territorial Estatal:</strong> A nivel entidad, el semáforo identifica focos prioritarios en Baja California, Guanajuato, Sinaloa, Baja California Sur, Durango y Sonora, donde confluyen caídas históricas de participación y alta vulnerabilidad demográfica en zonas urbanas jóvenes y rurales dispersas.
+    <strong>Diagnóstico Territorial Estatal:</strong> El semáforo identifica focos prioritarios en Baja California, Guanajuato, Sinaloa, Baja California Sur, Durango y Sonora, donde confluyen descensos de participación y alta vulnerabilidad demográfica urbana y rural.
   </p>
 </div>
 
-<!-- PÁGINA 7: SEMÁFORO MUNICIPAL Y TABLA RESUMEN POR ESTADO -->
+<!-- PÁGINA 8: CARTOGRAFÍA MUNICIPAL Y TABLA ESTATAL -->
 <div class="page">
   <h3>Cartografía Municipal del Semáforo Base 2027</h3>
   <div class="figure-container">
@@ -599,7 +601,7 @@
     <div class="figure-caption">Figura 6.2: Semáforo de riesgo de abstención en los 2,478 municipios de México (Escenario Base 2027).{% if map_engines and map_engines.map_mun_semaforo == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
 
-  <h3>Distribución del Semáforo en las 32 Entidades Federativas</h3>
+  <h3>Distribución del Semáforo en Entidades Prioritarias</h3>
   <table class="table-compact">
     <thead>
       <tr>
@@ -614,7 +616,7 @@
       </tr>
     </thead>
     <tbody>
-      {% for st in stats.state_table %}
+      {% for st in stats.state_table[:10] %}
       <tr>
         <td>{{ st.name }}</td>
         <td class="text-right">{{ st.muns }}</td>
@@ -628,18 +630,21 @@
       {% endfor %}
     </tbody>
   </table>
+  <p style="font-size: 8pt; color: #555; margin-top: 3px;">
+    *Nota: Se presentan las 10 entidades federativas con mayor proporción de su Lista Nominal en riesgo alto o crítico (Naranja y Rojo). La distribución completa de las 32 entidades se encuentra disponible en <code>base_datos_atalaya.xlsx</code> (hoja <em>Semaforo_Estatal</em>).
+  </p>
 </div>
 
-<!-- PÁGINA 8: ESCENARIOS COMPARATIVOS -->
+<!-- PÁGINA 9: ANÁLISIS DE ESCENARIOS -->
 <div class="page">
-  <h2>7. Análisis de Escenarios Comparativos</h2>
+  <h2>7. Análisis de Escenarios</h2>
   <p>
-    Para apoyar la toma de decisiones, ATALAYA incorpora un motor determinista de simulación de escenarios sobre las variables del modelo. Se definen tres escenarios comparables:
+    ATALAYA incorpora un motor determinista de simulación de escenarios comparables:
   </p>
   <ul>
-    <li><strong>Escenario Base (Inercial):</strong> Proyección tendencial sin cambios en la política operativa del Instituto. Supone un nivel de participación nacional de {{ stats.model.national_level_fmt }}.</li>
-    <li><strong>Escenario de Intervención Preventiva (Hipotético):</strong> Simula el despliegue oportuno de programas focalizados en municipios con semáforo Rojo y Naranja (palanca de {{ stats.scenario_defaults.lever }}, cobertura del {{ stats.scenario_defaults.coverage }}% y efecto esperado de {{ stats.scenario_defaults.effect_pp }} pp).</li>
-    <li><strong>Escenario Pesimista (Hipotético):</strong> Proyecta un entorno adverso caracterizado por desafección cívica o contingencias climáticas/operativas (+{{ stats.mean_delta_pp.pesimista | round(2) }} pp en la abstención promedio nacional).</li>
+    <li><strong>Escenario Base (Inercial):</strong> Proyección tendencial sin cambios operativos (supuesto base de {{ stats.model.national_level_fmt }}).</li>
+    <li><strong>Intervención Preventiva (Hipotético):</strong> Despliegue focalizado en municipios Rojo y Naranja (palanca {{ stats.scenario_defaults.lever }}, cobertura {{ stats.scenario_defaults.coverage }}% y efecto {{ stats.scenario_defaults.effect_pp }} pp).</li>
+    <li><strong>Escenario Pesimista (Hipotético):</strong> Choque adverso de desafección o contingencia (+{{ stats.mean_delta_pp.pesimista | round(2) }} pp de abstención).</li>
   </ul>
 
   <table>
@@ -693,21 +698,26 @@
     {{ charts.map_mun_intervencion | safe }}
     <div class="figure-caption">Figura 7.1: Semáforo municipal resultante bajo el Escenario de Intervención Preventiva Focalizada.{% if map_engines and map_engines.map_mun_intervencion == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
-  <p style="font-size: 8.5pt; color: #455a64; margin-top: 4px;">
-    En el tablero interactivo, el personal técnico puede explorar estos escenarios mediante un <strong>mapa interactivo WebGL con comparador base | intervención, mapa de diferencias y vista 3D de abstención esperada</strong>, ajustando palancas operativas en tiempo real.
-  </p>
+
+  <div class="callout-box">
+    <strong>Herramientas y Datos de Escenarios:</strong><br>
+    • <strong>Tablero dinámico de escenarios:</strong> {{ stats.app_url }}<br>
+    • <strong>Visor autónomo:</strong> <code>visor_escenarios.html</code> (incluido en la entrega, visualización interactiva sin conexión a internet)<br>
+    • <strong>Capas territoriales GeoJSON:</strong> <code>mapa_escenarios_estatal.geojson</code> y <code>mapa_escenarios_municipal.geojson</code><br>
+    • <strong>Base de datos completa:</strong> <code>base_datos_atalaya.xlsx</code> (hoja <em>Escenarios</em>)
+  </div>
 </div>
 
-<!-- PÁGINA 9: MAPA DE DIFERENCIAS -->
+<!-- PÁGINA 10: MAPA DE DIFERENCIAS -->
 <div class="page">
   <h3>Mapa de Transiciones y Municipios Beneficiados</h3>
   <p>
-    El mapa de diferencias espaciales ilustra qué municipios logran desescalar su nivel de alerta mediante la intervención institucional oportuna:
+    El mapa de diferencias espaciales ilustra los municipios que logran desescalar su nivel de alerta mediante la intervención preventiva oportuna:
   </p>
 
   <div class="figure-container">
     {{ charts.map_mun_diff | safe }}
-    <div class="map-legend" style="display: flex; justify-content: center; gap: 14px; margin-top: 4px; margin-bottom: 2px; font-size: 8pt; color: #37474f;">
+    <div class="map-legend" style="display: flex; justify-content: center; gap: 14px; margin-top: 3px; font-size: 8pt; color: #37474f;">
       <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background-color: #4caf50; border: 0.5px solid #757575;"></span> Mejora (desescala riesgo)</span>
       <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background-color: #e0e0e0; border: 0.5px solid #757575;"></span> Sin cambio</span>
       <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background-color: #c62828; border: 0.5px solid #757575;"></span> Riesgo crítico persistente</span>
@@ -720,25 +730,25 @@
     <ul>
       <li><strong>{{ stats.transitions.n_improved }} municipios en total</strong> reducen su nivel de riesgo territorial.</li>
       <li><strong>{{ stats.transitions.rojo_salidas }} municipios clasificados en Rojo</strong> logran desescalar de categoría ({{ stats.transitions.rojo_to_naranja }} a Naranja, {{ stats.transitions.rojo_to_amarillo }} a Amarillo, {{ stats.transitions.rojo_to_verde }} a Verde), con una reducción neta de <strong>{{ stats.transitions.rojo_net_reduction }} municipios en Rojo</strong> (de {{ stats.categories.base.rojo.n }} municipios a {{ stats.categories.intervencion.rojo.n }} municipios).</li>
-      <li><strong>{{ stats.transitions.naranja_salidas }} municipios clasificados en Naranja</strong> desescalan de categoría de alerta.</li>
-      <li>La población con riesgo crítico de abstención (Lista Nominal en Naranja y Rojo) se reduce en <strong>{{ stats.transitions.ln_risk_reduction_m_fmt }}</strong> (reducción relativa de {{ stats.transitions.ln_risk_reduction_pct_fmt }}).</li>
+      <li><strong>{{ stats.transitions.naranja_salidas }} municipios en Naranja</strong> desescalan de alerta.</li>
+      <li>La población en riesgo crítico de abstención (Lista Nominal en Naranja y Rojo) se reduce en <strong>{{ stats.transitions.ln_risk_reduction_m_fmt }}</strong> (reducción relativa de {{ stats.transitions.ln_risk_reduction_pct_fmt }}).</li>
     </ul>
   </div>
 
   <p>
-    Este análisis demuestra que la intervención no requiere dispersar esfuerzos en los {{ stats.n_mun }} municipios, sino focalizar la acción institucional en los núcleos urbanos y distritos rurales estratégicos donde la abstención esperada es masiva.
+    En el tablero interactivo, el personal técnico puede explorar estos escenarios mediante un <strong>mapa interactivo WebGL con comparador base | intervención, mapa de diferencias y vista 3D de abstención esperada</strong>, ajustando palancas en tiempo real.
   </p>
 </div>
 
-<!-- PÁGINA 10: PRIORIZACIÓN Y TOP 20 MUNICIPIOS -->
+<!-- PÁGINA 11: PRIORIZACIÓN Y MUNICIPIOS CRÍTICOS -->
 <div class="page">
   <h2>8. Recomendaciones Preventivas y Priorización de Recursos</h2>
   <p>
-    Para maximizar la eficiencia en el gasto público del Instituto, ATALAYA introduce una métrica explícita de volumen de riesgo: 
-    <code>abstencion_esperada = pred_abstention &middot; lista_nominal</code>. El ranking de <strong>Prioridad Operativa</strong> ordena de mayor a menor abstención esperada a todos los municipios clasificados en semáforo Rojo y Naranja.
+    Para maximizar la eficiencia del gasto público institucional, ATALAYA introduce una métrica de volumen de riesgo: 
+    <code>abstencion_esperada = pred_abstention &middot; lista_nominal</code>. El ranking de <strong>Prioridad Operativa</strong> ordena de mayor a menor abstención esperada a los municipios en semáforo Rojo y Naranja.
   </p>
 
-  <h3>Top 20 Municipios Prioritarios de Atención Nacional</h3>
+  <h3>Top Municipios Prioritarios de Atención Nacional</h3>
   <table class="table-compact">
     <thead>
       <tr>
@@ -752,7 +762,7 @@
       </tr>
     </thead>
     <tbody>
-      {% for m in stats.top20_prioridad %}
+      {% for m in stats.top20_prioridad[:10] %}
       <tr>
         <td class="text-center"><strong>#{{ m.rank }}</strong></td>
         <td><strong>{{ m.name }}</strong></td>
@@ -766,16 +776,19 @@
     </tbody>
   </table>
 
-  <p style="font-size: 8pt; color: #555; margin-top: 4px;">
-    *Nota: Estos 20 municipios concentran por sí solos <strong>{{ stats.top20_ln_total }} millones de electores</strong> y una abstención esperada de <strong>{{ stats.top20_abst_total }} millones de ciudadanos</strong>.
+  <p style="font-size: 8.5pt; color: #555; margin-top: 4px;">
+    *Nota: Se presentan los 10 municipios prioritarios con mayor abstención esperada. Los 20 municipios prioritarios concentran por sí solos <strong>{{ stats.top20_ln_total }} millones de electores</strong> y una abstención esperada de <strong>{{ stats.top20_abst_total }} millones de ciudadanos</strong>. La priorización completa de los 2,478 municipios se detalla en <code>base_datos_atalaya.xlsx</code> (hoja <em>Priorizacion_Municipal</em>).
+  </p>
+  <p>
+    <strong>Criterio de Priorización:</strong> Focalizar el despliegue de módulos y recursos en estas concentraciones maximiza los electores potenciales recuperados por peso invertido frente a esfuerzos dispersos.
   </p>
 </div>
 
-<!-- PÁGINA 11: RECOMENDACIONES POR PALANCA Y CALENDARIO -->
+<!-- PÁGINA 12: PALANCAS Y CALENDARIO -->
 <div class="page">
   <h3>Recomendaciones Agregadas por Palanca Operativa</h3>
   <p>
-    A partir del catálogo curado de <code>recommendations.csv</code>, cada municipio es diagnosticado según sus factores determinantes (drivers) y características de censo, asignándole una de cuatro palancas preventivas principales:
+    Cada municipio recibe una de cuatro palancas preventivas principales según sus drivers determinantes:
   </p>
 
   <table>
@@ -836,62 +849,56 @@
     </tbody>
   </table>
 
-  <h3>Indicadores Clave de Desempeño (KPIs)</h3>
+  <p><strong>Indicadores Clave de Desempeño (KPIs):</strong></p>
   <ul>
-    <li><strong>Cobertura de Credencialización Juvenil:</strong> Incremento del padrón de 18 a 24 años en municipios con prioridad alta. Meta: &ge; 88% de cobertura sobre P_18YMAS.</li>
-    <li><strong>Tasa de Instalación Efectiva en Áreas Rurales:</strong> 100% de casillas extraordinarias y especiales instaladas sin incidencias de acceso geográfico.</li>
-    <li><strong>Reducción de Brecha Juvenil 2027:</strong> Acortar la brecha nacional de votación juvenil a menos de 8.0 puntos porcentuales respecto a la media de la elección.</li>
+    <li><strong>Cobertura de Credencialización Juvenil:</strong> Meta &ge; 88% sobre P_18YMAS en municipios prioritarios.</li>
+    <li><strong>Instalación Efectiva en Áreas Rurales:</strong> 100% de casillas extraordinarias y especiales instaladas sin incidencias.</li>
+    <li><strong>Reducción de Brecha Juvenil 2027:</strong> Acortar la brecha nacional juvenil a menos de 8.0 pp respecto a la media.</li>
   </ul>
 </div>
 
-<!-- PÁGINA 12: VIABILIDAD E IMPLEMENTACIÓN EN EL INE -->
+<!-- PÁGINA 13: VIABILIDAD E IMPLEMENTACIÓN EN EL INE -->
 <div class="page">
-  <h2>9. Viabilidad e Implementación Institucional en el INE</h2>
+  <h2>9. Viabilidad e Implementación</h2>
   <p>
-    La arquitectura de ATALAYA fue concebida como una solución lista para producción que se acopla de manera natural a los procedimientos del Instituto Nacional Electoral:
+    La arquitectura de ATALAYA está concebida como una solución lista para producción que se integra de manera armónica a los procedimientos institucionales del INE:
   </p>
 
   <h3>Articulación con Órganos Desconcentrados</h3>
   <ul>
-    <li><strong>Dirección Ejecutiva de Capacitación Electoral y Educación Cívica (DECEyEC):</strong> Incorporación de las prioridades municipales en la Estrategia Nacional de Educación Cívica (ENCÍVICA) y en el diseño del Plan Integral y Calendario del Proceso Electoral Federal 2026–2027.</li>
-    <li><strong>Juntas Locales y Distritales Ejecutivas:</strong> Cada Vocalía de Capacitación Electoral y Educación Cívica puede descargar la ficha analítica de su distrito y municipios, orientando la asignación de Capacitadores Asistentes Electorales (CAE) y Supervisores Electorales (SE).</li>
-    <li><strong>Comisión de Organización Electoral:</strong> Determinación anticipada de casillas extraordinarias y mesas de votación en localidades rurales y de alta marginación.</li>
+    <li><strong>DECEyEC:</strong> Incorporación de prioridades municipales en la Estrategia Nacional de Educación Cívica (ENCÍVICA) y en el Plan Integral y Calendario del Proceso Electoral Federal 2026–2027.</li>
+    <li><strong>Juntas Locales y Distritales:</strong> Descarga de fichas analíticas distritales para guiar brigadas de Capacitadores Asistentes Electorales (CAE) y Supervisores Electorales (SE).</li>
+    <li><strong>Comisión de Organización Electoral:</strong> Determinación anticipada de casillas extraordinarias en localidades rurales dispersas y zonas de alta marginación.</li>
   </ul>
-
-  <h3>Actualización Continua y Flujo Tecnológico</h3>
-  <p>
-    El diseño modular del pipeline garantiza que una vez celebrada la elección del 6 de junio de 2027 y procesados los cuadernillos de lista nominal por la DECEyEC, el sistema se actualizará de forma automatizada:
-  </p>
-  <div class="callout-box" style="font-family: monospace; font-size: 8pt;">
-    Descarga Zip CCPC 2027 &rarr; python -m atalaya.ingest.ccpc &rarr; python -m atalaya.model.build &rarr; Regeneración Automática de Tableros y Reportes
-  </div>
 
   <h3>Arquitectura del Sistema ATALAYA</h3>
-  <p>
-    La solución descansa sobre una arquitectura modular de alto desempeño y resiliencia:
-  </p>
   <ul>
-    <li><strong>Tablero Web Interactivo WebGL:</strong> Desarrollado en Next.js con motor vectorial WebGL (MapLibre GL), incluye navegación fluida país-estado-municipio, semáforo de riesgo, comparador base | intervención, mapa de diferencias y extrusión 3D por abstención esperada.</li>
-    <li><strong>Backend FastAPI y Almacén Analítico Dual:</strong> Permite consultas subsegundo sobre DataFrames en memoria (Parquet columnar) y conexión directa al clúster de búsqueda distribuida <strong>Huawei CSS (Elasticsearch 7.10.2)</strong> con índices analíticos optimizados.</li>
-    <li><strong>Asistente Conversacional Inteligente con IA:</strong> Integra modelos fundacionales (GLM-5.2 vía Huawei MaaS) para traducir lenguaje natural en consultas estructuradas (agregaciones, rankings, matrices de correlación) sobre los datos electorales.</li>
-    <li><strong>Mecanismo de Respaldo Determinista (Offline-First):</strong> Si el clúster en la nube o el servicio de lenguaje no están disponibles, el sistema conmuta sin interrupción a consultas analíticas deterministas locales, asegurando continuidad operativa ininterrumpida en cualquier oficina distrital.</li>
+    <li><strong>Tablero Web Interactivo WebGL:</strong> Desarrollado en Next.js con MapLibre GL, ofrece navegación fluida, semáforo de riesgo, comparador base | intervención, mapa de diferencias y vista 3D por abstención esperada.</li>
+    <li><strong>Backend FastAPI y Almacén Analítico Dual:</strong> Soporta consultas analíticas sobre Parquet en memoria y clúster distribuido OpenSearch 3.4.0 (Huawei Cloud CSS) con conmutación resiliente.</li>
+    <li><strong>Asistente Conversacional Inteligente con IA:</strong> Traduce lenguaje natural a consultas estructuradas mediante modelos fundacionales (GLM-5.2) con respaldo determinista offline.</li>
   </ul>
+
+  <div class="callout-box">
+    <strong>Acceso a la Plataforma y Recursos Entregables:</strong><br>
+    • <strong>Tablero dinámico de escenarios:</strong> {{ stats.app_url }}<br>
+    • <strong>Visor autónomo:</strong> <code>visor_escenarios.html</code> (incluido en la entrega, operable sin conexión a internet)<br>
+    • <strong>Capas territoriales GeoJSON:</strong> <code>mapa_escenarios_estatal.geojson</code> y <code>mapa_escenarios_municipal.geojson</code><br>
+    • <strong>Base de datos analítica:</strong> <code>base_datos_atalaya.xlsx</code> (hojas de escenarios y priorización) y directorio <code>csv/</code>
+  </div>
 </div>
 
-<!-- PÁGINA 13: LIMITACIONES Y ANEXOS -->
+<!-- PÁGINA 14: LIMITACIONES Y ANEXOS -->
 <div class="page">
   <h2>10. Limitaciones y Anexo</h2>
-  <p>
-    En apego al rigor institucional, se señalan las limitaciones del presente ejercicio predictivo:
-  </p>
+  <p>En apego al rigor institucional, se señalan las siguientes limitaciones metodológicas:</p>
   <ul>
-    <li><strong>Municipios de Creación Reciente:</strong> Municipios constituidos entre 2021 y 2024 carecen de serie histórica propia previa a su fundación; su rezago se imputó a partir del municipio de origen o del promedio distrital.</li>
-    <li><strong>Incidencia de Cuadernillos Deteriorados (NS):</strong> Zonas con tasa elevada de registros no especificados en procesos pasados fueron excluidas del entrenamiento, garantizando la pureza del modelo pero requiriendo verificación cualitativa en campo.</li>
-    <li><strong>Factores Imponderables:</strong> Fenómenos climáticos extremos, condiciones extraordinarias de seguridad pública o contingencias sanitarias escapan a modelos basados en registros censales.</li>
+    <li><strong>Municipios Recientes:</strong> Municipios creados entre 2021 y 2024 carecen de serie histórica propia; su rezago se imputó a partir del municipio de origen o media distrital.</li>
+    <li><strong>Cuadernillos Deteriorados (NS):</strong> Secciones con alta incidencia de NS en procesos anteriores fueron excluidas del entrenamiento para no sesgar las estimaciones.</li>
+    <li><strong>Contingencias Extraordinarias:</strong> Factores climáticos extremos o contingencias de seguridad pública quedan fuera del alcance de modelos censales estructurados.</li>
   </ul>
 
   <h3>Anexo A: Diccionario Resumido de Variables</h3>
-  <table>
+  <table class="table-compact">
     <thead>
       <tr>
         <th style="width: 25%;">Variable</th>
@@ -903,7 +910,7 @@
       <tr>
         <td><code>participacion</code></td>
         <td>INE CCPC</td>
-        <td>Participación ciudadana oficial: Votaron / (Votaron + No Votaron). Excluye registros NS.</td>
+        <td>Participación oficial: Votaron / (Votaron + No Votaron). Excluye registros NS.</td>
       </tr>
       <tr>
         <td><code>pred_abstention</code></td>
@@ -936,11 +943,6 @@
         <td>Grado promedio de escolaridad de la población de 15 años y más (años aprobados).</td>
       </tr>
       <tr>
-        <td><code>pct_hli</code></td>
-        <td>INEGI ITER</td>
-        <td>Proporción de personas de 3 años y más hablantes de lengua indígena.</td>
-      </tr>
-      <tr>
         <td><code>gm_2020</code></td>
         <td>CONAPO</td>
         <td>Grado de Marginación Municipal 2020: Muy bajo, Bajo, Medio, Alto o Muy alto.</td>
@@ -962,8 +964,8 @@
     # 4. Compilación de la Presentación Ejecutiva<br>
     python -m atalaya.report.build_slides
   </div>
-  <p style="text-align: center; margin-top: 10px; font-weight: bold; color: #002f6c; font-size: 8.5pt;">
-    Repositorio Oficial: <em>{{ stats.repo_url }}</em>
+  <p style="text-align: center; margin-top: 8px; font-weight: bold; color: #002f6c; font-size: 9pt;">
+    Repositorio Oficial: <em>{{ stats.repo_url }}</em> · Tablero Público: <em>{{ stats.app_url }}</em>
   </p>
 </div>
 

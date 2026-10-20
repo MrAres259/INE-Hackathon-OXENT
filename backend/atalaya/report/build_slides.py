@@ -32,7 +32,7 @@ from atalaya.report.charts import (
     svg_line,
     svg_stacked_bars,
 )
-from atalaya.report.facts import DEFAULT_REPO_URL, DEFAULT_TEAM, compute_facts
+from atalaya.report.facts import DEFAULT_APP_URL, DEFAULT_REPO_URL, DEFAULT_TEAM, compute_facts
 
 try:
     from atalaya.report.map_capture import MapSpec, capture_maps, png_data_uri
@@ -387,6 +387,7 @@ def render_slides_html(
     deliverables_dir: Path | None = None,
     team_name: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
+    app_url: str = DEFAULT_APP_URL,
     *,
     svg_maps: bool = False,
     maps_info: dict[str, Any] | None = None,
@@ -398,6 +399,7 @@ def render_slides_html(
         deliverables_dir=deliverables_dir,
         team=team_name,
         repo_url=repo_url,
+        app_url=app_url,
     )
 
     # 2. Charts
@@ -579,6 +581,7 @@ def render_slides_html(
         "styles_css": styles_css,
         "team_name": team_name,
         "repo_url": repo_url,
+        "app_url": app_url,
         "stats": stats,
         "chart_history": chart_history,
         "chart_age_gap": chart_age_gap,
@@ -665,6 +668,7 @@ def build_slides(
     *,
     team_name: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
+    app_url: str = DEFAULT_APP_URL,
     make_pdf: bool = True,
     svg_maps: bool = False,
 ) -> BuildSlidesResult:
@@ -684,6 +688,8 @@ def build_slides(
         Team name placeholder.
     repo_url : str
         Repository URL placeholder.
+    app_url : str
+        Public application URL.
     make_pdf : bool
         Whether to compile the PDF using headless Chrome/Edge.
     svg_maps : bool
@@ -717,6 +723,7 @@ def build_slides(
         deliverables_dir=deliv_dir,
         team_name=team_name,
         repo_url=repo_url,
+        app_url=app_url,
         svg_maps=svg_maps,
         maps_info=maps_info,
     )
@@ -747,6 +754,7 @@ def main() -> None:
     parser.add_argument("--deliverables", type=Path, default=None, help="Deliverables directory")
     parser.add_argument("--team", "--team-name", dest="team_name", type=str, default=DEFAULT_TEAM, help="Team name placeholder")
     parser.add_argument("--repo-url", type=str, default=DEFAULT_REPO_URL, help="Repo URL placeholder")
+    parser.add_argument("--app-url", type=str, default=DEFAULT_APP_URL, help="URL pública de la aplicación")
     parser.add_argument("--no-pdf", action="store_true", help="Skip PDF generation")
     parser.add_argument("--svg-maps", action="store_true", help="Forzar el respaldo SVG sin intentar la captura MapLibre")
 
@@ -760,6 +768,7 @@ def main() -> None:
         deliverables_dir=args.deliverables,
         team_name=args.team_name,
         repo_url=args.repo_url,
+        app_url=args.app_url,
         make_pdf=not args.no_pdf,
         svg_maps=args.svg_maps,
     )

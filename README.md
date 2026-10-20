@@ -174,6 +174,37 @@ Para detener los servidores en segundo plano al terminar:
 powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
 ```
 
+### 7.1 Publicación en internet
+
+ATALAYA incluye un supervisor de procesos tolerante a fallos (`atalaya.ops.supervisor`) diseñado para la operación continua en producción. FastAPI escucha en `127.0.0.1:8001` (nunca expuesto a la red pública) y Next.js escucha en `0.0.0.0:8080`, actuando como proxy inverso de `/api/*`. El supervisor vigila la salud mediante sondeos periódicos, recupera servicios caídos con backoff exponencial y previene ciclos de reinicio descontrolados (*crash-loop*).
+
+> **Importante (Huawei Cloud ECS)**: En este servidor, el puerto 80 está ocupado por otra aplicación independiente y no debe tocarse. ATALAYA se publica de forma predeterminada en el puerto **8080**. Para que el servicio sea accesible desde internet, verifique que el puerto TCP `8080` esté abierto en las reglas de entrada del **Security Group** de Huawei Cloud asociado a la máquina.
+
+#### Comandos de gestión (`scripts\serve_public.ps1`)
+
+```powershell
+# Iniciar ATALAYA en segundo plano supervisado (puerto 8080 por defecto):
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080
+
+# Iniciar en primer plano (consola activa):
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 -Foreground
+
+# Consultar el estado operativo y PIDs de los servicios:
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Status
+
+# Detener ordenadamente el supervisor y los procesos hijos:
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Stop
+
+# Recompilar la aplicación Next.js y arrancar:
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 -Rebuild
+
+# Instalar como Tarea Programada de Windows ('ATALAYA' como SYSTEM al iniciar la máquina):
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 -Install
+
+# Desinstalar la tarea programada:
+powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Uninstall
+```
+
 ---
 
 ## 8. Pruebas automatizadas

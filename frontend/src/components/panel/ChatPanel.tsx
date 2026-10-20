@@ -310,11 +310,29 @@ export function ChatPanel() {
                   </div>
                 )}
 
-                {/* Error event note */}
+                {/* Error event / system note */}
                 {msg.error && (
-                  <div className="text-[10px] text-rose-300 bg-rose-950/60 border border-rose-800/80 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
-                    <span className="text-rose-400 font-bold">✕</span>
-                    <span>Error en la consulta: {msg.error}</span>
+                  <div
+                    className={`text-[11px] px-3 py-2 rounded-lg flex items-center gap-2 ${
+                      msg.error.includes("Demasiadas") || msg.error.includes("demasiado larga")
+                        ? "text-amber-200 bg-amber-950/70 border border-amber-800/80"
+                        : "text-rose-300 bg-rose-950/60 border border-rose-800/80"
+                    }`}
+                  >
+                    <span
+                      className={
+                        msg.error.includes("Demasiadas") || msg.error.includes("demasiado larga")
+                          ? "text-amber-400"
+                          : "text-rose-400 font-bold"
+                      }
+                    >
+                      {msg.error.includes("Demasiadas") || msg.error.includes("demasiado larga") ? "⚠️" : "✕"}
+                    </span>
+                    <span>
+                      {msg.error.includes("Demasiadas") || msg.error.includes("demasiado larga")
+                        ? msg.error
+                        : `Error en la consulta: ${msg.error}`}
+                    </span>
                   </div>
                 )}
               </div>

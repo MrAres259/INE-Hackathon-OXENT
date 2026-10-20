@@ -137,6 +137,7 @@ try {
             $exportScript = Join-Path $backendDir "atalaya\export.py"
             if (Test-Path $exportScript) {
                 python -m atalaya.export
+                python -m atalaya.viewer
             } else {
                 Write-Host "backend/atalaya/export.py does not exist yet. Skipped." -ForegroundColor Yellow
                 $global:LASTEXITCODE = 0

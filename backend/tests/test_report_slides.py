@@ -579,3 +579,28 @@ def test_build_slides_svg_maps_flag_bypasses_capture(synthetic_workspace, monkey
     assert called is False, "capture_maps should not be called when svg_maps=True"
     assert res.maps.get("maplibre_count") == 0
 
+
+def test_slides_app_url_and_deliverables(synthetic_workspace):
+    """Verifies that custom app_url is rendered in the presentation slides and mentions required deliverables."""
+    custom_url = "http://46.250.172.193:8080"
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    html_p, _ = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        app_url=custom_url,
+        make_pdf=False,
+    )
+    content = html_p.read_text(encoding="utf-8")
+
+    assert custom_url in content
+    assert "visor_escenarios.html" in content
+    assert "base_datos_atalaya.xlsx" in content
+
+    # Exactly 10 slides
+    sections = re.findall(r'<section\b', content)
+    assert len(sections) == 10
+
