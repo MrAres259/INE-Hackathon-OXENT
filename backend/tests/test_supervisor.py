@@ -22,7 +22,9 @@ from atalaya.ops.supervisor import (
     Supervisor,
     cmd_run,
     compute_backoff,
+    default_edge_health_ok,
     get_default_specs,
+    render_caddyfile,
     save_state_atomic,
 )
 
@@ -543,3 +545,253 @@ def test_port_80_strictly_forbidden():
 
     exit_code = cmd_run(port=80)
     assert exit_code == 1
+
+
+def test_default_specs_three_services():
+    """Verify default specs contain backend (1 worker, proxy headers), frontend (127.0.0.1:3000), and edge."""
+    specs = get_default_specs(port=8080)
+    assert len(specs) == 3
+    names = [s.name for s in specs]
+    assert names == ["backend", "frontend", "edge"]
+
+    backend, frontend, edge = specs
+    # Backend
+    assert backend.port == 8001
+    assert backend.depends_on is None
+    assert "--workers" in backend.cmd
+    workers_idx = backend.cmd.index("--workers")
+    assert backend.cmd[workers_idx + 1] == "1"
+    assert "--proxy-headers" in backend.cmd
+    assert "--forwarded-allow-ips" in backend.cmd
+    fwd_idx = backend.cmd.index("--forwarded-allow-ips")
+    assert backend.cmd[fwd_idx + 1] == "127.0.0.1"
+
+    # Frontend
+    assert frontend.port == 3000
+    assert frontend.depends_on == "backend"
+    assert "-H" in frontend.cmd
+    h_idx = frontend.cmd.index("-H")
+    assert frontend.cmd[h_idx + 1] == "127.0.0.1"
+    assert "-p" in frontend.cmd
+    p_idx = frontend.cmd.index("-p")
+    assert frontend.cmd[p_idx + 1] == "3000"
+    assert frontend.health_url == "http://127.0.0.1:3000/"
+
+    # Edge
+    assert edge.port == 8080
+    assert edge.depends_on == "frontend"
+    assert "run" in edge.cmd
+    assert edge.health_url == "http://127.0.0.1:8080/api/health"
+    assert edge.health_ok == default_edge_health_ok
+
+
+def test_render_caddyfile(tmp_path: Path):
+    """Verify Caddyfile template renders correctly with security headers, admin blocking, and SSE flush."""
+    template_file = tmp_path / "Caddyfile.template"
+    output_file = tmp_path / "Caddyfile"
+    log_file = tmp_path / "logs" / "caddy_access.log"
+
+    template_content = """{
+\tadmin off
+\tauto_https off
+}
+
+:{{PORT}} {
+\tlog {
+\t\toutput file "{{LOG}}" {
+\t\t\troll_size 10MiB
+\t\t\troll_keep 5
+\t\t}
+\t\tformat json
+\t}
+
+\tencode zstd gzip
+
+\trequest_body {
+\t\tmax_size 1MB
+\t}
+
+\theader {
+\t\tX-Content-Type-Options nosniff
+\t\tReferrer-Policy strict-origin-when-cross-origin
+\t\tX-Frame-Options SAMEORIGIN
+\t\tPermissions-Policy "camera=(), microphone=(), geolocation=()"
+\t\t-Server
+\t}
+
+\t@admin path_regexp admin (?i)^/api/admin(/|$)
+\thandle @admin {
+\t\trespond 404
+\t}
+
+\thandle /api/* {
+\t\treverse_proxy {{API}} {
+\t\t\theader_up X-Forwarded-For {remote_host}
+\t\t\tflush_interval -1
+\t\t\ttransport http {
+\t\t\t\tread_timeout 180s
+\t\t\t}
+\t\t}
+\t}
+
+\thandle {
+\t\treverse_proxy {{WEB}}
+\t}
+}
+"""
+    template_file.write_text(template_content, encoding="utf-8")
+
+    rendered = render_caddyfile(
+        template_path=template_file,
+        output_path=output_file,
+        port=8080,
+        api_target="127.0.0.1:8001",
+        web_target="127.0.0.1:3000",
+        log_path=log_file,
+    )
+
+    assert output_file.exists()
+    assert ":8080 {" in rendered
+    assert "admin off" in rendered
+    assert "auto_https off" in rendered
+    assert "X-Content-Type-Options nosniff" in rendered
+    assert "SAMEORIGIN" in rendered
+    assert "@admin path_regexp admin (?i)^/api/admin(/|$)" in rendered
+    assert "respond 404" in rendered
+    assert "header_up X-Forwarded-For {remote_host}" in rendered
+    assert "flush_interval -1" in rendered
+    assert "read_timeout 180s" in rendered
+    assert "127.0.0.1:8001" in rendered
+    assert "127.0.0.1:3000" in rendered
+    assert log_file.as_posix() in rendered
+
+
+def test_edge_missing_caddy_enters_crash_loop(tmp_path: Path):
+    """Verify that if caddy.exe is missing, edge service transitions to crash-loop without launching."""
+    clock = FakeClock(1000.0)
+    launcher = FakeLauncher()
+    killer = FakeKiller()
+    checker = FakeHealthChecker()
+    checker.set_ok("http://127.0.0.1:8001/api/health")
+    checker.set_ok("http://127.0.0.1:3000/")
+
+    specs = get_default_specs(port=8080, repo_dir=tmp_path)
+
+    sup = Supervisor(
+        specs=specs,
+        cache_dir=tmp_path,
+        clock=clock,
+        launcher=launcher,
+        killer=killer,
+        health_checker=checker,
+        port_inspector=FakePortInspector(),
+        repo_dir=tmp_path,
+        caddy_validator=None,
+        caddy_exists_fn=lambda p: False,  # Simulate caddy.exe missing
+    )
+
+    # Tick 1: backend launches
+    sup.tick()
+    clock.advance(10.0)
+    sup.tick()
+    assert sup.services["backend"].status == STATUS_HEALTHY
+
+    # Tick 2: frontend launches
+    clock.advance(10.0)
+    sup.tick()
+    assert sup.services["frontend"].status == STATUS_HEALTHY
+
+    # Tick 3: edge tries to start, but caddy.exe is missing!
+    clock.advance(10.0)
+    sup.tick()
+
+    edge_state = sup.services["edge"]
+    assert edge_state.status == STATUS_CRASH_LOOP
+    assert edge_state.last_error == r"falta tools/caddy/caddy.exe: ejecuta scripts\get_caddy.ps1"
+    launched_names = [n for n, _ in launcher.launched_history]
+    assert "edge" not in launched_names
+
+
+def test_edge_lifecycle_and_orderly_shutdown(tmp_path: Path):
+    """Verify 3-tier startup (backend -> frontend -> edge) and orderly shutdown (edge -> frontend -> backend)."""
+    clock = FakeClock(1000.0)
+    launcher = FakeLauncher()
+    killer = FakeKiller()
+    checker = FakeHealthChecker()
+    checker.set_ok("http://127.0.0.1:8001/api/health")
+    checker.set_ok("http://127.0.0.1:3000/")
+    checker.set_ok("http://127.0.0.1:8080/api/health")
+
+    # Create dummy template file so render_caddyfile succeeds
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    template_path = scripts_dir / "Caddyfile.template"
+    template_path.write_text(":{{PORT}} { handle { respond 200 } }", encoding="utf-8")
+
+    specs = get_default_specs(port=8080, repo_dir=tmp_path)
+
+    sup = Supervisor(
+        specs=specs,
+        cache_dir=tmp_path,
+        clock=clock,
+        launcher=launcher,
+        killer=killer,
+        health_checker=checker,
+        port_inspector=FakePortInspector(),
+        repo_dir=tmp_path,
+        caddy_validator=lambda exe, path: None,  # no-op validation for unit test
+        caddy_exists_fn=lambda p: True,
+    )
+
+    # Step 1: backend starts
+    sup.tick()
+    assert "backend" in [n for n, _ in launcher.launched_history]
+    assert "frontend" not in [n for n, _ in launcher.launched_history]
+    assert "edge" not in [n for n, _ in launcher.launched_history]
+
+    # Step 2: backend becomes healthy, frontend starts
+    clock.advance(10.0)
+    sup.tick()
+    assert sup.services["backend"].status == STATUS_HEALTHY
+    assert "frontend" in [n for n, _ in launcher.launched_history]
+    assert "edge" not in [n for n, _ in launcher.launched_history]
+
+    # Step 3: frontend becomes healthy, edge starts
+    clock.advance(10.0)
+    sup.tick()
+    assert sup.services["frontend"].status == STATUS_HEALTHY
+    assert "edge" in [n for n, _ in launcher.launched_history]
+
+    # Step 4: edge becomes healthy
+    clock.advance(10.0)
+    sup.tick()
+    assert sup.services["edge"].status == STATUS_HEALTHY
+
+    # Verify PIDs are tracked
+    edge_pid = sup.services["edge"].pid
+    frontend_pid = sup.services["frontend"].pid
+    backend_pid = sup.services["backend"].pid
+    assert edge_pid is not None
+    assert frontend_pid is not None
+    assert backend_pid is not None
+
+    # Step 5: Orderly stop_all
+    sup.stop_all()
+    assert sup.services["edge"].status == STATUS_STOPPED
+    assert sup.services["frontend"].status == STATUS_STOPPED
+    assert sup.services["backend"].status == STATUS_STOPPED
+
+    # Verification: killer called in sequence: edge -> frontend -> backend
+    assert killer.killed_pids == [edge_pid, frontend_pid, backend_pid]
+
+
+def test_reserved_internal_ports_forbidden():
+    """Verify internal ports 8001 and 3000 are rejected as edge port."""
+    with pytest.raises(ValueError, match="reserved for internal services"):
+        get_default_specs(port=8001)
+
+    with pytest.raises(ValueError, match="reserved for internal services"):
+        get_default_specs(port=3000)
+
+    assert cmd_run(port=8001) == 1
+    assert cmd_run(port=3000) == 1

@@ -176,7 +176,20 @@ powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
 
 ### 7.1 Publicación en internet
 
-ATALAYA incluye un supervisor de procesos tolerante a fallos (`atalaya.ops.supervisor`) diseñado para la operación continua en producción. FastAPI escucha en `127.0.0.1:8001` (nunca expuesto a la red pública) y Next.js escucha en `0.0.0.0:8080`, actuando como proxy inverso de `/api/*`. El supervisor vigila la salud mediante sondeos periódicos, recupera servicios caídos con backoff exponencial y previene ciclos de reinicio descontrolados (*crash-loop*).
+ATALAYA incluye un supervisor de procesos tolerante a fallos (`atalaya.ops.supervisor`) con borde inverso **Caddy v2.11.7** (`tools/caddy/caddy.exe`) diseñado para la operación continua y segura en producción.
+
+#### Topología de servicios
+
+```text
+internet :8080 ─► Caddy (0.0.0.0:8080) ─┬─ /api/*  ─► FastAPI 127.0.0.1:8001  (X-Forwarded-For = IP real, SSE sin buffer)
+                                        ├─ /api/admin* (ruta decodificada, sin distinguir mayúsculas) ─► 404
+                                        └─ resto   ─► Next.js 127.0.0.1:3000
+```
+
+- **Borde Caddy (`0.0.0.0:8080`)**: Punto único de entrada público. Reemplaza cualquier `X-Forwarded-For` entrante por `{remote_host}` (garantizando que el límite de tasa del asistente use la IP real), aplica cabeceras de seguridad (`nosniff`, `SAMEORIGIN`, `strict-origin-when-cross-origin`), mantiene streaming SSE sin búfer (`flush_interval -1`), y bloquea de raíz cualquier intento de acceso a `/api/admin*` (con ruta decodificada y sin distinguir mayúsculas) respondiendo 404 antes del proxy.
+- **Frontend Next.js (`127.0.0.1:3000`)**: Escucha exclusivamente en la interfaz local (`127.0.0.1`), protegiendo el renderizado y activos estáticos de exposición directa.
+- **Backend FastAPI (`127.0.0.1:8001`)**: Escucha únicamente en local con 1 worker de Uvicorn (`--proxy-headers --forwarded-allow-ips 127.0.0.1`), garantizando consistencia en el almacén en memoria y límite de peticiones.
+- **Supervisor (`atalaya.ops.supervisor`)**: Vigila la salud de los tres servicios cada 10 s, garantiza arranque en cascada (`backend` → `frontend` → `edge`), parada ordenada en reversa (`edge` → `frontend` → `backend`), recuperación automática con *backoff* exponencial (2 s a 60 s) y protección contra *crash-loop* (5 min tras >10 fallos en 15 min).
 
 > **Importante (Huawei Cloud ECS)**: En este servidor, el puerto 80 está ocupado por otra aplicación independiente y no debe tocarse. ATALAYA se publica de forma predeterminada en el puerto **8080**. Para que el servicio sea accesible desde internet, verifique que el puerto TCP `8080` esté abierto en las reglas de entrada del **Security Group** de Huawei Cloud asociado a la máquina.
 
@@ -194,6 +207,9 @@ powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Status
 
 # Detener ordenadamente el supervisor y los procesos hijos:
 powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Stop
+
+# Descargar y verificar Caddy v2.11.7 (SHA-512) si no estuviera presente:
+powershell -ExecutionPolicy Bypass -File scripts\get_caddy.ps1
 
 # Recompilar la aplicación Next.js y arrancar:
 powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 -Rebuild

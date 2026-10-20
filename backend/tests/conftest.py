@@ -153,6 +153,60 @@ def block_opensearch_init(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_test_environment(monkeypatch, tmp_path: Path, request):
+    """Isolate tests from real .env, preserve os.environ, and redirect admin token path."""
+    import sys
+    from unittest.mock import Mock
+    from atalaya.config import get_settings
+    import atalaya.config
+
+    old_env = os.environ.copy()
+
+    # In test_api.py, legacy tests call /api/admin/reload without headers.
+    # Provide admin token for testclient in test_api.py so legacy tests pass.
+    if "test_api.py" in request.node.nodeid:
+        from starlette.testclient import TestClient
+        from atalaya.api.security import get_admin_token
+        orig_init = TestClient.__init__
+
+        def _patched_init(self, *args, **kwargs):
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault("X-Admin-Token", get_admin_token())
+            kwargs["headers"] = headers
+            orig_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(TestClient, "__init__", _patched_init)
+
+    # Patch reload_env to only clear settings cache without reading .env,
+    # except when test_config_reload_env explicitly tests reload_env with a mock load_dotenv.
+    _orig_reload_env = atalaya.config.reload_env
+
+    def _safe_reload_env() -> None:
+        if isinstance(atalaya.config.load_dotenv, Mock):
+            return _orig_reload_env()
+        get_settings.cache_clear()
+
+    if "test_config_reload_env" not in request.node.nodeid:
+        monkeypatch.setattr("atalaya.config.reload_env", _safe_reload_env)
+        try:
+            import atalaya.api.deps
+            monkeypatch.setattr("atalaya.api.deps.reload_env", _safe_reload_env)
+        except Exception:
+            pass
+
+    # Redirect admin token path to tmp_path
+    token_path = tmp_path / "admin_token"
+    monkeypatch.setattr("atalaya.api.security.ADMIN_TOKEN_PATH", token_path)
+
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+        get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def reset_lru_caches():
     """Clear settings, search client, and store caches between test runs."""
     from atalaya.config import get_settings

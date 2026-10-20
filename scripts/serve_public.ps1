@@ -1,8 +1,8 @@
 # ATALAYA - Fault-tolerant public server launcher and supervisor manager
 # Compatible with PowerShell 5.1 (no &&, ??, or ternary operators)
 #
-# Only the web port is published. Next.js proxies /api/* to the backend (next.config.ts rewrites),
-# so FastAPI listens on 127.0.0.1:8001 and is never exposed to the public internet.
+# Caddy edge proxy listens on 0.0.0.0:$Port, routing /api/* to FastAPI (127.0.0.1:8001)
+# and all other routes to Next.js (127.0.0.1:3000). /api/admin is blocked at the edge.
 
 [CmdletBinding()]
 param(
@@ -20,12 +20,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $ApiPort = 8001
+$WebPort = 3000
 $repoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 $backendDir = Join-Path $repoRoot "backend"
 $frontendDir = Join-Path $repoRoot "frontend"
 $cacheDir = Join-Path $repoRoot "data\cache"
 $stateFile = Join-Path $cacheDir "supervisor_state.json"
 $pidFile = Join-Path $cacheDir "supervisor.pid"
+$caddyExe = Join-Path $repoRoot "tools\caddy\caddy.exe"
 
 if (-not (Test-Path $cacheDir)) {
     New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
@@ -60,6 +62,16 @@ if ($Stop) {
     }
 }
 
+# ---------------------------------------------------------------- Check Caddy binary
+if (-not (Test-Path $caddyExe)) {
+    Write-Host "[!] caddy.exe not found at $caddyExe. Running scripts\get_caddy.ps1..." -ForegroundColor Yellow
+    & (Join-Path $PSScriptRoot "get_caddy.ps1")
+    if (-not (Test-Path $caddyExe)) {
+        Write-Host "[-] Failed to obtain caddy.exe." -ForegroundColor Red
+        exit 1
+    }
+}
+
 # ---------------------------------------------------------------- Uninstall Scheduled Task
 if ($Uninstall) {
     Write-Host "Uninstalling ATALAYA scheduled task..." -ForegroundColor Yellow
@@ -89,9 +101,13 @@ if ($Port -eq 80) {
     Write-Host "    ATALAYA must be published on another port (e.g., 8080)." -ForegroundColor Red
     exit 1
 }
+if ($Port -eq $ApiPort -or $Port -eq $WebPort) {
+    Write-Host "[-] Port $Port is reserved for internal services (API / Web) and cannot be used for edge." -ForegroundColor Red
+    exit 1
+}
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " ATALAYA Public Launcher (Web :$Port, API :$ApiPort)" -ForegroundColor Cyan
+Write-Host " ATALAYA Public Launcher (Edge :$Port, Web :$WebPort, API :$ApiPort)" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------- Check Ports
@@ -111,6 +127,7 @@ function Get-KnownSupervisorPids {
             if ($json.services) {
                 if ($json.services.backend -and $json.services.backend.pid) { $pids += [int]$json.services.backend.pid }
                 if ($json.services.frontend -and $json.services.frontend.pid) { $pids += [int]$json.services.frontend.pid }
+                if ($json.services.edge -and $json.services.edge.pid) { $pids += [int]$json.services.edge.pid }
             }
         } catch {}
     }
@@ -119,7 +136,7 @@ function Get-KnownSupervisorPids {
 
 $supervisorPids = Get-KnownSupervisorPids -StatePath $stateFile -PidPath $pidFile
 
-foreach ($checkPort in @($ApiPort, $Port)) {
+foreach ($checkPort in @($ApiPort, $WebPort, $Port)) {
     $conns = Get-NetTCPConnection -LocalPort $checkPort -State Listen -ErrorAction SilentlyContinue
     if ($conns) {
         $ownerPid = ($conns | Select-Object -First 1).OwningProcess

@@ -36,7 +36,10 @@ def _warmup_worker() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Start background warmup and handle application lifecycle."""
+    """Start background warmup, ensure admin token, and handle application lifecycle."""
+    from atalaya.api.security import ensure_admin_token
+
+    ensure_admin_token()
     thread = threading.Thread(target=_warmup_worker, daemon=True)
     thread.start()
     yield

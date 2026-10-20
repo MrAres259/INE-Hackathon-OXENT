@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from atalaya.api.main import app
 from atalaya.api.security import (
     ChatRateLimiter,
+    ensure_admin_token,
+    get_admin_token,
     get_client_ip,
     is_local_client,
     reset_chat_limiter,
@@ -66,18 +68,17 @@ def test_admin_with_absent_token_when_configured(monkeypatch):
     assert resp.status_code == 403
 
 
-def test_admin_local_without_token_no_xff():
-    """When no token is configured, direct loopback client without X-Forwarded-For is allowed."""
+def test_admin_local_without_token_rejected():
+    """Without token header, direct loopback client is rejected with 403."""
     get_settings.cache_clear()
 
     client = TestClient(app, client=("127.0.0.1", 54321))
     resp = client.post("/api/admin/reload")
-    assert resp.status_code == 200
-    assert resp.json().get("status") == "ok"
+    assert resp.status_code == 403
 
 
 def test_admin_local_without_token_with_xff():
-    """When no token is configured, loopback request carrying X-Forwarded-For (from proxy) is rejected."""
+    """Without token header, loopback request carrying X-Forwarded-For is rejected with 403."""
     get_settings.cache_clear()
 
     client = TestClient(app, client=("127.0.0.1", 54321))
@@ -86,7 +87,7 @@ def test_admin_local_without_token_with_xff():
 
 
 def test_admin_remote_without_token():
-    """When no token is configured, external client is rejected with 403."""
+    """Without token header, external client is rejected with 403."""
     get_settings.cache_clear()
 
     client = TestClient(app, client=("192.168.1.100", 54321))
@@ -94,12 +95,54 @@ def test_admin_remote_without_token():
     assert resp.status_code == 403
 
 
+def test_admin_with_generated_file_token():
+    """Admin access granted when X-Admin-Token matches token from generated cache file."""
+    get_settings.cache_clear()
+    token = ensure_admin_token()
+    assert token and len(token) > 0
+
+    client = TestClient(app, client=("127.0.0.1", 54321))
+    resp = client.post("/api/admin/reload", headers={"X-Admin-Token": token})
+    assert resp.status_code == 200
+    assert resp.json().get("status") == "ok"
+
+
+def test_admin_with_incorrect_token_against_file():
+    """Admin access rejected with 403 when X-Admin-Token does not match file token."""
+    get_settings.cache_clear()
+    client = TestClient(app, client=("127.0.0.1", 54321))
+    resp = client.post("/api/admin/reload", headers={"X-Admin-Token": "invalid-token-xyz"})
+    assert resp.status_code == 403
+
+
+def test_admin_reload_does_not_invoke_load_dotenv(monkeypatch):
+    """Calling /api/admin/reload with the fixture active does not invoke load_dotenv."""
+    import dotenv
+
+    call_count = 0
+
+    def _spy_load_dotenv(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return False
+
+    monkeypatch.setattr(dotenv, "load_dotenv", _spy_load_dotenv)
+    get_settings.cache_clear()
+    token = ensure_admin_token()
+
+    client = TestClient(app, client=("127.0.0.1", 54321))
+    resp = client.post("/api/admin/reload", headers={"X-Admin-Token": token})
+    assert resp.status_code == 200
+    assert resp.json().get("status") == "ok"
+    assert call_count == 0
+
+
 # -----------------------------------------------------------------------------
 # Client IP extraction tests
 # -----------------------------------------------------------------------------
 
-def test_get_client_ip_from_local_with_xff():
-    """Requests from loopback proxy take the first IP from X-Forwarded-For."""
+def test_get_client_ip_uses_client_host_and_ignores_xff():
+    """get_client_ip returns client.host and ignores X-Forwarded-For."""
     dummy_app = FastAPI()
 
     @dummy_app.get("/ip")
@@ -109,7 +152,7 @@ def test_get_client_ip_from_local_with_xff():
     client = TestClient(dummy_app, client=("127.0.0.1", 54321))
     resp = client.get("/ip", headers={"X-Forwarded-For": "203.0.113.195, 10.0.0.1"})
     assert resp.status_code == 200
-    assert resp.json()["ip"] == "203.0.113.195"
+    assert resp.json()["ip"] == "127.0.0.1"
 
 
 def test_get_client_ip_from_remote_ignores_xff():

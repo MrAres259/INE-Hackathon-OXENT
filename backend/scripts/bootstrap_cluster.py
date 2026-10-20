@@ -23,7 +23,7 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from opensearchpy.exceptions import AuthenticationException
-from atalaya.config import BUILD_DIR, SEED_DIR, get_settings
+from atalaya.config import BUILD_DIR, CACHE_DIR, SEED_DIR, get_settings
 from atalaya.load import (
     ensure_index_templates,
     load_kind,
@@ -54,12 +54,26 @@ def _format_clean_urls(urls: list[str]) -> list[str]:
     return clean
 
 
+def _get_admin_token() -> str:
+    """Retrieve admin token from ATALAYA_ADMIN_TOKEN or data/cache/admin_token."""
+    settings = get_settings()
+    if settings.admin_token:
+        return settings.admin_token
+    token_file = CACHE_DIR / "admin_token"
+    if token_file.is_file():
+        try:
+            return token_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            pass
+    return ""
+
+
 def _reload_api(api_base: str, timeout_s: float = 10.0) -> tuple[bool, str]:
     """Trigger POST /api/admin/reload. Returns (ok, message)."""
     target = f"{api_base.rstrip('/')}/api/admin/reload"
     try:
         headers = {"Content-Type": "application/json"}
-        token = get_settings().admin_token
+        token = _get_admin_token()
         if token:
             headers["X-Admin-Token"] = token
         req = urllib.request.Request(

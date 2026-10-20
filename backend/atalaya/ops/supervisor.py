@@ -172,14 +172,77 @@ def default_frontend_health_ok(r: Any) -> bool:
         return False
 
 
+def default_edge_health_ok(r: Any) -> bool:
+    try:
+        return getattr(r, "status_code", None) == 200
+    except Exception:
+        return False
+
+
+def render_caddyfile(
+    template_path: Path,
+    output_path: Path,
+    port: int = 8080,
+    api_target: str = "127.0.0.1:8001",
+    web_target: str = "127.0.0.1:3000",
+    log_path: Path | None = None,
+) -> str:
+    """Render Caddyfile from template, substituting configuration variables."""
+    if not template_path.is_file():
+        raise FileNotFoundError(f"Caddyfile template not found at {template_path}")
+
+    template_content = template_path.read_text(encoding="utf-8")
+    if log_path is None:
+        log_path = output_path.parent / "logs" / "caddy_access.log"
+
+    log_posix = str(log_path).replace("\\", "/")
+
+    content = (
+        template_content.replace("{{PORT}}", str(port))
+        .replace("{{API}}", api_target)
+        .replace("{{WEB}}", web_target)
+        .replace("{{LOG}}", log_posix)
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(content, encoding="utf-8")
+    return content
+
+
+def default_caddy_validator(caddy_exe: Path, caddyfile_path: Path) -> None:
+    """Validate a rendered Caddyfile using caddy validate."""
+    res = subprocess.run(
+        [
+            str(caddy_exe),
+            "validate",
+            "--config",
+            str(caddyfile_path),
+            "--adapter",
+            "caddyfile",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if res.returncode != 0:
+        err = res.stderr.strip() or res.stdout.strip()
+        raise RuntimeError(f"Caddyfile validation failed (exit code {res.returncode}): {err}")
+
+
 def get_default_specs(port: int = 8080, repo_dir: Path | None = None) -> list[ServiceSpec]:
     if port == 80:
         raise ValueError("Port 80 is reserved for another application and cannot be used.")
+    if port in (8001, 3000):
+        raise ValueError(
+            f"Port {port} is reserved for internal services (API/web) and cannot be used for edge."
+        )
     if repo_dir is None:
         repo_dir = Path(__file__).resolve().parents[3]
 
     backend_dir = repo_dir / "backend"
     frontend_dir = repo_dir / "frontend"
+    tools_caddy_dir = repo_dir / "tools" / "caddy"
+    caddy_exe = tools_caddy_dir / "caddy.exe"
+    caddyfile_path = repo_dir / "data" / "cache" / "Caddyfile"
 
     backend_spec = ServiceSpec(
         name="backend",
@@ -193,7 +256,10 @@ def get_default_specs(port: int = 8080, repo_dir: Path | None = None) -> list[Se
             "--port",
             "8001",
             "--workers",
-            "2",
+            "1",
+            "--proxy-headers",
+            "--forwarded-allow-ips",
+            "127.0.0.1",
             "--timeout-keep-alive",
             "5",
         ],
@@ -214,20 +280,39 @@ def get_default_specs(port: int = 8080, repo_dir: Path | None = None) -> list[Se
             "node_modules/next/dist/bin/next",
             "start",
             "-H",
-            "0.0.0.0",
+            "127.0.0.1",
             "-p",
-            str(port),
+            "3000",
         ],
         cwd=frontend_dir,
         env={"NEXT_TELEMETRY_DISABLED": "1", "BACKEND_URL": "http://127.0.0.1:8001"},
-        health_url=f"http://127.0.0.1:{port}/",
+        health_url="http://127.0.0.1:3000/",
         health_ok=default_frontend_health_ok,
         start_grace_s=30.0,
         depends_on="backend",
+        port=3000,
+    )
+
+    edge_spec = ServiceSpec(
+        name="edge",
+        cmd=[
+            str(caddy_exe),
+            "run",
+            "--config",
+            str(caddyfile_path),
+            "--adapter",
+            "caddyfile",
+        ],
+        cwd=repo_dir,
+        env={},
+        health_url=f"http://127.0.0.1:{port}/api/health",
+        health_ok=default_edge_health_ok,
+        start_grace_s=15.0,
+        depends_on="frontend",
         port=port,
     )
 
-    return [backend_spec, frontend_spec]
+    return [backend_spec, frontend_spec, edge_spec]
 
 
 def kill_process_tree(pid: int) -> None:
@@ -412,6 +497,9 @@ class Supervisor:
         health_checker: Callable[[str, float], Any] = default_health_checker,
         port_inspector: Callable[[int], tuple[int, str] | None] = get_process_on_port,
         is_alive_fn: Callable[[int], bool] = is_pid_alive,
+        repo_dir: Path | None = None,
+        caddy_validator: Callable[[Path, Path], None] | None = default_caddy_validator,
+        caddy_exists_fn: Callable[[Path], bool] | None = None,
     ):
         self.specs = specs
         self.cache_dir = cache_dir
@@ -423,6 +511,9 @@ class Supervisor:
         self.public_url = public_url or os.getenv(
             "ATALAYA_PUBLIC_URL", f"http://46.250.172.193:{port}"
         )
+        self.repo_dir = repo_dir or Path(__file__).resolve().parents[3]
+        self.caddy_validator = caddy_validator
+        self.caddy_exists_fn = caddy_exists_fn or (lambda p: p.exists())
 
         self.clock = clock
         self.sleep_fn = sleep_fn
@@ -535,6 +626,39 @@ class Supervisor:
                 if self.can_start(name, now):
                     if not self.check_port(spec, state, now):
                         continue
+
+                    if name == "edge":
+                        caddy_bin = Path(spec.cmd[0])
+                        if not caddy_bin.is_absolute():
+                            caddy_bin = self.repo_dir / caddy_bin
+                        if not self.caddy_exists_fn(caddy_bin):
+                            err_msg = r"falta tools/caddy/caddy.exe: ejecuta scripts\get_caddy.ps1"
+                            logger.error(f"Service edge cannot start: {err_msg}")
+                            state.status = STATUS_CRASH_LOOP
+                            state.last_error = err_msg
+                            state.next_allowed_start = now + compute_backoff(
+                                state.consecutive_restarts, is_crash_loop=True
+                            )
+                            continue
+
+                        # Render and validate Caddyfile
+                        template_path = self.repo_dir / "scripts" / "Caddyfile.template"
+                        caddyfile_path = self.cache_dir / "Caddyfile"
+                        log_path = self.logs_dir / "caddy_access.log"
+                        try:
+                            render_caddyfile(
+                                template_path=template_path,
+                                output_path=caddyfile_path,
+                                port=self.port,
+                                log_path=log_path,
+                            )
+                            if self.caddy_validator is not None:
+                                self.caddy_validator(caddy_bin, caddyfile_path)
+                        except Exception as e:
+                            logger.error(f"Failed to prepare Caddyfile for edge: {e}")
+                            state.record_restart(now, reason=f"Caddy preparation failed: {e}")
+                            continue
+
                     log_path = self.logs_dir / f"{name}.log"
                     try:
                         self.logs_dir.mkdir(parents=True, exist_ok=True)
@@ -561,12 +685,18 @@ class Supervisor:
         save_state_atomic(self.state_file, state_data)
 
     def stop_all(self) -> None:
-        """Orderly shutdown: stop frontend first, then backend."""
-        logger.info("Stopping all services in orderly sequence (frontend then backend)...")
+        """Orderly shutdown: stop edge first, then frontend, then backend."""
+        logger.info(
+            "Stopping all services in orderly sequence (edge then frontend then backend)..."
+        )
 
         shutdown_order = []
+        if "edge" in self.services:
+            shutdown_order.append("edge")
         if "frontend" in self.services:
             shutdown_order.append("frontend")
+        if "backend" in self.services:
+            shutdown_order.append("backend")
         for name in self.services:
             if name not in shutdown_order:
                 shutdown_order.append(name)
@@ -660,6 +790,12 @@ def cmd_run(port: int = 8080) -> int:
     if port == 80:
         print("ERROR: Port 80 is strictly reserved for another application.", file=sys.stderr)
         return 1
+    if port in (8001, 3000):
+        print(
+            f"ERROR: Port {port} is reserved for internal services (API/web) and cannot be used for edge.",
+            file=sys.stderr,
+        )
+        return 1
 
     repo_dir = Path(__file__).resolve().parents[3]
     cache_dir = repo_dir / "data" / "cache"
@@ -684,7 +820,7 @@ def cmd_run(port: int = 8080) -> int:
 
     configure_supervisor_logging(cache_dir / "logs")
     specs = get_default_specs(port=port, repo_dir=repo_dir)
-    supervisor = Supervisor(specs=specs, cache_dir=cache_dir, port=port)
+    supervisor = Supervisor(specs=specs, cache_dir=cache_dir, port=port, repo_dir=repo_dir)
 
     try:
         supervisor.run_loop()
@@ -793,7 +929,13 @@ def cmd_stop() -> int:
         if state_file.exists():
             try:
                 state = json.loads(state_file.read_text(encoding="utf-8"))
-                for name, s in state.get("services", {}).items():
+                services = state.get("services", {})
+                shutdown_order = [n for n in ["edge", "frontend", "backend"] if n in services]
+                for n in services:
+                    if n not in shutdown_order:
+                        shutdown_order.append(n)
+                for name in shutdown_order:
+                    s = services.get(name, {})
                     pid = s.get("pid")
                     if pid and is_pid_alive(pid):
                         print(f"Force killing service {name} (PID {pid})...")

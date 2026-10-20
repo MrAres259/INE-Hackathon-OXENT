@@ -7,13 +7,17 @@ import hmac
 import math
 import threading
 import time
+import os
+from pathlib import Path
+import secrets
 from typing import Callable
 
 from fastapi import HTTPException, Request
 
-from atalaya.config import get_settings
+from atalaya.config import CACHE_DIR, get_settings
 
 LOCAL_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
+ADMIN_TOKEN_PATH = CACHE_DIR / "admin_token"
 
 
 def is_local_client(host: str | None) -> bool:
@@ -23,47 +27,62 @@ def is_local_client(host: str | None) -> bool:
     return host in LOCAL_HOSTS
 
 
+def ensure_admin_token(token_path: Path | None = None) -> str:
+    """Ensure an admin token exists on disk, generating and saving one if absent.
+
+    Creates or reuses the token file (atomic write). Never logs or prints the token.
+    """
+    path = Path(token_path if token_path is not None else ADMIN_TOKEN_PATH)
+    if path.is_file():
+        try:
+            token = path.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+        except OSError:
+            pass
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_urlsafe(32)
+    tmp_path = path.with_name(f"{path.name}.tmp.{secrets.token_hex(4)}")
+    tmp_path.write_text(token, encoding="utf-8")
+    os.replace(tmp_path, path)
+    return token
+
+
+def get_admin_token() -> str:
+    """Retrieve the active admin token: ATALAYA_ADMIN_TOKEN if set, otherwise from disk."""
+    settings = get_settings()
+    if settings.admin_token:
+        return settings.admin_token
+    return ensure_admin_token()
+
+
 def verify_admin_access(request: Request) -> None:
     """Verify administrator authorization for /api/admin/* endpoints.
 
-    If ATALAYA_ADMIN_TOKEN is configured:
-        Requires 'X-Admin-Token' header matching ATALAYA_ADMIN_TOKEN in constant time.
-    If ATALAYA_ADMIN_TOKEN is not configured:
-        Only allows local clients (127.0.0.1, ::1) with NO X-Forwarded-For header.
+    Requires 'X-Admin-Token' header matching the active admin token in constant time.
+    Token source is ATALAYA_ADMIN_TOKEN if configured, or the token stored
+    in data/cache/admin_token. Access without a valid token is always rejected.
     Rejection raises 403 Forbidden without details.
     """
-    settings = get_settings()
-    configured_token = settings.admin_token
+    expected_token = get_admin_token()
+    provided = request.headers.get("x-admin-token", "")
 
-    if configured_token:
-        provided = request.headers.get("x-admin-token", "")
-        if not provided or not hmac.compare_digest(provided, configured_token):
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return
-
-    # No token configured: allow only local direct access (not via reverse proxy)
-    client_host = request.client.host if request.client else ""
-    if not is_local_client(client_host):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    if "x-forwarded-for" in request.headers:
+    if not provided or not expected_token or not hmac.compare_digest(provided, expected_token):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract real client IP address.
+    """Extract client IP address.
 
-    If request originates from a local loopback client (e.g. Next.js reverse proxy on 127.0.0.1),
-    uses the first IP in the X-Forwarded-For header. Otherwise uses the socket client host.
+    With uvicorn configured with --proxy-headers and --forwarded-allow-ips 127.0.0.1
+    behind Caddy, request.client.host is already resolved to the real client IP.
+    Proxy trust and X-Forwarded-For parsing are delegated entirely to uvicorn,
+    avoiding double-interpretation vulnerabilities.
     """
-    socket_ip = request.client.host if request.client else "127.0.0.1"
-    if is_local_client(socket_ip):
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            first_ip = xff.split(",")[0].strip()
-            if first_ip:
-                return first_ip
-    return socket_ip
+    if request.client and request.client.host:
+        return request.client.host
+    return "127.0.0.1"
 
 
 class ChatRateLimiter:
