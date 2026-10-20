@@ -18,10 +18,10 @@ ATALAYA es un tablero y un conjunto de entregables que:
 2. **Clasifica** cada zona en un **semáforo** 🟢 verde · 🟡 amarillo · 🟠 naranja · 🔴 rojo que combina tendencia histórica y vulnerabilidad sociodemográfica, visible en un **mapa navegable** (país → estado → municipio).
 3. **Simula escenarios**: *base* (sin intervención), *intervención* hipotética parametrizable y *pesimista*.
 4. **Prioriza recursos** por **abstención esperada** (personas que se espera no voten) y propone **recomendaciones preventivas** por zona.
-5. **Responde preguntas** con un asistente conversacional (GLM-5.2 en Huawei MaaS) que consulta los datos (Huawei CSS/Elasticsearch o memoria) y nunca inventa cifras.
-6. **Genera los entregables del reto**: reporte metodológico (PDF), presentación ejecutiva (PDF), mapa de escenarios (GeoJSON) y base de datos anonimizada (XLSX/CSV).
+5. **Responde preguntas** con un asistente conversacional (GLM-5.2 en Huawei MaaS) que consulta los datos (motor de búsqueda **OpenSearch** en Huawei CSS, o memoria) y nunca inventa cifras.
+6. **Genera los entregables del reto**: reporte metodológico (PDF), presentación ejecutiva (PDF) con mapas renderizados por el mismo motor cartográfico de la app, mapa de escenarios (GeoJSON), figuras PNG y base de datos anonimizada (XLSX/CSV).
 
-**Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; funciona sin conexión al clúster.
+**Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; el clúster de búsqueda es **desechable** (se puede borrar y recrear: la app degrada a memoria en ~2 s y vuelve sola cuando el clúster nuevo está cargado); el mapa usa un motor WebGL dedicado (MapLibre GL) con teselas vectoriales de la geometría oficial INEGI, sin polígonos dibujados a mano.
 
 ---
 
@@ -35,8 +35,9 @@ flowchart LR
     IMM["CONAPO IMM 2020"]
     SHP["INEGI MG 2024<br/>00ent / 00mun"]
   end
-  SHP --> GEO["tools/geo<br/>(mapshaper)"]
-  GEO -->|public/geo/*.json| WEB
+  SHP --> GEO["tools/geo<br/>(mapshaper + geojson-vt)"]
+  GEO -->|public/geo/tiles MVT + *.json| WEB
+  GEO -->|tiles| CAP[report/map_capture<br/>MapLibre headless]
   GEO -->|geo_*_catalog.csv| CW
   CCPC --> CC[ingest/ccpc] --> CW[ingest/crosswalk]
   ITER --> IT[ingest/inegi_iter] --> FE[ingest/features]
@@ -46,8 +47,9 @@ flowchart LR
   FE --> MB[model/build]
   CF --> MB
   MB --> RK[model/risk] 
-  MB -->|units, drivers, metrics| ST[(store<br/>PandasStore / EsStore)]
-  ST -->|load.py| CSS[(Huawei CSS<br/>Elasticsearch 7.10)]
+  MB -->|units, drivers, metrics| ST[(store<br/>ResilientStore = OpenSearchStore + PandasStore)]
+  MB -->|bootstrap_cluster.py / load.py| CSS[(Huawei CSS<br/>OpenSearch 3.x)]
+  CSS --> ST
   ST --> API[FastAPI :8001]
   SC[model/scenarios] --> API
   RC[model/recommend] --> API
@@ -56,18 +58,20 @@ flowchart LR
   API -->|/api/*| WEB[Next.js :3000]
   MB --> EX[export] --> DEL[deliverables/]
   MB --> REP[report: reporte + presentación] --> DEL
+  CAP --> REP
 ```
 
 | Capa | Tecnología | Ubicación |
 |---|---|---|
 | Ingesta y modelo | Python 3.12, pandas, numpy (sin scikit-learn) | `backend/atalaya/ingest`, `backend/atalaya/model` |
-| Almacén de consulta | `PandasStore` (parquet en memoria) / `EsStore` (Huawei CSS = Elasticsearch 7.10.2) | `backend/atalaya/store.py` |
+| Motor de búsqueda | **OpenSearch 3.x** en Huawei CSS (Basic auth, HTTPS), cliente `opensearch-py 3.0`; plantillas compuestas, índices versionados detrás de alias | `backend/atalaya/search_client.py`, `schema.py`, `load.py` |
+| Almacén de consulta | `ResilientStore` (OpenSearch con respaldo automático) / `PandasStore` (parquet en memoria) | `backend/atalaya/store.py` |
 | API | FastAPI + SSE | `backend/atalaya/api` |
 | Asistente | Reglas deterministas + GLM-5.2 vía MaaS (API compatible OpenAI) | `backend/atalaya/chat`, `backend/atalaya/llm.py` |
-| Entregables | openpyxl, GeoJSON, SVG en Python, PDF con Chrome/Edge headless | `backend/atalaya/export.py`, `backend/atalaya/report` |
-| Frontend | Next.js 16, React 19, Tailwind 4, MapLibre GL 5 (WebGL) | `frontend/src` |
-| Mapa base | Esri World Dark Gray Canvas (teselas ráster sin llave); sin conexión el mapa usa el contorno propio de México | `frontend/src/lib/mapStyle.ts` |
-| Geografía | mapshaper (Node) | `tools/geo` |
+| Entregables | openpyxl, GeoJSON, mapas renderizados con MapLibre en Chrome headless (CDP), gráficas SVG en Python, PDF con Chrome/Edge headless | `backend/atalaya/export.py`, `backend/atalaya/report` |
+| Frontend | Next.js 16, React 19, Tailwind 4, MapLibre GL 5 (WebGL) con fuente vectorial MVT | `frontend/src` |
+| Mapa base | Esri World Dark Gray Canvas (teselas ráster sin llave); tolera fallos aislados de teselas y, si el servicio cae, queda el contorno propio de México | `frontend/src/lib/mapStyle.ts`, `mapSupport.ts` |
+| Geografía | mapshaper + geojson-vt + vt-pbf (Node) | `tools/geo` |
 | Orquestación | PowerShell 5.1 | `scripts/*.ps1` |
 
 ---
@@ -168,14 +172,22 @@ Resumen: zonas por color vs base, LN por color, votos adicionales/perdidos (`Δp
 
 `atalaya/privacy.py` → `suppress_small_cells` (LN < 10), `drop_nonbinary_below_state`. Se aplica en la API, el asistente y los entregables.
 
-### 4.7 Almacén de consulta y Huawei CSS
+### 4.7 Motor de búsqueda OpenSearch y almacén de consulta
 
-`store.py` → `DataStore`, `PandasStore`, `EsStore`, `get_store`.
+**Interfaz común** (`store.py` → `DataStore`): `units`, `unit`, `participation`, `profile`, `ccpc_features`, `search_units` (difusa, sin acentos, alias), `search_catalog`, `top`, `aggregate`, `correlation`, `drivers`, `metrics`, `stats`. `units` incluye columnas anchas `part_dip_<año>`/`abst_dip_<año>` para resolver correlaciones en un solo índice. Año por defecto: último federal (la judicial 2025 solo si se pide). Los rankings desempatan por `id` ascendente en ambos motores, así que memoria y OpenSearch devuelven exactamente el mismo orden.
 
-- Interfaz: `units`, `unit`, `participation`, `profile`, `search_units` (fuzzy y alias), `search_catalog`, `top`, `aggregate`, `correlation`, `drivers`, `metrics`, `stats`.
-- `units` incluye columnas anchas `part_dip_<año>`/`abst_dip_<año>` para resolver correlaciones en un solo índice; métricas CCPC por año desde `ccpc_features`. Año por defecto: último federal (la judicial 2025 solo si se pide).
-- **En CSS** (`schema.py`, plantillas legacy, prefijo `atalaya-`): índices `units`, `participation`, `catalog`, `profile`; búsqueda fuzzy con `multi_match`, agregaciones `terms/avg/percentiles` y **correlación con `matrix_stats`** dentro del clúster.
-- `get_store()`: `ATALAYA_STORE=auto` usa CSS si responde en ≤ 3 s y existe `atalaya-units`; si no, memoria. Carga: `python -m atalaya.load [--dry-run]`. Diagnóstico: `backend/scripts/check_cluster.py`.
+| Pieza | Qué hace | Dónde |
+|---|---|---|
+| Configuración | `OPENSEARCH_URL` (coma-separado), `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_VERIFY_CERTS`, `OPENSEARCH_CA_CERTS`, `OPENSEARCH_TIMEOUT_S`, `OPENSEARCH_REPLICAS`; las `ES_*` antiguas funcionan como respaldo. `ATALAYA_STORE=auto\|opensearch\|memory`. `reload_env()` relee `backend/.env` en caliente | `config.py` → `Settings.search_*`, `get_settings`, `reload_env` |
+| Cliente | `get_client()` (HTTPS, auth, compresión, 2 reintentos), `get_probe_client()` (sin reintentos, 2 s, para sondas), `ping`, `cluster_info` (distribución, versión, nodos, estado; nunca secretos), `auto_replicas` (min(1, nodos−1)), `ensure_index_templates`, `bulk_index` | `search_client.py` |
+| Esquema | Plantillas **compuestas** `atalaya-<kind>` con patrón `atalaya-<kind>-*` (prioridad 200, `SCHEMA_VERSION=2`); analizadores `es_folded` (minúsculas + sin acentos + stop + stemmer ligero español) y `es_prefix`; `units.name` con subcampos `kw` (normalizado) y `sayt` (`search_as_you_type`) | `schema.py` → `TEMPLATES`, `ANALYSIS`, `template_body` |
+| Store OpenSearch | Consultas con `request_timeout ≤ 10 s`; `search_units` combina `bool_prefix` sobre `name.sayt`, `match` difuso y término exacto normalizado (boost 10); agregaciones `terms/avg/percentiles`; **correlación con `matrix_stats`** y, si falla, Pearson en el cliente | `store.py` → `OpenSearchStore` |
+| Resiliencia | `ResilientStore` envuelve OpenSearch + memoria perezosa: ante un error responde desde memoria y abre un circuito de 60 s; la primera sonda es síncrona (ping + existencia del alias, sin reintentos: ≤ 2.5 s) y las siguientes corren en un hilo daemon, de modo que ninguna petición espera al clúster. Expone `kind` (quién respondió), `degraded`, `last_error` (sin URL ni credenciales) | `store.py` → `ResilientStore` |
+| Selección | `get_store()`: `memory` → `PandasStore`; `opensearch` o `auto` con URL configurada → `ResilientStore` (aunque el clúster esté caído o vacío al arrancar); sin URL → memoria | `store.py` → `get_store` |
+
+**Carga a OpenSearch** (`load.py`): cada `kind` (`units` 2,510 docs, `participation` 17,445, `catalog` 28, `profile` 209,667) se carga en un índice físico `atalaya-<kind>-<YYYYmmddHHMMSS>` con réplicas 0 y refresco desactivado, se restauran réplicas y refresco, se verifica `count == docs` (si no, se borra el índice nuevo y el alias queda intacto) y se **cambia el alias `atalaya-<kind>` de forma atómica**; se conservan `--keep` versiones previas. `--reset` → `purge_prefixed` borra alias, índices y plantillas **solo** con el prefijo (nunca con comodín en el delete). Todo nombre pasa por `assert_prefixed`: el clúster es compartido.
+
+**Clúster desechable** (`backend/scripts/bootstrap_cluster.py`): un solo comando deja listo un clúster nuevo o recreado — configuración (solo `host:puerto`) → conectividad con 5 reintentos → salud (espera a salir de `red`) → `--reset` opcional → carga completa en proceso → paridad OpenSearch vs memoria (`scripts/os_parity.py` → `run_checks`: conteos, unidad, búsqueda, rankings, agregados, correlaciones, perfil) → `POST /api/admin/reload` si la API corre. Exit 0 solo si todo pasó. Diagnóstico independiente: `scripts/check_cluster.py` (distingue sin URL / no alcanzable / 401).
 
 ### 4.8 Asistente conversacional
 
@@ -184,7 +196,7 @@ Resumen: zonas por color vs base, LN por color, votos adicionales/perdidos (`Δp
 | Paso | Qué hace | Dónde |
 |---|---|---|
 | Guardia | Rechaza sin LLM peticiones de datos personales y de preferencias partidistas | `chat/guard.py` |
-| Plan | Reglas primero (años, estados/municipios, intent, métrica del catálogo; perfil por edad, juvenil, género, judicial, priorización); LLM (`chat_json`) solo si hace falta; respaldo a reglas | `chat/planner.py`, `chat/spec.py` |
+| Plan | Reglas primero (años, estados, intent, métrica del catálogo; perfil por edad, juvenil, género, judicial, priorización). Las preguntas compuestas "X y Y" solo se dividen si no son de correlación o comparación. Los **municipios se resuelven con `store.search_units`** (búsqueda difusa sin acentos, priorizando el estado mencionado; p. ej. "Juárez, Chihuahua" → 08037). LLM (`chat_json`) solo si hace falta, y **todo `unit_id` que proponga se valida** contra el store y el texto (si no corresponde, se reemplaza o se descarta); respaldo a reglas | `chat/planner.py`, `chat/spec.py` |
 | Ejecución | Sobre el store, sin LLM: ranking, lookup, compare, trend, correlation (r, n, quintiles), profile, scenario, explain_unit, catalog; aplica privacidad; los datos censales siempre se fechan en 2020 | `chat/executor.py` |
 | Redacción | LLM en streaming (≤ 120 palabras, solo cifras de la tabla, fuente y año); si falla o lo bloquea el auditor de contenido, plantilla determinista (`degraded`) | `chat/writer.py` |
 
@@ -196,21 +208,21 @@ Eventos: `plan` → `data` → `token`… → `done {sources, degraded}`. Client
 
 | Método | Ruta | Devuelve |
 |---|---|---|
-| GET | `/api/health` | estado, store, LLM, conteos |
+| GET | `/api/health` | estado, `store` (`opensearch`\|`memory`), `store_degraded`, `search_engine` (distribución y versión, caché 60 s), LLM, conteos |
 | GET | `/api/meta` | año objetivo, años, estados, escenarios, categorías, fuentes de datos |
 | GET | `/api/risk?level&ent&scenario` | zonas con pronóstico, semáforo, vulnerabilidad, abstención esperada, prioridad |
 | POST | `/api/scenario/simulate` | items + resumen (422 con mensaje si los parámetros son inválidos) |
 | GET | `/api/region/{id}?scenario` | serie (con `reliable`, `ns_rate`, judicial aparte), variables vs mediana, factores, componentes del índice, escenarios, recomendaciones, perfil CCPC 2009 vs 2024 (protegido), judicial 2025 |
 | GET | `/api/ranking?level&ent&scenario&limit&sort=risk\|abstencion_esperada\|prioridad` | ranking |
 | GET | `/api/metrics` | candidatos, modelo elegido, backtests, supuesto nacional, calibración, R² estructurales, confiabilidad |
-| POST | `/api/admin/reload` | recarga datos |
+| POST | `/api/admin/reload` | relee `backend/.env`, reconstruye cliente y store y recarga datos; responde `store`, `store_degraded`, `search_engine`, `stats` (para cambiar de clúster sin reiniciar) |
 | POST | `/api/chat` | SSE del asistente |
 
 ### 4.10 Frontend
 
 Tablero oscuro de una sola pantalla en escritorio (el mapa llena su columna; el panel derecho hace scroll interno); lógica separada de presentación.
 
-**Mapa de escenarios (MapLibre GL, WebGL).** Carga una vez los 32 estados y los 2,478 municipios de todo el país (`/api/risk?level=state|mun` sin `ent`) y colorea con *feature-state*, sin volver a subir geometría al cambiar de escenario. Los estados se ven en zoom bajo y los municipios aparecen al acercarse (fundido entre zoom 5 y 6). Al elegir un estado la cámara hace `fitBounds` y el resto del país se atenúa. Modos:
+**Mapa de escenarios (MapLibre GL, WebGL, teselas vectoriales).** La geometría llega como **teselas vectoriales MVT** generadas de los shapefiles oficiales INEGI MG 2024 (`/geo/tiles/{z}/{x}/{y}.pbf`, una fuente `atalaya` con capas `states` y `mun`, `promoteId` sobre `id`), que MapLibre carga por demanda según el zoom y sobre-amplía hasta zoom 12 con bordes nítidos. Los datos de riesgo de los 32 estados y 2,478 municipios (`/api/risk?level=state|mun` sin `ent`) se aplican con *feature-state* —pintado incremental: solo se actualizan los ids cuyo estado cambió—, sin volver a subir geometría al cambiar de escenario. Los estados se ven en zoom bajo y los municipios aparecen al acercarse (fundido entre zoom 5 y 6; límites municipales con opacidad creciente con el zoom). Al elegir un estado la cámara hace `fitBounds` y el resto del país se atenúa; la selección se resalta en estados y municipios. Modos:
 
 | Modo | Qué muestra |
 |---|---|
@@ -219,19 +231,23 @@ Tablero oscuro de una sola pantalla en escritorio (el mapa llena su columna; el 
 | **Comparar** | Dos mapas sincronizados con cortina arrastrable: izquierda sin intervención, derecha con intervención; resumen "Rojo: 297 → 232 · N mejoran de categoría" |
 | **3D** (conmutador) | Extrusión = abstención esperada (personas), escala √ fija entre escenarios; cámara inclinada |
 
-El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&escenario=base|intervencion|pesimista`.
+El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&escenario=base|intervencion|pesimista`. El botón **PNG** descarga la vista actual (`atalaya-mapa-<modo>-<escenario>.png`).
+
+**Robustez del motor.** Geometría en tres modos (`data-geometry`): `vector` (default, `tiles.json` válido), `geojson` (respaldo con `mun_all.json`/`states.json` si falta o es inválido el manifiesto) y `mock` (`NEXT_PUBLIC_MOCK`). Antes de crear el mapa se detecta WebGL; sin él, un aviso deja disponibles ranking y panel. Carga con límite de 20 s y error visible con **Reintentar**; pérdida de contexto WebGL → aviso "Recuperando mapa…", recuperación propia de MapLibre y, si no ocurre en 5 s, remontaje limpio (una sola ruta de destrucción); cada mapa está envuelto en un *error boundary* para que un fallo del mapa nunca tumbe la página; en el comparador, la sincronía de cámaras se re-suscribe al mapa nuevo. El mapa base solo se oculta tras ≥ 6 errores de teselas en 20 s sin ninguna carga exitosa. El contenedor expone `data-map-state="loading|ready|error|unsupported|context-lost"` para pruebas automatizadas.
 
 | Funcionalidad | Dónde |
 |---|---|
 | Estado global (escenario, parámetros, nivel, selección, simulación, salud, `mapMode`, `extrude3d`, `comparePos`, sincronía con la URL) | `src/lib/state.tsx` |
 | Parámetros de escenario desde `Meta` (defaults, filtrado por escenario, descripción legible) | `src/lib/scenarioParams.ts` |
 | Cliente API + SSE; mocks fieles al contrato real solo ante fallo de red | `src/lib/api.ts`, `src/lib/mocks/*` |
-| GeoJSON del pipeline: estados, municipios por estado y nacional (`mun_all.json`), contorno (`country.json`), índice | `src/lib/geo.ts` |
+| Manifiesto de teselas (`fetchTileManifest`, validación, `absoluteTileUrl`) y GeoJSON de respaldo: estados, municipios por estado y nacional, contorno, índice de bbox | `src/lib/geo.ts` |
+| Soporte del motor (puro): `detectWebGL`, `featureTarget` (fuente/`sourceLayer` por modo), `levelOfFeature`, `createTileErrorTracker` | `src/lib/mapSupport.ts` |
 | Datos del mapa: índices nacionales base y alterno, conteos por categoría, transiciones, escala 3D | `src/lib/mapRisk.ts`, `src/lib/useMapRisk.ts` |
-| Estilo del mapa: ids de capas, mapa base, expresiones de color (categoría y Δ), alturas 3D, leyendas | `src/lib/mapStyle.ts` |
-| Motor: capas (fondo, mapa base, contorno, rellenos, bordes, extrusiones, hover, selección, etiquetas), feature-state, hover, clic, cámara, 3D | `src/components/map/AtalayaMap.tsx`, `mapLayers.ts` |
-| Cáscara del mapa: modos, comparador con cortina y cámara sincronizada, tooltip, leyenda (categorías o Δ), breadcrumb, buscador | `src/components/map/RiskMap.tsx`, `CompareSwipe.tsx`, `compareSync.ts`, `MapToolbar.tsx`, `MapTooltip.tsx`, `Legend.tsx`, `Breadcrumb.tsx`, `RegionSearch.tsx` |
-| Selector de escenario y controles generados desde `Meta` | `src/components/layout/TopBar.tsx`, `ScenarioControls.tsx` |
+| Estilo del mapa: ids de capas y fuentes (`SOURCE_IDS.vector`, `SOURCE_LAYERS`), mapa base, expresiones de color (categoría y Δ), alturas 3D, leyendas | `src/lib/mapStyle.ts` |
+| Motor: fuentes (`buildSources` vectorial o GeoJSON), capas (fondo, mapa base, contorno, rellenos, bordes, extrusiones, hover, selección de estado y municipio, etiquetas), feature-state incremental, hover, clic, cámara, 3D, ciclo de vida y recuperación | `src/components/map/AtalayaMap.tsx`, `mapLayers.ts` |
+| Avisos y contención de fallos del mapa | `src/components/map/MapFallback.tsx`, `MapErrorBoundary.tsx` |
+| Cáscara del mapa: modos, comparador con cortina y cámara sincronizada, tooltip, leyenda (categorías o Δ), breadcrumb, buscador, exportación PNG | `src/components/map/RiskMap.tsx`, `CompareSwipe.tsx`, `compareSync.ts`, `MapToolbar.tsx`, `MapTooltip.tsx`, `Legend.tsx`, `Breadcrumb.tsx`, `RegionSearch.tsx` |
+| Selector de escenario, controles generados desde `Meta` e indicador del motor (`OpenSearch` / `memoria`) | `src/components/layout/TopBar.tsx`, `ScenarioControls.tsx` |
 | Detalle: semáforo, intervalo, serie (cortes por datos no confiables, judicial aparte), componentes del índice, perfil edad × sexo (celdas protegidas), indicadores CCPC, factores, recomendaciones, prioridad | `src/components/panel/RegionDetailPanel.tsx`, `src/components/viz/Sparkline.tsx` |
 | Ranking ordenable (riesgo, abstención esperada, prioridad) y exportación CSV | `src/components/panel/RankingTable.tsx` |
 | Asistente con streaming, tabla y fuente | `src/components/panel/ChatPanel.tsx` |
@@ -243,16 +259,21 @@ El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&es
 |---|---|---|
 | Base de datos anonimizada `base_datos_atalaya.xlsx` + `csv/` | `python -m atalaya.export` | Hojas `LEEME`, `diccionario`, `semaforo_ponderado`, `priorizacion`, `municipios`, `estados`, `participacion_historica`, `perfil_edad_sexo` (protegido), `drivers`, `recomendaciones`, `metricas_modelo`. Valida antes de exportar |
 | Mapa de escenarios `mapa_escenarios_{municipal,estatal}.geojson` | `python -m atalaya.export` | Semáforo y abstención por escenario, factor y recomendación principal |
-| Reporte metodológico `reporte_metodologico.{html,pdf}` (14 pp.) | `python -m atalaya.report.build_report` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, limitaciones |
-| Presentación ejecutiva `presentacion_ejecutiva.{html,pdf}` (10 diapositivas) | `python -m atalaya.report.build_slides` | Mensajes clave con mapas y gráficas |
+| Reporte metodológico `reporte_metodologico.{html,pdf}` (15 pp.) | `python -m atalaya.report.build_report [--svg-maps]` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, limitaciones |
+| Presentación ejecutiva `presentacion_ejecutiva.{html,pdf}` (10 diapositivas) | `python -m atalaya.report.build_slides [--svg-maps]` | Mensajes clave con mapas y gráficas |
+| Figuras `figuras/*.png` | (las escriben los dos comandos anteriores) | `state_part_2024`, `state_semaforo`, `mun_semaforo_base`, `mun_semaforo_intervencion`, `mun_diff`, `chart_map_base` a 2× |
 
 **Una sola fuente de cifras:** `report/facts.py` → `compute_facts` calcula todo número que aparece en reporte y presentación (categorías por escenario, LN en riesgo, transiciones base → intervención, parámetros reales de `SCENARIOS`, votos, perfil por edad con etiquetas exactas, modelo, prioridades, confiabilidad, privacidad), en crudo y formateado; las plantillas no calculan ni escriben cifras. Ambos documentos se presentan como **propuesta del equipo** (`--team`, `--repo-url`) y cada porcentaje indica su base (% de los municipios o % de la LN). La presentación falla (exit 2) si alguna tarjeta desborda su texto.
 
-Gráficas en SVG generado en Python (`report/charts.py`: choropleth, mapa de transiciones con leyenda, líneas, barras) y PDF con Chrome/Edge headless (`html_to_pdf`).
+**Mapas del PDF con el mismo motor que la app** (`report/map_capture.py` + `report/map_print/print.{html,js}`): cada figura es una `MapSpec` (nivel, color por id calculado en `build_report`/`build_slides` con la paleta de `charts.py`, tamaño, escala). `capture_maps` sirve `maplibre-gl` (de `frontend/node_modules`) y `frontend/public/geo/` (teselas) con un `ThreadingHTTPServer` local que rechaza rutas fuera de sus raíces, controla Chrome headless por CDP (`websockets`, WebGL por software swiftshader), **sobremuestrea** (k = 4 municipios, 2 estados; a 600 px México quedaría en zoom ≈ 2.9, bajo el mínimo de las teselas), encuadra con los `bounds` de `tiles.json` y valida cada PNG (≥ 4 colores, colores esperados presentes, bordes libres). Una figura inválida o un entorno sin Chrome/teselas usa el **SVG de respaldo** (`charts.svg_choropleth`); cada documento imprime `mapas: maplibre N/M`. Una prueba verifica que la paleta de categorías de `charts.py` coincide con `CATEGORY_COLORS` del frontend. Humo: `python -m atalaya.report.map_capture --smoke <dir>`.
+
+Gráficas no cartográficas en SVG generado en Python (`report/charts.py`: líneas, barras) y PDF con Chrome/Edge headless (`html_to_pdf`).
 
 ### 4.12 Pipeline geográfico
 
-`tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe en `frontend/public/geo/` (versionado): `states.json`, `mun/<cve_ent>.json` (los usa `export.py`), `mun_all.json` (los 2,478 municipios en un archivo para el mapa nacional, ≈ 3.8 MB), `country.json` (contorno de México, respaldo sin conexión del mapa base), `index.json` (bbox y centroides), y los catálogos geo de `data/build/`.
+`tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe en `frontend/public/geo/` (versionado): `states.json`, `mun/<cve_ent>.json` (los usa `export.py`), `mun_all.json` (respaldo GeoJSON nacional del mapa, ≈ 3.8 MB), `country.json` (contorno de México), `index.json` (bbox y centroides), y los catálogos geo de `data/build/`. Al final invoca las teselas (`--tiles-only` genera solo estas).
+
+**Teselas vectoriales** (`tools/geo/build_tiles.mjs` → `buildTiles`, `validateTileset`, `tileRangeForBounds`, `tilesetVersion`): shapefiles MG 2024 → mapshaper (municipios 25 %, estados 20 %) → `geojson-vt` (`maxZoom 9`, tolerancia 3, extent 4096, buffer 64) → `vt-pbf`. Escribe `frontend/public/geo/tiles/{z}/{x}/{y}.pbf` (MVT v2 sin comprimir, z 3–9, capa `states` desde z3 y `mun` desde z5, propiedades `id`/`ent`/`name`, id numérico de feature) —todas las teselas dentro de los límites, vacías de 0 bytes para que no haya 404— y el manifiesto TileJSON `tiles.json` (versión = hash de insumos, `bounds`, `vector_layers`, `feature_counts`). La validación decodifica todas las teselas de z9 y falla si falta alguno de los 32 estados o 2,478 municipios. Estado actual: 1,899 teselas, 5.8 MB. `.gitattributes` marca `*.pbf` como binario.
 
 ---
 
@@ -268,15 +289,23 @@ powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1      # -Mock: so
 powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
 # Acceso público: una ventana de Windows Terminal con dos paneles (API | web); solo se publica el puerto web
 powershell -ExecutionPolicy Bypass -File scripts\start_public.ps1 [-Port 3000] [-Rebuild] [-NoFirewall]
+# Clúster OpenSearch nuevo o recreado (tras editar OPENSEARCH_* en backend/.env)
+cd backend; python scripts\check_cluster.py                 # diagnóstico sin secretos
+cd backend; python scripts\bootstrap_cluster.py [--reset] [--skip-parity] [--api URL]
+#   la API en marcha cambia sola en ≤ 60 s, o al instante con POST /api/admin/reload
+# Solo teselas del mapa (tras cambiar la geometría)
+cd tools/geo; node --max-old-space-size=6144 build_geo.mjs --tiles-only
 # Pruebas (sin red; una guardia impide que escriban en datos reales)
-cd backend;  python -m pytest -q          # 216 pruebas
-cd frontend; npm run typecheck; npm test; npm run build   # 84 pruebas
-cd tools/geo; npm test
+cd backend;  python -m pytest -q          # 314 pruebas
+cd frontend; npm run typecheck; npm test; npm run build   # 115 pruebas
+cd tools/geo; npm test                    # 8 pruebas
+# Verificación visual del mapa en Chrome headless (demo en marcha; herramienta del arquitecto, no versionada)
+python temp/osmap/tools/map_probe.py --shots <dir>
 ```
 
-`build_all.ps1` termina con un resumen de validación (falla si la participación nacional 2024 no está en 59.6–59.7 %) y, salvo `-SkipReports`, genera reporte y presentación.
+`build_all.ps1` termina con un resumen de validación (falla si la participación nacional 2024 no está en 59.6–59.7 %) y, salvo `-SkipReports`, genera reporte y presentación. Con `-Load` ejecuta `bootstrap_cluster.py --skip-parity` y propaga su código de salida.
 
-Configuración: `backend/.env` (plantilla `backend/.env.example`): `ES_URL`, `ES_USERNAME`, `ES_PASSWORD`, `ES_INSECURE`, `MAAS_API_KEY`, `MAAS_BASE_URL`, `MAAS_MODEL=glm-5.2`, `ATALAYA_INDEX_PREFIX=atalaya-`, `ATALAYA_STORE=auto|es|memory`, `ATALAYA_LLM_ENABLED`, `ATALAYA_TARGET_YEAR=2027`.
+Configuración: `backend/.env` (plantilla `backend/.env.example`): `OPENSEARCH_URL`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_VERIFY_CERTS` (`false` para el certificado autofirmado de CSS), `OPENSEARCH_CA_CERTS`, `OPENSEARCH_TIMEOUT_S`, `OPENSEARCH_REPLICAS` (vacío = automático); las `ES_*` antiguas valen como respaldo. `MAAS_API_KEY`, `MAAS_BASE_URL`, `MAAS_MODEL=glm-5.2`, `ATALAYA_INDEX_PREFIX=atalaya-`, `ATALAYA_STORE=auto|opensearch|memory`, `ATALAYA_LLM_ENABLED`, `ATALAYA_TARGET_YEAR=2027`. La IP del clúster vive solo en `.env`.
 
 ---
 
@@ -284,20 +313,21 @@ Configuración: `backend/.env` (plantilla `backend/.env.example`): `ES_URL`, `ES
 
 ```
 backend/atalaya/
-  config.py  es_client.py  llm.py  schema.py  store.py  load.py  privacy.py  export.py
+  config.py  search_client.py  llm.py  schema.py  store.py  load.py  privacy.py  export.py
   ingest/   common · ccpc · ccpc_features · inegi_iter · conapo · features · crosswalk · ine_results (heredado)
   model/    panel · forecast · build · risk · scenarios · recommend
   api/      main · routes · deps · chat
   chat/     spec · guard · planner · executor · writer
-  report/   facts · charts · build_report · build_slides · templates/ · slides_templates/
-backend/scripts/   check_cluster.py · smoke_llm.py · validate_build.py
-backend/tests/     216 pruebas offline
-frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapRisk,useMapRisk,mocks}
-frontend/public/geo/   capas GeoJSON generadas (versionadas)
-tools/geo/         build_geo.mjs + pruebas
+  report/   facts · charts · map_capture · build_report · build_slides · map_print/ · templates/ · slides_templates/
+backend/scripts/   bootstrap_cluster.py · check_cluster.py · os_parity.py · smoke_llm.py · validate_build.py
+backend/tests/     314 pruebas offline
+frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapSupport,mapRisk,useMapRisk,mocks}
+frontend/public/geo/   tiles/{z}/{x}/{y}.pbf + tiles.json (teselas MVT) y capas GeoJSON de respaldo (versionadas)
+tools/geo/         build_geo.mjs · build_tiles.mjs + pruebas
 data/seed/         catálogos y reglas curadas
 scripts/           build_all · start_demo · start_public · stop_demo · run-safe
 AGENTS.md · .agent-guard.json   reglas para agentes automatizados
+.gitattributes     teselas y artefactos binarios
 ```
 
 ---
@@ -317,15 +347,22 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 - Variables censales estáticas (2020); municipios creados después de 2020 usan imputación por mediana estatal (`imputed_census`) y solo tienen historia desde que existen.
 - Municipio-años con muchos registros no especificados quedan fuera del modelo.
 - Los factores son asociaciones estructurales (R² ≈ 0.3), no efectos causales.
-- El clúster Huawei CSS solo es accesible desde la VPC; fuera de ella la app usa el almacén en memoria con el mismo comportamiento.
+- El clúster OpenSearch (Huawei CSS) solo es accesible desde la VPC y se recrea con frecuencia; fuera de ella o sin clúster la app usa el almacén en memoria con el mismo comportamiento (paridad verificada).
+- `percentiles` de OpenSearch es aproximada: la mediana por estado difiere de la exacta de memoria hasta ~0.007 pp.
+- Los mapas del PDF requieren Chrome/Edge y `frontend/node_modules`; sin ellos el reporte usa los mapas SVG de respaldo.
+- El mapa base ráster (Esri) requiere internet; sin él se ve el contorno propio de México.
 
 ---
 
 ## 9. Estado actual
 
-**Funcional y probado con datos reales:** ingesta CCPC/INEGI/CONAPO, crosswalk al 100 %, modelo con backtest y selección honesta, semáforo con vulnerabilidad, escenarios (con los parámetros reales de la API), priorización, recomendaciones con dirección desfavorable, privacidad, API, asistente, mapa WebGL (semáforo, Δ, comparador con cortina, 3D; verificado en Chrome con capturas y mediciones), exportación, y reporte y presentación con cifras únicas desde `facts.py`.
+**Funcional y probado con datos reales:** ingesta CCPC/INEGI/CONAPO, crosswalk al 100 %, modelo con backtest y selección honesta, semáforo con vulnerabilidad, escenarios (con los parámetros reales de la API), priorización, recomendaciones con dirección desfavorable, privacidad, API, asistente (correlaciones, municipios resueltos por búsqueda difusa, ids del LLM validados), exportación, reporte y presentación con cifras únicas desde `facts.py` y mapas renderizados con MapLibre.
+
+**OpenSearch verificado en vivo** (2026-10-20) contra un clúster Huawei CSS recreado (OpenSearch 3.4.0, 1 nodo, green): `bootstrap_cluster.py` cargó 229,650 documentos en 4 índices versionados con alias; paridad OpenSearch vs memoria 7/7; la API sirve desde OpenSearch (`store=opensearch`), la recarga en caliente funciona y, con el clúster borrado, la app degrada a memoria en ~2 s.
+
+**Mapa verificado en Chrome headless** (`map_probe.py`, 4/4): carga vectorial nacional, municipios con *feature-state* a zoom 9.5, comparador con dos mapas y recuperación tras pérdida de contexto WebGL sin tumbar la página.
 
 **Pendiente:**
-1. Cargar a Huawei CSS desde una máquina dentro de la VPC y probar `EsStore` con datos reales.
-2. Pulido visual menor del tablero: atribución y controles de zoom con el estilo oscuro, etiqueta "Intervención" con acento en el panel de diagnóstico.
-3. Completar el nombre definitivo del equipo y la URL pública del repositorio en reporte y presentación (hoy: defaults `OXENT` y el repositorio de GitHub).
+1. Etiqueta "Intervención" con acento en el panel de diagnóstico (pulido visual menor).
+2. Completar el nombre definitivo del equipo y la URL pública del repositorio en reporte y presentación (hoy: defaults `OXENT` y el repositorio de GitHub).
+3. Regenerar la presentación tras cambios de datos (la última se generó antes del ajuste de encuadre de mapas; usa el mapa estatal, que no cambió).
