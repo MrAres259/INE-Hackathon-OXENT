@@ -34,9 +34,31 @@ from atalaya.report.charts import (
 )
 from atalaya.report.facts import DEFAULT_REPO_URL, DEFAULT_TEAM, compute_facts
 
+try:
+    from atalaya.report.map_capture import MapSpec, capture_maps, png_data_uri
+except ImportError:
+    # CONTRACT-NOTE: W2-D provides map_capture.py in parallel
+    MapSpec = None  # type: ignore[assignment,misc]
+    capture_maps = None  # type: ignore[assignment]
+    png_data_uri = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "slides_templates"
+
+
+class BuildSlidesResult(tuple):
+    """Result tuple of (html_path, pdf_path) with maps metadata attribute."""
+    html_path: Path
+    pdf_path: Path | None
+    maps: dict[str, Any]
+
+    def __new__(cls, html_path: Path, pdf_path: Path | None, maps_info: dict[str, Any] | None = None):
+        inst = super().__new__(cls, (html_path, pdf_path))
+        inst.html_path = html_path
+        inst.pdf_path = pdf_path
+        inst.maps = maps_info or {}
+        return inst
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -365,6 +387,9 @@ def render_slides_html(
     deliverables_dir: Path | None = None,
     team_name: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
+    *,
+    svg_maps: bool = False,
+    maps_info: dict[str, Any] | None = None,
 ) -> str:
     """Builds the complete HTML string containing exactly 10 slides."""
     # 1. Single source of truth: compute facts
@@ -438,12 +463,66 @@ def render_slides_html(
         except Exception:
             pass
 
-    chart_map_base = svg_choropleth(
+    chart_map_base_svg = svg_choropleth(
         map_geojson,
         fill_by_id,
         width=640,
         height=440,
     )
+    if "<svg " in chart_map_base_svg and "class=" not in chart_map_base_svg:
+        chart_map_base_svg = chart_map_base_svg.replace("<svg ", '<svg class="map-figure" ', 1)
+
+    chart_map_base = chart_map_base_svg
+    map_engine = "svg"
+    maplibre_count = 0
+    total_maps = 1
+
+    spec = None
+    if MapSpec is not None:
+        color_by_id = {
+            str(k): CATEGORY_COLORS.get(str(v), str(v) if str(v).startswith("#") else "#bdbdbd")
+            for k, v in fill_by_id.items()
+        }
+        spec_level = "state" if map_level == "state" else "mun"
+        spec = MapSpec(
+            name="chart_map_base",
+            level=spec_level,
+            fill_by_id=color_by_id,
+            width=640,
+            height=440,
+        )
+
+    if not svg_maps and capture_maps is not None and spec is not None:
+        try:
+            captured = capture_maps([spec])
+            png_bytes = captured.get(spec.name)
+            if png_bytes is not None:
+                figuras_dir = (deliverables_dir or (REPO_DIR / "deliverables")) / "figuras"
+                figuras_dir.mkdir(parents=True, exist_ok=True)
+                (figuras_dir / f"{spec.name}.png").write_bytes(png_bytes)
+                uri = png_data_uri(png_bytes) if png_data_uri else ""
+                chart_map_base = (
+                    f'<img class="map-figure" src="{uri}" width="{spec.width}" height="{spec.height}" '
+                    f'alt="Semáforo territorial de riesgo de abstención 2027">'
+                )
+                map_engine = "maplibre"
+                maplibre_count = 1
+        except Exception as exc:
+            logger.warning("Error capturing slide map: %s", exc)
+
+    if maplibre_count == total_maps:
+        summary_msg = f"mapas: maplibre {maplibre_count}/{total_maps}"
+    else:
+        summary_msg = f"mapas: maplibre {maplibre_count}/{total_maps} (svg-respaldo: chart_map_base)"
+
+    if maps_info is not None:
+        maps_info["maplibre_count"] = maplibre_count
+        maps_info["total_maps"] = total_maps
+        maps_info["engine"] = map_engine
+        maps_info["summary"] = summary_msg
+
+    print(summary_msg)
+    logger.info(summary_msg)
 
     # Scenarios stacked bars from single facts source
     order = ["verde", "amarillo", "naranja", "rojo"]
@@ -582,11 +661,13 @@ def build_slides(
     build_dir: Path | str | None = None,
     geo_dir: Path | str | None = None,
     out_dir: Path | str | None = None,
+    deliverables_dir: Path | str | None = None,
     *,
     team_name: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
     make_pdf: bool = True,
-) -> tuple[Path, Path | None]:
+    svg_maps: bool = False,
+) -> BuildSlidesResult:
     """Generates the executive presentation HTML and PDF files.
 
     Parameters
@@ -597,17 +678,21 @@ def build_slides(
         Path to geo directory containing GeoJSON layers.
     out_dir : Path or str, optional
         Destination directory for output files.
+    deliverables_dir : Path or str, optional
+        Destination deliverables directory (for figuras and maps).
     team_name : str
         Team name placeholder.
     repo_url : str
         Repository URL placeholder.
     make_pdf : bool
         Whether to compile the PDF using headless Chrome/Edge.
+    svg_maps : bool
+        Whether to force SVG maps fallback without attempting MapLibre capture.
 
     Returns
     -------
-    tuple[Path, Path | None]
-        Paths to (html_path, pdf_path).
+    BuildSlidesResult
+        Result tuple of (html_path, pdf_path) with maps attribute.
     """
     b_dir = Path(build_dir) if build_dir else BUILD_DIR
     g_dir = Path(geo_dir) if geo_dir else (REPO_DIR / "frontend" / "public" / "geo")
@@ -615,18 +700,25 @@ def build_slides(
 
     o_dir.mkdir(parents=True, exist_ok=True)
 
-    deliverables_dir = (
-        Path(out_dir)
-        if out_dir and (Path(out_dir) / "mapa_escenarios_estatal.geojson").is_file()
-        else (REPO_DIR / "deliverables" if (REPO_DIR / "deliverables").is_dir() else None)
+    deliv_dir = (
+        Path(deliverables_dir)
+        if deliverables_dir is not None
+        else (
+            Path(out_dir)
+            if out_dir and (Path(out_dir) / "mapa_escenarios_estatal.geojson").is_file()
+            else (REPO_DIR / "deliverables" if (REPO_DIR / "deliverables").is_dir() else Path(out_dir or "."))
+        )
     )
 
+    maps_info: dict[str, Any] = {}
     html_content = render_slides_html(
         b_dir,
         g_dir,
-        deliverables_dir=deliverables_dir,
+        deliverables_dir=deliv_dir,
         team_name=team_name,
         repo_url=repo_url,
+        svg_maps=svg_maps,
+        maps_info=maps_info,
     )
 
     html_path = o_dir / "presentacion_ejecutiva.html"
@@ -643,7 +735,7 @@ def build_slides(
             logger.error("Failed to generate PDF with headless browser: %s", exc)
             pdf_path = None
 
-    return html_path, pdf_path
+    return BuildSlidesResult(html_path, pdf_path, maps_info)
 
 
 def main() -> None:
@@ -652,9 +744,11 @@ def main() -> None:
     parser.add_argument("--build-dir", type=Path, default=BUILD_DIR, help="Path to build parquet artifacts")
     parser.add_argument("--geo-dir", type=Path, default=None, help="Path to frontend geo directory")
     parser.add_argument("--out", type=Path, default=None, help="Output deliverables directory")
+    parser.add_argument("--deliverables", type=Path, default=None, help="Deliverables directory")
     parser.add_argument("--team", "--team-name", dest="team_name", type=str, default=DEFAULT_TEAM, help="Team name placeholder")
     parser.add_argument("--repo-url", type=str, default=DEFAULT_REPO_URL, help="Repo URL placeholder")
     parser.add_argument("--no-pdf", action="store_true", help="Skip PDF generation")
+    parser.add_argument("--svg-maps", action="store_true", help="Forzar el respaldo SVG sin intentar la captura MapLibre")
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -663,9 +757,11 @@ def main() -> None:
         build_dir=args.build_dir,
         geo_dir=args.geo_dir,
         out_dir=args.out,
+        deliverables_dir=args.deliverables,
         team_name=args.team_name,
         repo_url=args.repo_url,
         make_pdf=not args.no_pdf,
+        svg_maps=args.svg_maps,
     )
     print(f"Generated HTML: {html_p}")
     if pdf_p and pdf_p.is_file():

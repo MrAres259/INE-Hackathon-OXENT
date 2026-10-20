@@ -233,3 +233,112 @@ def test_report_unequivocal_percentages(synthetic_workspace):
     rojo_n = res["stats"]["categories"]["base"]["rojo"]["n"]
     assert f"{rojo_n} municipios" in content
 
+
+def _create_fake_png_bytes() -> bytes:
+    import io
+    from PIL import Image
+
+    img = Image.new("RGB", (20, 20), color=(0, 77, 64))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_build_report_with_maplibre_png_capture(synthetic_workspace, monkeypatch):
+    """Verifies that with valid fake PNGs, HTML contains 5 <img class='map-figure',
+    figuras are saved in deliverables_dir/figuras, and footer indicates MapLibre GL."""
+    fake_png = _create_fake_png_bytes()
+
+    def mock_capture(specs, **kwargs):
+        return {s.name: fake_png for s in specs}
+
+    monkeypatch.setattr("atalaya.report.build_report.capture_maps", mock_capture)
+
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+    )
+
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    # 1. HTML has exactly 5 map <img> tags
+    img_matches = re.findall(r'<img\s+class="map-figure"', content)
+    assert len(img_matches) == 5, f"Expected 5 map <img> elements, found {len(img_matches)}"
+
+    # 2. Footnotes indicate MapLibre GL rendering
+    assert "Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL" in content
+
+    # 3. Verify all 5 PNGs written to deliverables_dir / figuras
+    figuras_dir = synthetic_workspace["deliverables_dir"] / "figuras"
+    assert figuras_dir.is_dir()
+    expected_files = [
+        "state_part_2024.png",
+        "state_semaforo.png",
+        "mun_semaforo_base.png",
+        "mun_semaforo_intervencion.png",
+        "mun_diff.png",
+    ]
+    for fname in expected_files:
+        fpath = figuras_dir / fname
+        assert fpath.is_file(), f"Expected figure {fname} to exist in {figuras_dir}"
+        assert fpath.stat().st_size > 0
+
+    # 4. Traceability dict
+    maps_meta = res.get("maps", {})
+    assert maps_meta.get("maplibre_count") == 5
+    assert maps_meta.get("total_maps") == 5
+    assert maps_meta.get("summary") == "mapas: maplibre 5/5"
+
+
+def test_build_report_fallback_when_capture_returns_none(synthetic_workspace, monkeypatch):
+    """Verifies that when capture_maps returns None, HTML preserves SVG maps without MapLibre footer."""
+    def mock_capture(specs, **kwargs):
+        return {s.name: None for s in specs}
+
+    monkeypatch.setattr("atalaya.report.build_report.capture_maps", mock_capture)
+
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+    )
+
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    # 1. No map <img> tags
+    img_matches = re.findall(r'<img\s+class="map-figure"', content)
+    assert len(img_matches) == 0
+
+    # 2. SVG maps are preserved
+    assert "<svg" in content
+    assert "Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL" not in content
+
+    # 3. Traceability
+    maps_meta = res.get("maps", {})
+    assert maps_meta.get("maplibre_count") == 0
+    assert "svg-respaldo" in maps_meta.get("summary", "")
+
+
+def test_build_report_svg_maps_flag_bypasses_capture(synthetic_workspace, monkeypatch):
+    """Verifies that --svg-maps / svg_maps=True does not call capture_maps and falls back to SVG."""
+    called = False
+
+    def mock_capture(specs, **kwargs):
+        nonlocal called
+        called = True
+        return {s.name: None for s in specs}
+
+    monkeypatch.setattr("atalaya.report.build_report.capture_maps", mock_capture)
+
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+        svg_maps=True,
+    )
+
+    assert called is False, "capture_maps should not be called when svg_maps=True"
+    maps_meta = res.get("maps", {})
+    assert maps_meta.get("maplibre_count") == 0
+

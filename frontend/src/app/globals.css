@@ -40,7 +40,7 @@ body {
 
 .maplibregl-ctrl-attrib {
   font-size: 10px;
-  color: #94a3b8;
+  color: #cbd5e1;
   background-color: #0f172a;
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 4px;
@@ -48,11 +48,40 @@ body {
 }
 
 .maplibregl-ctrl-attrib a {
-  color: #38bdf8;
+  color: #93c5fd;
   text-decoration: underline;
 }
 
 .maplibregl-ctrl-attrib a:hover {
-  color: #7dd3fc;
+  color: #bfdbfe;
+}
+
+/* Compact attribution dark theme overrides (higher specificity than MapLibre CSS) */
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact,
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show {
+  background-color: #0f172a;
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner,
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
+  color: #cbd5e1;
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact a,
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show a {
+  color: #93c5fd;
+}
+
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact a:hover,
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show a:hover {
+  color: #bfdbfe;
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button,
+.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+  filter: invert(1);
 }
 

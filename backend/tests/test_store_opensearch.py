@@ -210,12 +210,24 @@ def test_resilient_store_fallback_cooldown_and_recovery():
         clock=fake_clock,
     )
 
-    # Initial state
-    assert resilient.kind == "opensearch"
+    # Initial state: unverified, no probe has passed yet -> kind is memory
+    assert resilient.kind == "memory"
     assert resilient.degraded is False
     assert resilient.last_error is None
 
-    # 1. Call unit -> fails in OpenSearch -> degrades to memory
+    # Test injectable properties at init
+    injected_store = ResilientStore(
+        os_store=fake_os,
+        memory_store=fake_mem,
+        kind="opensearch",
+        degraded=True,
+        last_error="custom error",
+    )
+    assert injected_store.kind == "opensearch"
+    assert injected_store.degraded is True
+    assert injected_store.last_error == "custom error"
+
+    # 1. Call unit -> probe passes on fake_os -> unit() fails in OpenSearch -> degrades to memory
     doc1 = resilient.unit("09015")
     assert doc1 == {"id": "09015", "name": "From Memory"}
     assert resilient.degraded is True
@@ -268,21 +280,223 @@ def test_get_store_modes():
         s_os = get_store()
         assert isinstance(s_os, ResilientStore)
 
-    # 3. Mode: auto with ping=True and index exists
-    mock_client = MagicMock()
-    mock_client.indices.exists.return_value = True
+    # 3. Mode: auto with search_urls -> ResilientStore without ping
     with patch("atalaya.store.get_settings") as mock_set, \
-         patch("atalaya.store.ping", return_value=True), \
-         patch("atalaya.store.get_client", return_value=mock_client):
-        mock_set.return_value = Settings(store_mode="auto")
+         patch("atalaya.store.ping") as mock_ping:
+        mock_set.return_value = Settings(store_mode="auto", search_urls=["https://10.0.0.205:9200"])
         get_store.cache_clear()
         s_auto_ok = get_store()
         assert isinstance(s_auto_ok, ResilientStore)
+        mock_ping.assert_not_called()
 
-    # 4. Mode: auto with ping=False
+    # 4. Mode: auto without search_urls -> PandasStore without ping
     with patch("atalaya.store.get_settings") as mock_set, \
-         patch("atalaya.store.ping", return_value=False):
-        mock_set.return_value = Settings(store_mode="auto")
+         patch("atalaya.store.ping") as mock_ping:
+        mock_set.return_value = Settings(store_mode="auto", search_urls=[])
         get_store.cache_clear()
-        s_auto_fail = get_store()
-        assert isinstance(s_auto_fail, PandasStore)
+        s_auto_empty = get_store()
+        assert isinstance(s_auto_empty, PandasStore)
+        assert s_auto_empty.kind == "memory"
+        mock_ping.assert_not_called()
+
+
+def test_resilient_store_probe_fails_missing_alias():
+    mock_client = MagicMock()
+    mock_client.ping.return_value = True
+    mock_client.indices.exists.return_value = False
+
+    fake_os = OpenSearchStore(client=mock_client)
+    fake_mem = MagicMock(spec=PandasStore)
+    fake_mem.unit.return_value = {"id": "09015", "name": "From Memory"}
+
+    resilient = ResilientStore(os_store=fake_os, memory_store=fake_mem, cooldown_s=60.0)
+
+    # First call triggers probe, fails due to missing alias
+    doc = resilient.unit("09015")
+    assert doc == {"id": "09015", "name": "From Memory"}
+    assert resilient.degraded is True
+    assert resilient.kind == "memory"
+    assert resilient.last_error == "índice no cargado"
+    # Full query was never sent
+    mock_client.get.assert_not_called()
+
+
+def test_resilient_store_no_probe_during_cooldown():
+    mock_client = MagicMock()
+    mock_client.ping.return_value = True
+    mock_client.indices.exists.return_value = False
+
+    fake_os = OpenSearchStore(client=mock_client)
+    fake_mem = MagicMock(spec=PandasStore)
+    fake_mem.unit.return_value = {"id": "09015", "name": "From Memory"}
+
+    t = 1000.0
+    resilient = ResilientStore(
+        os_store=fake_os,
+        memory_store=fake_mem,
+        cooldown_s=60.0,
+        clock=lambda: t,
+    )
+
+    # Call 1: fails probe -> enters cooldown
+    resilient.unit("09015")
+    assert mock_client.indices.exists.call_count == 1
+
+    # Call 2: inside cooldown (30s later) -> does NOT probe
+    t = 1030.0
+    resilient.unit("09015")
+    assert mock_client.indices.exists.call_count == 1
+    assert resilient.degraded is True
+
+
+def test_resilient_store_single_probe_on_cooldown_expiry_concurrent():
+    import threading
+
+    mock_client = MagicMock()
+    mock_client.ping.return_value = True
+    mock_client.indices.exists.return_value = False
+
+    fake_os = OpenSearchStore(client=mock_client)
+    fake_mem = MagicMock(spec=PandasStore)
+    fake_mem.unit.return_value = {"id": "09015", "name": "From Memory"}
+
+    t = 1000.0
+    resilient = ResilientStore(
+        os_store=fake_os,
+        memory_store=fake_mem,
+        cooldown_s=60.0,
+        clock=lambda: t,
+    )
+
+    # Initial call fails probe
+    resilient.unit("09015")
+    assert mock_client.indices.exists.call_count == 1
+
+    # Advance beyond cooldown
+    t = 1070.0
+
+    probe_started = threading.Event()
+    probe_proceed = threading.Event()
+
+    def slow_exists(*args, **kwargs):
+        probe_started.set()
+        probe_proceed.wait(timeout=2.0)
+        return False
+
+    mock_client.indices.exists.side_effect = slow_exists
+
+    results = []
+
+    def worker():
+        results.append(resilient.unit("09015"))
+
+    th1 = threading.Thread(target=worker)
+    th2 = threading.Thread(target=worker)
+
+    th1.start()
+    probe_started.wait(timeout=2.0)
+    # While th1 is probing, th2 calls unit -> should NOT probe, go straight to memory
+    th2.start()
+    th2.join(timeout=2.0)
+
+    # Allow th1 probe to finish
+    probe_proceed.set()
+    th1.join(timeout=2.0)
+
+    # Exactly one recovery probe was initiated
+    assert mock_client.indices.exists.call_count == 2
+    assert len(results) == 2
+
+
+def test_resilient_store_recovery_after_successful_probe():
+    mock_client = MagicMock()
+    mock_client.ping.return_value = True
+    mock_client.indices.exists.return_value = False
+
+    fake_os = OpenSearchStore(client=mock_client)
+    fake_mem = MagicMock(spec=PandasStore)
+    fake_mem.unit.return_value = {"id": "09015", "name": "From Memory"}
+
+    t = 1000.0
+    resilient = ResilientStore(
+        os_store=fake_os,
+        memory_store=fake_mem,
+        cooldown_s=60.0,
+        clock=lambda: t,
+    )
+
+    # Fails initial probe
+    resilient.unit("09015")
+    assert resilient.degraded is True
+    assert resilient.kind == "memory"
+
+    # Fix cluster, advance time
+    mock_client.indices.exists.return_value = True
+    mock_client.get.return_value = {"found": True, "_source": {"id": "09015", "name": "From OpenSearch"}}
+    t = 1070.0
+
+    doc = resilient.unit("09015")
+    assert doc == {"id": "09015", "name": "From OpenSearch"}
+    assert resilient.degraded is False
+    assert resilient.kind == "opensearch"
+    assert resilient.last_error is None
+
+
+def test_opensearch_store_enforces_request_timeout_cap():
+    mock_client = MagicMock()
+    mock_client.search.return_value = {"hits": {"hits": []}}
+    mock_client.get.return_value = {"found": False}
+
+    with patch("atalaya.store.get_settings") as mock_set:
+        mock_set.return_value = Settings(search_timeout_s=30.0)
+        store = OpenSearchStore(client=mock_client)
+
+        store.unit("09015")
+        get_kwargs = mock_client.get.call_args.kwargs
+        assert get_kwargs["request_timeout"] <= 10.0
+
+        store.search_units("test")
+        search_kwargs = mock_client.search.call_args.kwargs
+        assert search_kwargs["request_timeout"] <= 10.0
+
+        store.search_catalog("test")
+        cat_kwargs = mock_client.search.call_args.kwargs
+        assert cat_kwargs["request_timeout"] <= 10.0
+
+        store.top("risk_score")
+        top_kwargs = mock_client.search.call_args.kwargs
+        assert top_kwargs["request_timeout"] <= 10.0
+
+        store.aggregate("pob_tot")
+        agg_kwargs = mock_client.search.call_args.kwargs
+        assert agg_kwargs["request_timeout"] <= 10.0
+
+
+def test_reload_all_cleans_settings_client_and_store():
+    from atalaya.api.deps import reload_all
+
+    with patch("atalaya.api.deps.reload_env") as mock_reload_env, \
+         patch("atalaya.api.deps.reset_client") as mock_reset_client, \
+         patch("atalaya.api.deps.get_store") as mock_get_store:
+        mock_store = MagicMock()
+        mock_store.stats.return_value = {"units_mun": 5}
+        mock_get_store.return_value = mock_store
+
+        res = reload_all()
+        mock_reload_env.assert_called_once()
+        mock_reset_client.assert_called_once()
+        mock_get_store.cache_clear.assert_called_once()
+        mock_store.reload.assert_called_once()
+        assert res == {"units_mun": 5}
+
+
+def test_config_reload_env():
+    from atalaya.config import BACKEND_DIR, get_settings, reload_env
+
+    with patch("atalaya.config.load_dotenv") as mock_load, \
+         patch.object(get_settings, "cache_clear") as mock_clear:
+        reload_env()
+        mock_load.assert_called_once_with(BACKEND_DIR / ".env", override=True)
+        mock_clear.assert_called_once()
+
+

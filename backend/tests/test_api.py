@@ -14,6 +14,12 @@ from atalaya.api.main import app
 from atalaya.store import PandasStore
 
 
+@pytest.fixture(autouse=True)
+def mock_reload_env(monkeypatch):
+    """Prevent reload_all from loading the real backend/.env during API tests."""
+    monkeypatch.setattr("atalaya.api.deps.reload_env", lambda: None)
+
+
 @pytest.fixture
 def api_test_env(tmp_path: Path, monkeypatch):
     build_dir = tmp_path / "build"
@@ -362,9 +368,25 @@ def test_metrics(client: TestClient):
 def test_admin_reload(client: TestClient):
     resp = client.post("/api/admin/reload")
     assert resp.status_code == 200
-    stats = resp.json()
-    assert "units_mun" in stats
-    assert stats["units_mun"] == 3
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert "store" in data
+    assert "store_degraded" in data
+    assert "search_engine" in data
+    assert "stats" in data
+    assert data["stats"]["units_mun"] == 3
+
+
+def test_admin_reload_error_sanitizes_message(client: TestClient, monkeypatch):
+    def failing_reload():
+        raise RuntimeError("Connection to https://user:secret123@10.0.0.205:9200 failed")
+
+    monkeypatch.setattr("atalaya.api.routes.reload_all", failing_reload)
+    resp = client.post("/api/admin/reload")
+    assert resp.status_code == 500
+    detail = resp.json()["detail"]
+    assert "secret123" not in detail
+    assert "10.0.0.205" not in detail
 
 
 def test_empty_build_starts_cleanly(tmp_path: Path, monkeypatch):

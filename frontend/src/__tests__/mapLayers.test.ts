@@ -197,6 +197,44 @@ describe("mapLayers", () => {
       }
     });
 
+    it("configures readable municipal boundaries with interpolated line-opacity and line-width", () => {
+      const layers = buildDataLayers("category");
+      const munLine = layers.find(
+        (l) => l.id === LAYER_IDS.munLine
+      ) as LayerSpecification & {
+        minzoom?: number;
+        paint?: Record<string, unknown>;
+      };
+      expect(munLine).toBeDefined();
+      expect(munLine.type).toBe("line");
+      expect(munLine.minzoom).toBe(5);
+      expect(munLine.paint?.["line-color"]).toBe("rgba(226,232,240,1)");
+      expect(munLine.paint?.["line-opacity"]).toEqual([
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        5,
+        0.15,
+        7,
+        0.35,
+        9,
+        0.55,
+        12,
+        0.7,
+      ]);
+      expect(munLine.paint?.["line-width"]).toEqual([
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        5,
+        0.2,
+        9,
+        0.6,
+        12,
+        1.2,
+      ]);
+    });
+
     it("configures labels raster layer with 0.85 opacity", () => {
       const layers = buildDataLayers("category");
       const labels = layers.find(

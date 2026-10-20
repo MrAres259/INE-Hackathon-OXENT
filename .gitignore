@@ -27,3 +27,4 @@ deliverables/
 # reference inputs (not versioned)
 Data INE/
 Convocatoria_Hackaton-1.pdf
+.pytest_tmp/

@@ -10,7 +10,8 @@ from typing import Any, Tuple
 
 import pandas as pd
 
-from atalaya.config import get_settings
+from atalaya.config import get_settings, reload_env
+from atalaya.search_client import reset_client
 from atalaya.store import DataStore, get_store, StoreError
 
 try:
@@ -114,11 +115,16 @@ def get_reco_reference(level: str = "mun") -> Any:
 
 
 def reload_all() -> dict:
-    """Clear all API and store caches, returning updated store stats."""
+    """Clear all API and store caches, reloading env and search client, returning updated store stats."""
     global _UNITS_DF_CACHE, _SIMULATE_CACHE, _RECO_REF_CACHE
     _UNITS_DF_CACHE = None
     _SIMULATE_CACHE.clear()
     _RECO_REF_CACHE.clear()
+
+    reload_env()
+    reset_client()
+    if hasattr(get_store, "cache_clear"):
+        get_store.cache_clear()
 
     store = get_store()
     store.reload()

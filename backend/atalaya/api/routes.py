@@ -24,7 +24,7 @@ from atalaya.api.deps import (
 from atalaya.config import SEED_DIR, get_settings
 from atalaya.ingest.common import zpad
 from atalaya.llm import is_enabled as is_llm_enabled
-from atalaya.store import StoreError, get_store
+from atalaya.store import StoreError, get_store, _clean_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -200,9 +200,9 @@ def get_health() -> dict[str, Any]:
 
     try:
         store = get_store()
+        stats = store.stats()
         store_kind = store.kind
         store_degraded = getattr(store, "degraded", False)
-        stats = store.stats()
         data = {
             "units_mun": stats.get("units_mun", 0),
             "units_state": stats.get("units_state", 0),
@@ -736,7 +736,26 @@ def get_metrics() -> dict[str, Any]:
 @router.post("/admin/reload")
 def post_reload() -> dict[str, Any]:
     try:
+        _CLUSTER_INFO_CACHE["info"] = None
+        _CLUSTER_INFO_CACHE["expires_at"] = 0.0
+
         stats = reload_all()
-        return stats
+        store = get_store()
+        store_kind = store.kind
+        store_degraded = getattr(store, "degraded", False)
+
+        search_engine = None
+        if store_kind == "opensearch":
+            search_engine = _get_cached_cluster_info()
+
+        return {
+            "status": "ok",
+            "store": store_kind,
+            "store_degraded": store_degraded,
+            "search_engine": search_engine,
+            "stats": stats,
+        }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Error durante reload: {exc}")
+        msg = _clean_error_message(exc)
+        logger.error("Error during reload: %s", msg)
+        raise HTTPException(status_code=500, detail=f"Error durante reload: {msg}")

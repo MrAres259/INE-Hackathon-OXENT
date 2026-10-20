@@ -298,6 +298,105 @@ def assert_prefixed(name: str) -> None:
         )
 
 
+def purge_prefixed(client: Any) -> dict[str, list[str]]:
+    """Purge all aliases, indices, and templates matching the configured index prefix.
+
+    Raises ValueError if prefix is empty. Only deletes resources whose names start with the prefix.
+    Never uses wildcards in index deletion calls.
+    """
+    prefix = get_settings().index_prefix
+    if not prefix or not prefix.strip():
+        raise ValueError("Configured index prefix is empty")
+
+    deleted_aliases: set[str] = set()
+    deleted_indices: list[str] = []
+    deleted_templates: set[str] = set()
+
+    # 1. Aliases: find all aliases matching {prefix}*
+    try:
+        alias_res = client.indices.get_alias(name=f"{prefix}*", ignore=[404])
+    except Exception:
+        alias_res = {}
+
+    if isinstance(alias_res, dict) and alias_res.get("status") != 404 and "error" not in alias_res:
+        for idx_name, data in alias_res.items():
+            if isinstance(data, dict):
+                for alias_name in data.get("aliases", {}).keys():
+                    assert_prefixed(alias_name)
+                    try:
+                        if hasattr(client.indices, "delete_alias"):
+                            client.indices.delete_alias(index=idx_name, name=alias_name, ignore=[404])
+                        elif hasattr(client.indices, "update_aliases"):
+                            client.indices.update_aliases(
+                                body={"actions": [{"remove": {"index": idx_name, "alias": alias_name}}]}
+                            )
+                    except Exception:
+                        pass
+                    deleted_aliases.add(alias_name)
+
+    # 2. Indices: find all indices matching {prefix}*
+    try:
+        idx_res = client.indices.get(index=f"{prefix}*", ignore=[404])
+    except Exception:
+        idx_res = {}
+
+    if isinstance(idx_res, dict) and idx_res.get("status") != 404 and "error" not in idx_res:
+        for idx_name in sorted(idx_res.keys()):
+            assert_prefixed(idx_name)
+            # Delete each index by exact name - NEVER with a wildcard
+            try:
+                client.indices.delete(index=idx_name, ignore=[404])
+            except Exception:
+                pass
+            deleted_indices.append(idx_name)
+
+    # 3. Composite index templates matching {prefix}*
+    try:
+        if hasattr(client.indices, "get_index_template"):
+            tmpl_res = client.indices.get_index_template(name=f"{prefix}*", ignore=[404])
+        else:
+            tmpl_res = {}
+    except Exception:
+        tmpl_res = {}
+
+    if isinstance(tmpl_res, dict) and tmpl_res.get("status") != 404 and "error" not in tmpl_res:
+        for item in tmpl_res.get("index_templates", []):
+            t_name = item.get("name")
+            if t_name:
+                assert_prefixed(t_name)
+                try:
+                    if hasattr(client.indices, "delete_index_template"):
+                        client.indices.delete_index_template(name=t_name, ignore=[404])
+                except Exception:
+                    pass
+                deleted_templates.add(t_name)
+
+    # 4. Legacy index templates matching {prefix}*
+    try:
+        if hasattr(client.indices, "get_template"):
+            leg_res = client.indices.get_template(name=f"{prefix}*", ignore=[404])
+        else:
+            leg_res = {}
+    except Exception:
+        leg_res = {}
+
+    if isinstance(leg_res, dict) and leg_res.get("status") != 404 and "error" not in leg_res:
+        for t_name in leg_res.keys():
+            assert_prefixed(t_name)
+            try:
+                if hasattr(client.indices, "delete_template"):
+                    client.indices.delete_template(name=t_name, ignore=[404])
+            except Exception:
+                pass
+            deleted_templates.add(t_name)
+
+    return {
+        "aliases": sorted(deleted_aliases),
+        "indices": deleted_indices,
+        "templates": sorted(deleted_templates),
+    }
+
+
 def versioned_name(kind: str, stamp: str) -> str:
     """Generate a versioned physical index name and validate its prefix."""
     alias = index_name(kind)
@@ -466,6 +565,11 @@ def main() -> None:
         default=None,
         help="Number of index replicas (default: auto)",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Purge all existing prefixed indices, aliases, and templates before loading",
+    )
     args = parser.parse_args()
 
     if args.keep < 0:
@@ -526,6 +630,13 @@ def main() -> None:
     nodes = info.get("nodes", 1)
     status = info.get("status", "unknown")
     print(f"OpenSearch Cluster: distribution={dist}, version={ver}, nodes={nodes}, status={status}")
+
+    if args.reset:
+        purged = purge_prefixed(client)
+        print("Purged prefixed cluster resources:")
+        print(f"  Aliases: {len(purged['aliases'])} ({', '.join(purged['aliases']) or 'none'})")
+        print(f"  Indices: {len(purged['indices'])} ({', '.join(purged['indices']) or 'none'})")
+        print(f"  Templates: {len(purged['templates'])} ({', '.join(purged['templates']) or 'none'})")
 
     ensure_index_templates(client)
 

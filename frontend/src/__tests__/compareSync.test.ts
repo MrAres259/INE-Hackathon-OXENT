@@ -3,6 +3,7 @@ import {
   createCameraSync,
   type SyncableCamera,
   type CameraOptions,
+  type CameraSyncHandle,
 } from "../components/map/compareSync";
 
 class FakeMap implements SyncableCamera {
@@ -159,6 +160,56 @@ describe("createCameraSync", () => {
     const sync = createCameraSync(mapA, mapB);
     sync.dispose();
     expect(() => sync.dispose()).not.toThrow();
+  });
+
+  it("supports remounting one side: dispose old sync, register new map without listener leaks", () => {
+    const mapA = new FakeMap();
+    const mapB = new FakeMap();
+
+    // 1. Initial synchronization registration
+    let sync: CameraSyncHandle | null = createCameraSync(mapA, mapB);
+    expect(mapA.getListenerCount("move")).toBe(1);
+    expect(mapB.getListenerCount("move")).toBe(1);
+
+    // 2. Map A is removed / unmounted: sync is disposed and old map detached
+    sync.dispose();
+    sync = null;
+    expect(mapA.getListenerCount("move")).toBe(0);
+    expect(mapB.getListenerCount("move")).toBe(0);
+
+    // 3. New Map A remounts and registers with existing Map B
+    const newMapA = new FakeMap();
+    sync = createCameraSync(newMapA, mapB);
+
+    // Exactly one listener on each map, no leak on mapB
+    expect(newMapA.getListenerCount("move")).toBe(1);
+    expect(mapB.getListenerCount("move")).toBe(1);
+
+    // Camera move on newMapA synchronizes to mapB
+    newMapA.center = { lng: -102.5, lat: 21.8 };
+    newMapA.zoom = 8.5;
+    newMapA.fire("move");
+
+    expect(mapB.jumpToCalls.length).toBe(1);
+    expect(mapB.center).toEqual({ lng: -102.5, lat: 21.8 });
+
+    // Camera move on mapB synchronizes to newMapA
+    mapB.center = { lng: -99.0, lat: 19.0 };
+    mapB.zoom = 9.0;
+    mapB.fire("move");
+
+    expect(newMapA.jumpToCalls.length).toBe(1);
+    expect(newMapA.center).toEqual({ lng: -99.0, lat: 19.0 });
+
+    // Old map A moving does nothing and does not crash
+    mapA.center = { lng: 0, lat: 0 };
+    mapA.fire("move");
+    expect(mapB.jumpToCalls.length).toBe(1);
+
+    // Final dispose cleans up both newMapA and mapB
+    sync.dispose();
+    expect(newMapA.getListenerCount("move")).toBe(0);
+    expect(mapB.getListenerCount("move")).toBe(0);
   });
 });
 

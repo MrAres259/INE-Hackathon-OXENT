@@ -150,34 +150,15 @@ try {
     }
 
     # Step 11: Optional load to OpenSearch / Cloud Search
-    Run-Step -StepNumber "11" -StepTitle "Loading Index into Cluster" -Action {
+    Run-Step -StepNumber "11" -StepTitle "Loading Index into Cluster (bootstrap)" -Action {
         if ($Load) {
-            $checkScript = Join-Path $repoRoot "scripts\check_cluster.py"
-            if (Test-Path $checkScript) {
-                python $checkScript
-                $clusterCheck = $LASTEXITCODE
-                if ($clusterCheck -eq 0) {
-                    Write-Host "OpenSearch cluster is reachable. Loading documents..." -ForegroundColor Green
-                    python -m atalaya.load
-                    $loadExit = $LASTEXITCODE
-                    if ($loadExit -ne 0) {
-                        if ($loadExit -eq 1) {
-                            Write-Host "[-] OpenSearch ingestion failed during indexing (exit code: 1)." -ForegroundColor Red
-                        } elseif ($loadExit -eq 2) {
-                            Write-Host "[-] OpenSearch cluster connection failed (exit code: 2)." -ForegroundColor Red
-                        } else {
-                            Write-Host "[-] OpenSearch load failed with unexpected exit code: $loadExit" -ForegroundColor Red
-                        }
-                        $global:LASTEXITCODE = $loadExit
-                        return
-                    }
-                } else {
-                    Write-Host "Cluster check returned $clusterCheck (unreachable). Skipping live load." -ForegroundColor Yellow
-                    $global:LASTEXITCODE = 0
-                }
-            } else {
-                Write-Host "scripts/check_cluster.py not found. Skipping live load." -ForegroundColor Yellow
-                $global:LASTEXITCODE = 0
+            Write-Host "Executing OpenSearch cluster bootstrap (--skip-parity)..." -ForegroundColor Cyan
+            python scripts\bootstrap_cluster.py --skip-parity
+            $bootExit = $LASTEXITCODE
+            if ($bootExit -ne 0) {
+                Write-Host "[-] Cluster bootstrap failed (exit code: $bootExit)." -ForegroundColor Red
+                $global:LASTEXITCODE = $bootExit
+                return
             }
         } else {
             Write-Host "-Load flag not specified. Skipping cluster ingestion." -ForegroundColor Gray

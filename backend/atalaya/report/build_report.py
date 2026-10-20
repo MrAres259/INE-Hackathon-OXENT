@@ -26,6 +26,14 @@ from atalaya.report.charts import (
 )
 from atalaya.report.facts import DEFAULT_REPO_URL, DEFAULT_TEAM, compute_facts
 
+try:
+    from atalaya.report.map_capture import MapSpec, capture_maps, png_data_uri
+except ImportError:
+    # CONTRACT-NOTE: W2-D provides map_capture.py in parallel
+    MapSpec = None  # type: ignore[assignment,misc]
+    capture_maps = None  # type: ignore[assignment]
+    png_data_uri = None  # type: ignore[assignment]
+
 DELIVERABLES_DIR = REPO_DIR / "deliverables"
 GEO_DIR = REPO_DIR / "frontend" / "public" / "geo"
 
@@ -83,6 +91,7 @@ def generate_report(
     *,
     team: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
+    svg_maps: bool = False,
 ) -> dict[str, Any]:
     """Generates the methodological report in HTML and PDF formats."""
     b_dir = build_dir or BUILD_DIR
@@ -117,7 +126,7 @@ def generate_report(
                 "#1565c0", "#ad1457", "#1565c0", "#ad1457", "#1565c0", "#ad1457"],
     )
 
-    # 3. GeoJSON maps
+    # 3. GeoJSON maps & specifications
     state_geojson_file = d_dir / "mapa_escenarios_estatal.geojson"
     if not state_geojson_file.is_file():
         state_geojson_file = g_dir / "states.json"
@@ -149,8 +158,6 @@ def generate_report(
         except Exception:
             pass
 
-    map_part_2024_svg = svg_choropleth(state_geojson, fill_state_part, width=600, height=230)
-
     # State semáforo choropleth
     fill_state_semaforo: dict[str, str] = {}
     units_file = b_dir / "units.parquet"
@@ -166,8 +173,6 @@ def generate_report(
             pct = st.get("_pct_rn_num", 0.0)
             cat = "rojo" if pct > 75 else ("naranja" if pct > 45 else ("amarillo" if pct > 20 else "verde"))
             fill_state_semaforo[cid] = CATEGORY_COLORS.get(cat, "#bdbdbd")
-
-    map_state_semaforo_svg = svg_choropleth(state_geojson, fill_state_semaforo, width=600, height=230)
 
     # Municipal semáforo choropleths
     mun_df = units_df[units_df.get("level") == "mun"] if not units_df.empty and "level" in units_df.columns else units_df
@@ -204,15 +209,123 @@ def generate_report(
             else:
                 fill_mun_diff[mid] = "#e0e0e0"  # sin cambio relevante
 
-    diff_legend = [
-        ("Mejora (desescala riesgo)", "#4caf50"),
-        ("Sin cambio", "#e0e0e0"),
-        ("Riesgo crítico persistente", "#c62828"),
-    ]
+    def _add_map_figure_class(svg_str: str) -> str:
+        if "<svg " in svg_str and 'class=' not in svg_str:
+            return svg_str.replace("<svg ", '<svg class="map-figure" ', 1)
+        return svg_str
 
-    map_mun_semaforo_svg = svg_choropleth(mun_geojson, fill_mun_base, width=600, height=220) if mun_geojson else "<svg></svg>"
-    map_mun_intervencion_svg = svg_choropleth(mun_geojson, fill_mun_interv, width=600, height=220) if mun_geojson else "<svg></svg>"
-    map_mun_diff_svg = svg_choropleth(mun_geojson, fill_mun_diff, width=600, height=220, legend=diff_legend) if mun_geojson else "<svg></svg>"
+    fallback_svgs: dict[str, str] = {
+        "state_part_2024": _add_map_figure_class(
+            svg_choropleth(state_geojson, fill_state_part, width=600, height=230)
+        ),
+        "state_semaforo": _add_map_figure_class(
+            svg_choropleth(state_geojson, fill_state_semaforo, width=600, height=230)
+        ),
+        "mun_semaforo_base": _add_map_figure_class(
+            svg_choropleth(mun_geojson, fill_mun_base, width=600, height=220) if mun_geojson else "<svg></svg>"
+        ),
+        "mun_semaforo_intervencion": _add_map_figure_class(
+            svg_choropleth(mun_geojson, fill_mun_interv, width=600, height=220) if mun_geojson else "<svg></svg>"
+        ),
+        "mun_diff": _add_map_figure_class(
+            svg_choropleth(mun_geojson, fill_mun_diff, width=600, height=220) if mun_geojson else "<svg></svg>"
+        ),
+    }
+
+    map_alts: dict[str, str] = {
+        "state_part_2024": "Participación ciudadana oficial por entidad federativa en la Elección Federal 2024",
+        "state_semaforo": "Semáforo estatal de riesgo de abstención para la Elección Federal 2027 (Escenario Base)",
+        "mun_semaforo_base": "Semáforo de riesgo de abstención en los 2,478 municipios de México (Escenario Base 2027)",
+        "mun_semaforo_intervencion": "Semáforo municipal resultante bajo el Escenario de Intervención Preventiva Focalizada",
+        "mun_diff": "Mapa de transiciones de riesgo: municipios que reducen su nivel de alerta con la intervención",
+    }
+
+    map_names = ["state_part_2024", "state_semaforo", "mun_semaforo_base", "mun_semaforo_intervencion", "mun_diff"]
+    total_maps = len(map_names)
+    specs: list[Any] = []
+    if MapSpec is not None:
+        specs = [
+            MapSpec(
+                name="state_part_2024",
+                level="state",
+                fill_by_id=fill_state_part,
+                width=600,
+                height=230,
+            ),
+            MapSpec(
+                name="state_semaforo",
+                level="state",
+                fill_by_id=fill_state_semaforo,
+                width=600,
+                height=230,
+            ),
+            MapSpec(
+                name="mun_semaforo_base",
+                level="mun",
+                fill_by_id=fill_mun_base,
+                width=600,
+                height=220,
+            ),
+            MapSpec(
+                name="mun_semaforo_intervencion",
+                level="mun",
+                fill_by_id=fill_mun_interv,
+                width=600,
+                height=220,
+            ),
+            MapSpec(
+                name="mun_diff",
+                level="mun",
+                fill_by_id=fill_mun_diff,
+                width=600,
+                height=220,
+            ),
+        ]
+
+    # Map capture with MapLibre GL
+    captured: dict[str, bytes | None] = {}
+    if not svg_maps and capture_maps is not None and specs:
+        try:
+            captured = capture_maps(specs)
+        except Exception as exc:
+            print(f"Aviso: Falló la captura de mapas ({exc}), usando respaldo SVG.")
+            captured = {}
+
+    figuras_dir = d_dir / "figuras"
+    rendered_maps: dict[str, str] = {}
+    map_engines: dict[str, str] = {}
+    maplibre_count = 0
+
+    for name in map_names:
+        png_bytes = captured.get(name)
+        spec = next((s for s in specs if s.name == name), None) if specs else None
+        if png_bytes is not None and spec is not None:
+            figuras_dir.mkdir(parents=True, exist_ok=True)
+            png_path = figuras_dir / f"{spec.name}.png"
+            png_path.write_bytes(png_bytes)
+            uri = png_data_uri(png_bytes) if png_data_uri else ""
+            rendered_maps[name] = (
+                f'<img class="map-figure" src="{uri}" width="{spec.width}" height="{spec.height}" '
+                f'alt="{map_alts.get(name, name)}">'
+            )
+            map_engines[name] = "maplibre"
+            maplibre_count += 1
+        else:
+            rendered_maps[name] = fallback_svgs[name]
+            map_engines[name] = "svg"
+
+    map_engines["map_part_2024"] = map_engines["state_part_2024"]
+    map_engines["map_state_semaforo"] = map_engines["state_semaforo"]
+    map_engines["map_mun_semaforo"] = map_engines["mun_semaforo_base"]
+    map_engines["map_mun_intervencion"] = map_engines["mun_semaforo_intervencion"]
+    map_engines["map_mun_diff"] = map_engines["mun_diff"]
+
+    if maplibre_count == total_maps:
+        summary_msg = f"mapas: maplibre {maplibre_count}/{total_maps}"
+    else:
+        svg_failed = [name for name in map_names if map_engines.get(name) == "svg"]
+        summary_msg = f"mapas: maplibre {maplibre_count}/{total_maps} (svg-respaldo: {', '.join(svg_failed)})"
+    print(summary_msg)
 
     # 4. Template render
     templates_dir = Path(__file__).resolve().parent / "templates"
@@ -221,15 +334,15 @@ def generate_report(
 
     charts = {
         "history_line": history_line_svg,
-        "map_part_2024": map_part_2024_svg,
+        "map_part_2024": rendered_maps["state_part_2024"],
         "age_gender_bars": age_gender_bars_svg,
-        "map_state_semaforo": map_state_semaforo_svg,
-        "map_mun_semaforo": map_mun_semaforo_svg,
-        "map_mun_intervencion": map_mun_intervencion_svg,
-        "map_mun_diff": map_mun_diff_svg,
+        "map_state_semaforo": rendered_maps["state_semaforo"],
+        "map_mun_semaforo": rendered_maps["mun_semaforo_base"],
+        "map_mun_intervencion": rendered_maps["mun_semaforo_intervencion"],
+        "map_mun_diff": rendered_maps["mun_diff"],
     }
 
-    rendered_html = template.render(stats=stats, charts=charts)
+    rendered_html = template.render(stats=stats, charts=charts, map_engines=map_engines)
     html_out = o_dir / "reporte_metodologico.html"
     html_out.write_text(rendered_html, encoding="utf-8")
 
@@ -248,6 +361,12 @@ def generate_report(
         "pdf_path": pdf_out,
         "pages": pdf_pages,
         "stats": stats,
+        "maps": {
+            "maplibre_count": maplibre_count,
+            "total_maps": total_maps,
+            "engines": map_engines,
+            "summary": summary_msg,
+        },
     }
 
 
@@ -259,6 +378,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=DELIVERABLES_DIR, help="Directorio de salida para el reporte")
     parser.add_argument("--team", "--team-name", dest="team", type=str, default=DEFAULT_TEAM, help="Nombre del equipo")
     parser.add_argument("--repo-url", type=str, default=DEFAULT_REPO_URL, help="URL del repositorio")
+    parser.add_argument("--svg-maps", action="store_true", help="Forzar el respaldo SVG sin intentar la captura MapLibre")
     args = parser.parse_args()
 
     res = generate_report(
@@ -268,6 +388,7 @@ def main() -> None:
         out_dir=args.out,
         team=args.team,
         repo_url=args.repo_url,
+        svg_maps=args.svg_maps,
     )
     pages = res.get("pages", 0)
     print(f"Listo: {res['html_path']} y {res['pdf_path']} ({pages} páginas).")

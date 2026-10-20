@@ -13,6 +13,7 @@ from atalaya.load import (
     load_kind,
     main,
     physical_versions,
+    purge_prefixed,
     swap_alias,
     versioned_name,
 )
@@ -27,6 +28,8 @@ class FakeIndicesClient:
     def __init__(self) -> None:
         self.indices: dict[str, dict[str, Any]] = {}
         self.aliases: dict[str, set[str]] = {}
+        self.index_templates: dict[str, dict[str, Any]] = {}
+        self.templates: dict[str, dict[str, Any]] = {}
         self.calls: list[tuple[str, Any]] = []
 
     def create(self, index: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -54,9 +57,24 @@ class FakeIndicesClient:
         return name in self.aliases and len(self.aliases[name]) > 0
 
     def get_alias(self, name: str | None = None, ignore: list[int] | None = None) -> dict[str, Any]:
-        if name and name in self.aliases:
-            return {idx: {"aliases": {name: {}}} for idx in self.aliases[name]}
-        return {}
+        self.calls.append(("get_alias", name))
+        if not name:
+            return {}
+        regex = re.compile("^" + re.escape(name).replace(r"\*", ".*") + "$")
+        res: dict[str, Any] = {}
+        for alias_name, idx_set in self.aliases.items():
+            if regex.match(alias_name):
+                for idx in idx_set:
+                    res.setdefault(idx, {"aliases": {}})["aliases"][alias_name] = {}
+        return res
+
+    def delete_alias(self, index: str, name: str, ignore: list[int] | None = None) -> dict[str, Any]:
+        self.calls.append(("delete_alias", (index, name)))
+        if name in self.aliases and index in self.aliases[name]:
+            self.aliases[name].remove(index)
+            if not self.aliases[name]:
+                del self.aliases[name]
+        return {"acknowledged": True}
 
     def update_aliases(self, body: dict[str, Any]) -> dict[str, Any]:
         self.calls.append(("update_aliases", body))
@@ -66,22 +84,27 @@ class FakeIndicesClient:
                 alias = action["remove"]["alias"]
                 if alias in self.aliases and idx in self.aliases[alias]:
                     self.aliases[alias].remove(idx)
+                    if not self.aliases[alias]:
+                        del self.aliases[alias]
             elif "add" in action:
                 idx = action["add"]["index"]
                 alias = action["add"]["alias"]
                 self.aliases.setdefault(alias, set()).add(idx)
         return {"acknowledged": True}
 
-    def delete(self, index: str) -> dict[str, Any]:
+    def delete(self, index: str, ignore: list[int] | None = None) -> dict[str, Any]:
         self.calls.append(("delete", index))
         if index in self.indices:
             del self.indices[index]
         for alias, targets in list(self.aliases.items()):
             if index in targets:
                 targets.remove(index)
+                if not targets:
+                    del self.aliases[alias]
         return {"acknowledged": True}
 
     def get(self, index: str | None = None, ignore: list[int] | None = None) -> dict[str, Any]:
+        self.calls.append(("get", index))
         if not index:
             return {idx: {} for idx in self.indices}
         res: dict[str, Any] = {}
@@ -91,6 +114,33 @@ class FakeIndicesClient:
             if regex.match(idx):
                 res[idx] = {}
         return res
+
+    def get_index_template(self, name: str | None = None, ignore: list[int] | None = None) -> dict[str, Any]:
+        self.calls.append(("get_index_template", name))
+        if not name:
+            return {"index_templates": [{"name": k} for k in self.index_templates]}
+        regex = re.compile("^" + re.escape(name).replace(r"\*", ".*") + "$")
+        matched = [k for k in self.index_templates if regex.match(k)]
+        return {"index_templates": [{"name": k} for k in matched]}
+
+    def delete_index_template(self, name: str, ignore: list[int] | None = None) -> dict[str, Any]:
+        self.calls.append(("delete_index_template", name))
+        if name in self.index_templates:
+            del self.index_templates[name]
+        return {"acknowledged": True}
+
+    def get_template(self, name: str | None = None, ignore: list[int] | None = None) -> dict[str, Any]:
+        self.calls.append(("get_template", name))
+        if not name:
+            return {k: {} for k in self.templates}
+        regex = re.compile("^" + re.escape(name).replace(r"\*", ".*") + "$")
+        return {k: {} for k in self.templates if regex.match(k)}
+
+    def delete_template(self, name: str, ignore: list[int] | None = None) -> dict[str, Any]:
+        self.calls.append(("delete_template", name))
+        if name in self.templates:
+            del self.templates[name]
+        return {"acknowledged": True}
 
 
 class FakeOpenSearchClient:
@@ -421,3 +471,105 @@ def test_main_unreachable_cluster_exits_code_2(monkeypatch, capsys):
     assert exc.value.code == 2
     out, err = capsys.readouterr()
     assert "cluster unreachable" in out.lower()
+
+
+def test_purge_prefixed_empty_prefix_raises_value_error(monkeypatch):
+    from atalaya.config import Settings
+    # Empty prefix
+    monkeypatch.setattr("atalaya.load.get_settings", lambda: Settings(index_prefix=""))
+
+    class ExplodingClient:
+        @property
+        def indices(self):
+            raise AssertionError("Client should never be called when prefix is empty")
+
+    with pytest.raises(ValueError) as exc:
+        purge_prefixed(ExplodingClient())
+    assert "prefix is empty" in str(exc.value).lower()
+
+
+def test_purge_prefixed_deletes_only_prefixed_and_never_uses_wildcards(monkeypatch):
+    client = FakeOpenSearchClient()
+
+    # Prefixed resources
+    client.indices.indices["atalaya-units-20261020000000"] = {}
+    client.indices.indices["atalaya-participation-20261020000000"] = {}
+    client.indices.aliases["atalaya-units"] = {"atalaya-units-20261020000000"}
+    client.indices.index_templates["atalaya-units"] = {}
+    client.indices.templates["atalaya-legacy"] = {}
+
+    # Unprefixed resources (should remain completely untouched)
+    client.indices.indices["other-index"] = {}
+    client.indices.aliases["other-alias"] = {"other-index"}
+    client.indices.index_templates["other-template"] = {}
+    client.indices.templates["other-legacy"] = {}
+
+    res = purge_prefixed(client)
+
+    # Returned dict has expected purged items
+    assert res["aliases"] == ["atalaya-units"]
+    assert sorted(res["indices"]) == ["atalaya-participation-20261020000000", "atalaya-units-20261020000000"]
+    assert sorted(res["templates"]) == ["atalaya-legacy", "atalaya-units"]
+
+    # Unprefixed resources remain intact
+    assert "other-index" in client.indices.indices
+    assert "other-alias" in client.indices.aliases
+    assert "other-template" in client.indices.index_templates
+    assert "other-legacy" in client.indices.templates
+
+    # Prefixed resources are gone
+    assert "atalaya-units-20261020000000" not in client.indices.indices
+    assert "atalaya-participation-20261020000000" not in client.indices.indices
+    assert "atalaya-units" not in client.indices.aliases
+    assert "atalaya-units" not in client.indices.index_templates
+    assert "atalaya-legacy" not in client.indices.templates
+
+    # Verify that NEVER was delete called with a wildcard '*'
+    delete_calls = [call for call in client.indices.calls if call[0] == "delete"]
+    assert len(delete_calls) == 2
+    for action, target_index in delete_calls:
+        assert "*" not in target_index
+        assert target_index.startswith("atalaya-")
+
+
+def test_purge_prefixed_raises_if_unprefixed_name_returned(monkeypatch):
+    client = FakeOpenSearchClient()
+
+    # Simulate anomalous client response returning an unprefixed index
+    def anomalous_get(index=None, ignore=None):
+        return {"unprefixed_index_something": {}}
+
+    monkeypatch.setattr(client.indices, "get", anomalous_get)
+
+    with pytest.raises(ValueError) as exc:
+        purge_prefixed(client)
+    assert "does not start with configured prefix" in str(exc.value)
+
+
+def test_main_reset_flag_invokes_purge_prefixed(monkeypatch, capsys, tmp_path):
+    fixtures_core = Path(__file__).resolve().parent / "fixtures" / "core"
+    build_dir = tmp_path / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+
+    client = FakeOpenSearchClient()
+    purged_called = []
+
+    def mock_purge_prefixed(c):
+        purged_called.append(c)
+        return {"aliases": ["atalaya-units"], "indices": ["atalaya-units-old"], "templates": []}
+
+    monkeypatch.setattr("atalaya.load.BUILD_DIR", build_dir)
+    monkeypatch.setattr("atalaya.load.SEED_DIR", fixtures_core)
+    monkeypatch.setattr("atalaya.load.ping", lambda timeout_s=5.0: True)
+    monkeypatch.setattr("atalaya.load.get_client", lambda: client)
+    monkeypatch.setattr("atalaya.load.purge_prefixed", mock_purge_prefixed)
+    monkeypatch.setattr("atalaya.load.ensure_index_templates", lambda c: ["atalaya-catalog"])
+    monkeypatch.setattr("atalaya.load.load_kind", lambda *a, **kw: {"index": "test", "ok": 0})
+    monkeypatch.setattr(sys, "argv", ["load", "--reset", "--only", "catalog"])
+
+    main()
+
+    assert len(purged_called) == 1
+    out, _ = capsys.readouterr()
+    assert "Purged prefixed cluster resources:" in out
+    assert "atalaya-units" in out

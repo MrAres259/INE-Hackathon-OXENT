@@ -2,48 +2,36 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 from typing import Any
 import numpy as np
+
+# Ensure backend root is on sys.path
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
 
 from atalaya.search_client import ping
 from atalaya.store import OpenSearchStore, PandasStore, StoreError
 
 
-def _run_parity_checks() -> int:
-    # 1. Connection check
-    try:
-        if not ping(timeout_s=5.0):
-            print("ERROR: Cannot connect to OpenSearch cluster (ping returned False).", file=sys.stderr)
-            return 2
-    except Exception as exc:
-        print(f"ERROR: Cannot connect to OpenSearch cluster: {type(exc).__name__}", file=sys.stderr)
-        return 2
+def run_checks(mem: PandasStore, osd: OpenSearchStore) -> list[tuple[str, bool, str]]:
+    """Execute parity checks between memory and OpenSearch stores without printing.
 
-    # 2. Instantiate both stores
-    try:
-        p_store = PandasStore()
-        os_store = OpenSearchStore()
-    except Exception as exc:
-        print(f"ERROR initializing stores: {type(exc).__name__}", file=sys.stderr)
-        return 2
-
-    results: list[tuple[str, str, str]] = []
-    all_ok = True
+    Returns a list of (check_name, passed, detail) tuples.
+    """
+    results: list[tuple[str, bool, str]] = []
 
     def record(name: str, passed: bool, detail: str) -> None:
-        nonlocal all_ok
-        status = "OK" if passed else "FAIL"
-        if not passed:
-            all_ok = False
-        results.append((name, status, detail))
+        results.append((name, passed, detail))
 
     # Check 1: Units count by level
     try:
-        p_mun = p_store.units(level="mun")
-        os_mun = os_store.units(level="mun")
-        p_st = p_store.units(level="state")
-        os_st = os_store.units(level="state")
+        p_mun = mem.units(level="mun")
+        os_mun = osd.units(level="mun")
+        p_st = mem.units(level="state")
+        os_st = osd.units(level="state")
 
         mun_match = len(p_mun) == len(os_mun)
         st_match = len(p_st) == len(os_st)
@@ -54,8 +42,8 @@ def _run_parity_checks() -> int:
 
     # Check 2: unit("09015") key fields within 1e-6
     try:
-        u_p = p_store.unit("09015")
-        u_os = os_store.unit("09015")
+        u_p = mem.unit("09015")
+        u_os = osd.unit("09015")
         if not u_p or not u_os:
             record("unit('09015')", False, f"Not found (pandas={bool(u_p)}, os={bool(u_os)})")
         else:
@@ -96,8 +84,8 @@ def _run_parity_checks() -> int:
         queries = ["tijuana", "ciudad de mexico", "Juarez"]
         mismatches = []
         for q in queries:
-            p_hits = p_store.search_units(q, size=5)
-            os_hits = os_store.search_units(q, size=5)
+            p_hits = mem.search_units(q, size=5)
+            os_hits = osd.search_units(q, size=5)
             p_first = p_hits[0]["id"] if p_hits else None
             os_first = os_hits[0]["id"] if os_hits else None
             if p_first != os_first:
@@ -114,8 +102,8 @@ def _run_parity_checks() -> int:
         metrics_test = ["pred_abstention", "risk_score", "pob_tot"]
         top_mismatches = []
         for m in metrics_test:
-            p_top = [str(x.get("id")) for x in p_store.top(m, limit=10)]
-            os_top = [str(x.get("id")) for x in os_store.top(m, limit=10)]
+            p_top = [str(x.get("id")) for x in mem.top(m, limit=10)]
+            os_top = [str(x.get("id")) for x in osd.top(m, limit=10)]
             if p_top != os_top:
                 top_mismatches.append(f"{m} top-10 differs")
 
@@ -127,10 +115,10 @@ def _run_parity_checks() -> int:
 
     # Check 5: aggregate mean (< 1e-3) and median (< 0.01) of pred_abstention by state
     try:
-        p_agg_mean = {d["key"]: d["value"] for d in p_store.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="avg")}
-        os_agg_mean = {d["key"]: d["value"] for d in os_store.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="avg")}
-        p_agg_med = {d["key"]: d["value"] for d in p_store.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="median")}
-        os_agg_med = {d["key"]: d["value"] for d in os_store.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="median")}
+        p_agg_mean = {d["key"]: d["value"] for d in mem.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="avg")}
+        os_agg_mean = {d["key"]: d["value"] for d in osd.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="avg")}
+        p_agg_med = {d["key"]: d["value"] for d in mem.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="median")}
+        os_agg_med = {d["key"]: d["value"] for d in osd.aggregate("pred_abstention", level="mun", group_by="cve_ent", stat="median")}
 
         max_mean_diff = 0.0
         max_med_diff = 0.0
@@ -153,8 +141,8 @@ def _run_parity_checks() -> int:
         corr_mismatches = []
         for pair in pairs:
             f1, f2 = pair
-            p_corr = p_store.correlation(pair)
-            os_corr = os_store.correlation(pair)
+            p_corr = mem.correlation(pair)
+            os_corr = osd.correlation(pair)
             rp = p_corr.get("matrix", {}).get(f1, {}).get(f2)
             ros = os_corr.get("matrix", {}).get(f1, {}).get(f2)
             if rp is not None and ros is not None:
@@ -172,12 +160,12 @@ def _run_parity_checks() -> int:
 
     # Check 7: profile and ccpc_features of a municipality (09015)
     try:
-        p_prof = p_store.profile("09015")
-        os_prof = os_store.profile("09015")
+        p_prof = mem.profile("09015")
+        os_prof = osd.profile("09015")
         prof_len_ok = len(p_prof) == len(os_prof)
 
-        p_feat = p_store.ccpc_features("09015")
-        os_feat = os_store.ccpc_features("09015")
+        p_feat = mem.ccpc_features("09015")
+        os_feat = osd.ccpc_features("09015")
         feat_match = (p_feat is None and os_feat is None) or (bool(p_feat) and bool(os_feat))
 
         passed = prof_len_ok and feat_match
@@ -186,13 +174,38 @@ def _run_parity_checks() -> int:
     except Exception as exc:
         record("profile & ccpc_features 09015", False, f"Exception: {type(exc).__name__}")
 
+    return results
+
+
+def _run_parity_checks() -> int:
+    # 1. Connection check
+    try:
+        if not ping(timeout_s=5.0):
+            print("ERROR: Cannot connect to OpenSearch cluster (ping returned False).", file=sys.stderr)
+            return 2
+    except Exception as exc:
+        print(f"ERROR: Cannot connect to OpenSearch cluster: {type(exc).__name__}", file=sys.stderr)
+        return 2
+
+    # 2. Instantiate both stores
+    try:
+        p_store = PandasStore()
+        os_store = OpenSearchStore()
+    except Exception as exc:
+        print(f"ERROR initializing stores: {type(exc).__name__}", file=sys.stderr)
+        return 2
+
+    results = run_checks(p_store, os_store)
+    all_ok = all(passed for _, passed, _ in results)
+
     # Print table
     col_w_check = 30
     col_w_status = 8
     print("-" * 80)
     print(f"{'CHECK'.ljust(col_w_check)} | {'STATUS'.ljust(col_w_status)} | DETALLE")
     print("-" * 80)
-    for name, status, detail in results:
+    for name, passed, detail in results:
+        status = "OK" if passed else "FAIL"
         print(f"{name.ljust(col_w_check)} | {status.ljust(col_w_status)} | {detail}")
     print("-" * 80)
 

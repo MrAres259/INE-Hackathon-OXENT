@@ -467,3 +467,115 @@ def test_slides_unequivocal_percentages_and_chart_labels(synthetic_workspace):
     rojo_n = facts["categories"]["base"]["rojo"]["n"]
     assert f"{rojo_n} municipios" in content
 
+
+def _create_fake_png_bytes() -> bytes:
+    import io
+    from PIL import Image
+
+    img = Image.new("RGB", (20, 20), color=(0, 77, 64))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_build_slides_with_maplibre_png_capture(synthetic_workspace, monkeypatch):
+    """Verifies that with valid fake PNG, HTML contains <img class='map-figure' for the slide map,
+    figuras are saved in deliverables_dir/figuras, and overflow check passes."""
+    fake_png = _create_fake_png_bytes()
+
+    def mock_capture(specs, **kwargs):
+        return {s.name: fake_png for s in specs}
+
+    monkeypatch.setattr("atalaya.report.build_slides.capture_maps", mock_capture)
+
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    res = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        deliverables_dir=o_dir,
+        make_pdf=False,
+    )
+    html_p, pdf_p = res
+
+    content = html_p.read_text(encoding="utf-8")
+
+    # 1. HTML has map <img> tag
+    img_matches = re.findall(r'<img\s+class="map-figure"', content)
+    assert len(img_matches) == 1, f"Expected 1 map <img> element, found {len(img_matches)}"
+
+    # 2. Check PNG written to o_dir / figuras / chart_map_base.png
+    figuras_dir = o_dir / "figuras"
+    assert figuras_dir.is_dir()
+    fpath = figuras_dir / "chart_map_base.png"
+    assert fpath.is_file()
+    assert fpath.stat().st_size > 0
+
+    # 3. Traceability
+    assert res.maps.get("maplibre_count") == 1
+    assert res.maps.get("total_maps") == 1
+    assert res.maps.get("summary") == "mapas: maplibre 1/1"
+
+
+def test_build_slides_fallback_when_capture_returns_none(synthetic_workspace, monkeypatch):
+    """Verifies that when capture_maps returns None, presentation HTML preserves SVG map."""
+    def mock_capture(specs, **kwargs):
+        return {s.name: None for s in specs}
+
+    monkeypatch.setattr("atalaya.report.build_slides.capture_maps", mock_capture)
+
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    res = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        make_pdf=False,
+    )
+    html_p, pdf_p = res
+
+    content = html_p.read_text(encoding="utf-8")
+
+    # 1. No map <img> tags
+    img_matches = re.findall(r'<img\s+class="map-figure"', content)
+    assert len(img_matches) == 0
+
+    # 2. SVG map preserved
+    assert "<svg" in content
+
+    # 3. Traceability
+    assert res.maps.get("maplibre_count") == 0
+    assert "svg-respaldo" in res.maps.get("summary", "")
+
+
+def test_build_slides_svg_maps_flag_bypasses_capture(synthetic_workspace, monkeypatch):
+    """Verifies that --svg-maps / svg_maps=True does not call capture_maps and falls back to SVG."""
+    called = False
+
+    def mock_capture(specs, **kwargs):
+        nonlocal called
+        called = True
+        return {s.name: None for s in specs}
+
+    monkeypatch.setattr("atalaya.report.build_slides.capture_maps", mock_capture)
+
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    res = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        make_pdf=False,
+        svg_maps=True,
+    )
+
+    assert called is False, "capture_maps should not be called when svg_maps=True"
+    assert res.maps.get("maplibre_count") == 0
+

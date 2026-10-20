@@ -34,9 +34,10 @@ export function createCameraSync(
   b: SyncableCamera
 ): CameraSyncHandle {
   let isSyncing = false;
+  let disposed = false;
 
   const onMoveA = () => {
-    if (isSyncing) return;
+    if (isSyncing || disposed) return;
     isSyncing = true;
     try {
       b.jumpTo({
@@ -51,7 +52,7 @@ export function createCameraSync(
   };
 
   const onMoveB = () => {
-    if (isSyncing) return;
+    if (isSyncing || disposed) return;
     isSyncing = true;
     try {
       a.jumpTo({
@@ -70,6 +71,8 @@ export function createCameraSync(
 
   return {
     dispose() {
+      if (disposed) return;
+      disposed = true;
       a.off("move", onMoveA);
       b.off("move", onMoveB);
     },

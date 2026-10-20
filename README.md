@@ -117,13 +117,35 @@ Opciones disponibles en el script:
 
 ### 6.1 Operaciones con el clúster OpenSearch
 
+#### Recrear el clúster OpenSearch
+Cuando el clúster se borra o recrea (nueva IP o credenciales):
+1. **Editar `backend/.env`** con los nuevos valores de conexión:
+   - `OPENSEARCH_URL` (ej. `https://10.0.0.205:9200`)
+   - `OPENSEARCH_USERNAME`
+   - `OPENSEARCH_PASSWORD`
+   - `OPENSEARCH_VERIFY_CERTS` (`true` / `false`)
+2. **Ejecutar el arranque en un solo comando**:
+   ```powershell
+   python scripts/bootstrap_cluster.py
+   ```
+   *(o con `--reset` si el clúster ya contenía datos o índices previos de ATALAYA)*:
+   ```powershell
+   python scripts/bootstrap_cluster.py --reset
+   ```
+   Este comando realiza: diagnóstico de conectividad con reintentos → validación de salud → purga (si `--reset`) → plantillas compuestas → carga completa de índices versionados y alias atómico → auditoría de paridad vs. memoria → recarga en caliente de la API.
+3. **Sincronización de la API**: la API en ejecución detecta y cambia sola en ≤ 60 s (circuito de resiliencia y sonda) o de manera inmediata mediante:
+   ```powershell
+   curl -X POST http://127.0.0.1:8001/api/admin/reload
+   ```
+
+#### Comandos individuales de soporte
 - **Diagnóstico de conectividad y estado del clúster**:
   ```powershell
   python scripts/check_cluster.py
   ```
 - **Carga de índices versionados con alias atómico**:
   ```powershell
-  python -m atalaya.load [--dry-run] [--only units,participation,catalog,profile] [--keep 1] [--replicas N]
+  python -m atalaya.load [--dry-run] [--only units,participation,catalog,profile] [--keep 1] [--replicas N] [--reset]
   ```
 - **Auditoría de paridad OpenSearch vs. almacén en memoria**:
   ```powershell

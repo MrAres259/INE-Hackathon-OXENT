@@ -6,6 +6,7 @@ import { useAtalaya } from "@/lib/state";
 import { createCameraSync, type CameraSyncHandle } from "./compareSync";
 import { transitionSummary, type MapRiskData } from "@/lib/mapRisk";
 import { AtalayaMap, type HoverInfo } from "./AtalayaMap";
+import { MapErrorBoundary } from "./MapErrorBoundary";
 
 export interface CompareSwipeProps {
   data: MapRiskData;
@@ -30,31 +31,31 @@ export function CompareSwipe({
   const syncRef = useRef<CameraSyncHandle | null>(null);
   const isDraggingRef = useRef(false);
 
+  // Helper to re-establish sync when both maps are ready
+  const updateSync = useCallback(() => {
+    syncRef.current?.dispose();
+    syncRef.current = null;
+    if (mapARef.current && mapBRef.current) {
+      syncRef.current = createCameraSync(mapARef.current, mapBRef.current);
+    }
+  }, []);
+
   // Handle map ready callbacks for camera synchronization
   const handleMapAReady = useCallback(
     (map: MapLibreMap) => {
       mapARef.current = map;
       onMapReady?.(map);
-      if (mapBRef.current) {
-        syncRef.current?.dispose();
-        syncRef.current = createCameraSync(map, mapBRef.current);
-      }
+      updateSync();
     },
-    [onMapReady]
+    [onMapReady, updateSync]
   );
 
   const handleMapBReady = useCallback(
     (map: MapLibreMap) => {
       mapBRef.current = map;
-      try {
-        map.getContainer().style.clipPath = `inset(0 0 0 ${comparePos}%)`;
-      } catch {}
-      if (mapARef.current) {
-        syncRef.current?.dispose();
-        syncRef.current = createCameraSync(mapARef.current, map);
-      }
+      updateSync();
     },
-    [comparePos]
+    [updateSync]
   );
 
   useEffect(() => {
@@ -65,16 +66,20 @@ export function CompareSwipe({
     }
   }, [comparePos]);
 
-  const handleMapARemove = useCallback(() => {
-    syncRef.current?.dispose();
-    syncRef.current = null;
-    mapARef.current = null;
+  const handleMapARemove = useCallback((map?: MapLibreMap) => {
+    if (!map || !mapARef.current || mapARef.current === map) {
+      syncRef.current?.dispose();
+      syncRef.current = null;
+      mapARef.current = null;
+    }
   }, []);
 
-  const handleMapBRemove = useCallback(() => {
-    syncRef.current?.dispose();
-    syncRef.current = null;
-    mapBRef.current = null;
+  const handleMapBRemove = useCallback((map?: MapLibreMap) => {
+    if (!map || !mapBRef.current || mapBRef.current === map) {
+      syncRef.current?.dispose();
+      syncRef.current = null;
+      mapBRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -139,16 +144,18 @@ export function CompareSwipe({
     >
       {/* Left Map: Base scenario (without intervention) */}
       <div className="absolute inset-0">
-        <AtalayaMap
-          data={data}
-          view="base"
-          colorMode="category"
-          extrude={extrude}
-          controls={false}
-          onHover={onHover}
-          onMapReady={handleMapAReady}
-          onMapRemove={handleMapARemove}
-        />
+        <MapErrorBoundary onReset={handleMapARemove}>
+          <AtalayaMap
+            data={data}
+            view="base"
+            colorMode="category"
+            extrude={extrude}
+            controls={false}
+            onHover={onHover}
+            onMapReady={handleMapAReady}
+            onMapRemove={handleMapARemove}
+          />
+        </MapErrorBoundary>
       </div>
 
       {/* Right Map: Alternative scenario (with intervention), clipped by swipe position */}
@@ -156,16 +163,18 @@ export function CompareSwipe({
         className="absolute inset-0 overflow-hidden"
         style={{ clipPath: `inset(0 0 0 ${comparePos}%)` }}
       >
-        <AtalayaMap
-          data={data}
-          view="alt"
-          colorMode="category"
-          extrude={extrude}
-          controls={true}
-          onHover={onHover}
-          onMapReady={handleMapBReady}
-          onMapRemove={handleMapBRemove}
-        />
+        <MapErrorBoundary onReset={handleMapBRemove}>
+          <AtalayaMap
+            data={data}
+            view="alt"
+            colorMode="category"
+            extrude={extrude}
+            controls={true}
+            onHover={onHover}
+            onMapReady={handleMapBReady}
+            onMapRemove={handleMapBRemove}
+          />
+        </MapErrorBoundary>
       </div>
 
       {/* Loading veil on right side while data.alt is null */}

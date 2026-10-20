@@ -1112,8 +1112,12 @@ class OpenSearchStore:
         self.settings = get_settings()
         self._injected_client = client
 
+    @property
+    def request_timeout(self) -> float:
+        return min(self.settings.search_timeout_s, 10.0)
+
     def healthy(self) -> bool:
-        return ping(timeout_s=self.settings.search_timeout_s)
+        return ping(timeout_s=self.request_timeout)
 
     def _client(self) -> Any:
         client = self._injected_client if self._injected_client is not None else get_client()
@@ -1136,7 +1140,7 @@ class OpenSearchStore:
                 client,
                 index=idx,
                 query={"query": query},
-                request_timeout=self.settings.search_timeout_s,
+                request_timeout=self.request_timeout,
             )
             rows = [hit["_source"] for hit in hits]
             return pd.DataFrame(rows)
@@ -1151,7 +1155,7 @@ class OpenSearchStore:
                 index=idx,
                 id=str(unit_id),
                 ignore=[404],
-                request_timeout=self.settings.search_timeout_s,
+                request_timeout=self.request_timeout,
             )
             if resp and resp.get("found"):
                 return resp["_source"]
@@ -1185,7 +1189,7 @@ class OpenSearchStore:
                 client,
                 index=idx,
                 query={"query": query},
-                request_timeout=self.settings.search_timeout_s,
+                request_timeout=self.request_timeout,
             )
             rows = [h["_source"] for h in hits]
             return pd.DataFrame(rows)
@@ -1244,7 +1248,7 @@ class OpenSearchStore:
             resp = client.search(
                 index=idx,
                 body=body,
-                request_timeout=self.settings.search_timeout_s,
+                request_timeout=self.request_timeout,
             )
             hits = resp.get("hits", {}).get("hits", [])
             results = []
@@ -1278,7 +1282,7 @@ class OpenSearchStore:
             resp = client.search(
                 index=idx,
                 body=body,
-                request_timeout=self.settings.search_timeout_s,
+                request_timeout=self.request_timeout,
             )
             hits = resp.get("hits", {}).get("hits", [])
             results = []
@@ -1335,7 +1339,7 @@ class OpenSearchStore:
             "aggs": {"max_year": {"max": {"field": "year"}}},
         }
         try:
-            res = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
+            res = client.search(index=idx, body=body, request_timeout=self.request_timeout)
             val = res.get("aggregations", {}).get("max_year", {}).get("value")
             return int(val) if val is not None else 2024
         except Exception:
@@ -1374,7 +1378,7 @@ class OpenSearchStore:
             "sort": [{"year": "asc"}, {"age_group": "asc"}, {"sexo": "asc"}],
         }
         try:
-            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
+            resp = client.search(index=idx, body=body, request_timeout=self.request_timeout)
             hits = resp.get("hits", {}).get("hits", [])
             if not hits:
                 return []
@@ -1500,7 +1504,7 @@ class OpenSearchStore:
             "sort": [{target_field: {"order": sort_dir}}],
         }
         try:
-            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
+            resp = client.search(index=idx, body=body, request_timeout=self.request_timeout)
             hits = resp.get("hits", {}).get("hits", [])
             results = []
             for h in hits:
@@ -1578,7 +1582,7 @@ class OpenSearchStore:
             "aggs": aggs,
         }
         try:
-            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
+            resp = client.search(index=idx, body=body, request_timeout=self.request_timeout)
             agg_resp = resp.get("aggregations", {})
 
             if group_by:
@@ -1651,7 +1655,7 @@ class OpenSearchStore:
                     }
                 },
             }
-            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
+            resp = client.search(index=idx, body=body, request_timeout=self.request_timeout)
             matrix_agg = resp.get("aggregations", {}).get("matrix", {})
             doc_count = matrix_agg.get("doc_count", 0)
 
@@ -1682,7 +1686,7 @@ class OpenSearchStore:
                     client,
                     index=idx,
                     query=scan_query,
-                    request_timeout=self.settings.search_timeout_s,
+                    request_timeout=self.request_timeout,
                 )
                 data_rows = []
                 for h in hits:
@@ -1740,7 +1744,7 @@ class OpenSearchStore:
                     "size": 0,
                     "aggs": {"by_level": {"terms": {"field": "level"}}},
                 },
-                request_timeout=self.settings.search_timeout_s,
+                request_timeout=self.request_timeout,
             )
             buckets = u_resp.get("aggregations", {}).get("by_level", {}).get("buckets", [])
             level_counts = {b["key"]: b["doc_count"] for b in buckets}
@@ -1754,7 +1758,7 @@ class OpenSearchStore:
                         "elections": {"terms": {"field": "election", "size": 100}},
                     },
                 },
-                request_timeout=self.settings.search_timeout_s,
+                request_timeout=self.request_timeout,
             )
             p_total = p_resp.get("hits", {}).get("total", {}).get("value", 0)
             y_buckets = p_resp.get("aggregations", {}).get("years", {}).get("buckets", [])
@@ -1781,6 +1785,9 @@ class ResilientStore:
         *,
         cooldown_s: float = 60.0,
         clock: Callable[[], float] | None = None,
+        degraded: bool = False,
+        last_error: str | None = None,
+        kind: str | None = None,
     ):
         self._os_store = os_store if os_store is not None else OpenSearchStore()
         self._memory_store = memory_store
@@ -1788,14 +1795,19 @@ class ResilientStore:
         self._clock = clock if clock is not None else time.monotonic
         self._lock = threading.Lock()
         self._last_failure_time: float = 0.0
-        self._degraded: bool = False
-        self._last_error: str | None = None
-        self._current_kind: str = "opensearch"
+        self._degraded: bool = degraded
+        self._last_error: str | None = last_error
+        self._last_responded_kind: str | None = kind
+        self._last_probe_passed: bool = (kind == "opensearch")
+        self._verified: bool = (kind is not None or degraded or last_error is not None)
+        self._probing: bool = False
 
     @property
     def kind(self) -> str:
         with self._lock:
-            return self._current_kind
+            if self._last_responded_kind is not None:
+                return self._last_responded_kind
+            return "opensearch" if self._last_probe_passed else "memory"
 
     @property
     def degraded(self) -> bool:
@@ -1814,23 +1826,103 @@ class ResilientStore:
                     self._memory_store = PandasStore()
         return self._memory_store
 
+    def _probe(self) -> tuple[bool, str | None]:
+        """Execute cheap probe: ping(timeout_s=2.0) and indices.exists(index=index_name("units"), request_timeout=2).
+
+        Returns (success: bool, error_msg: str | None).
+        """
+        try:
+            client = self._os_store._client()
+        except Exception as exc:
+            return False, _clean_error_message(exc)
+
+        try:
+            ping_ok = False
+            injected = getattr(self._os_store, "_injected_client", None)
+            if injected is not None and hasattr(injected, "ping"):
+                try:
+                    ping_ok = bool(injected.ping(request_timeout=2.0))
+                except Exception:
+                    ping_ok = False
+            else:
+                try:
+                    ping_ok = ping(timeout_s=2.0)
+                except Exception:
+                    ping_ok = False
+                if not ping_ok and hasattr(client, "ping"):
+                    try:
+                        ping_ok = bool(client.ping(request_timeout=2.0))
+                    except Exception:
+                        pass
+
+            if not ping_ok:
+                return False, "OpenSearch no responde"
+
+            idx = index_name("units")
+            exists = bool(client.indices.exists(index=idx, request_timeout=2))
+            if not exists:
+                return False, "índice no cargado"
+
+            return True, None
+        except Exception as exc:
+            return False, _clean_error_message(exc)
+
     def _dispatch(self, method_name: str, *args, **kwargs) -> Any:
         now = self._clock()
-        with self._lock:
-            in_cooldown = self._degraded and ((now - self._last_failure_time) < self._cooldown_s)
+        should_probe = False
 
-        if in_cooldown:
-            with self._lock:
-                self._current_kind = "memory"
-            mem = self._get_memory_store()
-            return getattr(mem, method_name)(*args, **kwargs)
+        with self._lock:
+            if not self._verified:
+                if self._probing:
+                    self._last_responded_kind = "memory"
+                    mem = self._get_memory_store()
+                    return getattr(mem, method_name)(*args, **kwargs)
+                self._probing = True
+                should_probe = True
+            elif self._degraded:
+                in_cooldown = (now - self._last_failure_time) < self._cooldown_s
+                if in_cooldown or self._probing:
+                    self._last_responded_kind = "memory"
+                    mem = self._get_memory_store()
+                    return getattr(mem, method_name)(*args, **kwargs)
+                self._probing = True
+                should_probe = True
+
+        if should_probe:
+            probe_ok = False
+            probe_err = None
+            try:
+                probe_ok, probe_err = self._probe()
+            except Exception as e:
+                probe_ok = False
+                probe_err = _clean_error_message(e)
+            finally:
+                probe_now = self._clock()
+                with self._lock:
+                    self._probing = False
+                    self._verified = True
+                    if probe_ok:
+                        self._degraded = False
+                        self._last_error = None
+                        self._last_probe_passed = True
+                    else:
+                        self._degraded = True
+                        self._last_failure_time = probe_now
+                        self._last_error = probe_err
+                        self._last_probe_passed = False
+                        self._last_responded_kind = "memory"
+
+            if not probe_ok:
+                mem = self._get_memory_store()
+                return getattr(mem, method_name)(*args, **kwargs)
 
         try:
             res = getattr(self._os_store, method_name)(*args, **kwargs)
             with self._lock:
                 self._degraded = False
                 self._last_error = None
-                self._current_kind = "opensearch"
+                self._last_probe_passed = True
+                self._last_responded_kind = "opensearch"
             return res
         except Exception as exc:
             msg = _clean_error_message(exc)
@@ -1839,7 +1931,8 @@ class ResilientStore:
                 self._last_failure_time = now
                 self._degraded = True
                 self._last_error = msg
-                self._current_kind = "memory"
+                self._last_probe_passed = False
+                self._last_responded_kind = "memory"
             logger.warning("OpenSearch failed during %s, falling back to memory: %s", method_name, msg)
             mem = self._get_memory_store()
             return getattr(mem, method_name)(*args, **kwargs)
@@ -1851,7 +1944,8 @@ class ResilientStore:
         if in_cooldown:
             return self._get_memory_store().healthy()
         try:
-            if self._os_store.healthy():
+            ok, _ = self._probe()
+            if ok:
                 return True
         except Exception:
             pass
@@ -1948,15 +2042,11 @@ def get_store() -> DataStore:
         elif mode == "opensearch":
             return ResilientStore()
         elif mode == "auto":
-            if ping(timeout_s=3.0):
-                try:
-                    client = get_client()
-                    if client is not None and client.indices.exists(index=index_name("units")):
-                        return ResilientStore()
-                except Exception:
-                    pass
+            if settings.search_urls:
+                return ResilientStore()
             return PandasStore()
         return PandasStore()
     except Exception:
         return PandasStore()
+
 

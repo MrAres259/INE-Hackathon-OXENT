@@ -11,6 +11,7 @@ import { RegionSearch } from "./RegionSearch";
 import { Legend } from "./Legend";
 import { MapTooltip } from "./MapTooltip";
 import type { HoverInfo } from "./AtalayaMap";
+import { MapErrorBoundary } from "./MapErrorBoundary";
 
 const MapLoading = () => (
   <div className="absolute inset-0 bg-[#060a13] flex flex-col items-center justify-center text-slate-400 gap-3">
@@ -130,27 +131,31 @@ export function RiskMap() {
             }}
           />
         ) : mapMode === "delta" ? (
-          <AtalayaMap
-            data={data}
-            view="alt"
-            colorMode="delta"
-            extrude={extrude3d}
-            onHover={setHover}
-            onMapReady={(map) => {
-              mapInstanceRef.current = map;
-            }}
-          />
+          <MapErrorBoundary>
+            <AtalayaMap
+              data={data}
+              view="alt"
+              colorMode="delta"
+              extrude={extrude3d}
+              onHover={setHover}
+              onMapReady={(map) => {
+                mapInstanceRef.current = map;
+              }}
+            />
+          </MapErrorBoundary>
         ) : (
-          <AtalayaMap
-            data={data}
-            view="active"
-            colorMode="category"
-            extrude={extrude3d}
-            onHover={setHover}
-            onMapReady={(map) => {
-              mapInstanceRef.current = map;
-            }}
-          />
+          <MapErrorBoundary>
+            <AtalayaMap
+              data={data}
+              view="active"
+              colorMode="category"
+              extrude={extrude3d}
+              onHover={setHover}
+              onMapReady={(map) => {
+                mapInstanceRef.current = map;
+              }}
+            />
+          </MapErrorBoundary>
         )}
       </div>
 

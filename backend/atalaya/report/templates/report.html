@@ -213,6 +213,16 @@
     margin: 6px 0;
     text-align: center;
     page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .map-figure {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: auto;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   .figure-caption {
@@ -430,7 +440,7 @@
   <h3>Distribución Territorial de la Participación en 2024</h3>
   <div class="figure-container">
     {{ charts.map_part_2024 | safe }}
-    <div class="figure-caption">Figura 4.2: Participación ciudadana oficial por entidad federativa en la Elección Federal 2024.</div>
+    <div class="figure-caption">Figura 4.2: Participación ciudadana oficial por entidad federativa en la Elección Federal 2024.{% if map_engines and map_engines.map_part_2024 == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
 
   <h3>Brecha Generacional y de Género (2009 vs 2024)</h3>
@@ -573,7 +583,7 @@
 
   <div class="figure-container">
     {{ charts.map_state_semaforo | safe }}
-    <div class="figure-caption">Figura 6.1: Semáforo estatal de riesgo de abstención para la Elección Federal 2027 (Escenario Base).</div>
+    <div class="figure-caption">Figura 6.1: Semáforo estatal de riesgo de abstención para la Elección Federal 2027 (Escenario Base).{% if map_engines and map_engines.map_state_semaforo == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
 
   <p>
@@ -586,7 +596,7 @@
   <h3>Cartografía Municipal del Semáforo Base 2027</h3>
   <div class="figure-container">
     {{ charts.map_mun_semaforo | safe }}
-    <div class="figure-caption">Figura 6.2: Semáforo de riesgo de abstención en los 2,478 municipios de México (Escenario Base 2027).</div>
+    <div class="figure-caption">Figura 6.2: Semáforo de riesgo de abstención en los 2,478 municipios de México (Escenario Base 2027).{% if map_engines and map_engines.map_mun_semaforo == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
 
   <h3>Distribución del Semáforo en las 32 Entidades Federativas</h3>
@@ -681,7 +691,7 @@
 
   <div class="figure-container">
     {{ charts.map_mun_intervencion | safe }}
-    <div class="figure-caption">Figura 7.1: Semáforo municipal resultante bajo el Escenario de Intervención Preventiva Focalizada.</div>
+    <div class="figure-caption">Figura 7.1: Semáforo municipal resultante bajo el Escenario de Intervención Preventiva Focalizada.{% if map_engines and map_engines.map_mun_intervencion == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
   <p style="font-size: 8.5pt; color: #455a64; margin-top: 4px;">
     En el tablero interactivo, el personal técnico puede explorar estos escenarios mediante un <strong>mapa interactivo WebGL con comparador base | intervención, mapa de diferencias y vista 3D de abstención esperada</strong>, ajustando palancas operativas en tiempo real.
@@ -697,7 +707,12 @@
 
   <div class="figure-container">
     {{ charts.map_mun_diff | safe }}
-    <div class="figure-caption">Figura 7.2: Mapa de transiciones de riesgo: municipios que reducen su nivel de alerta con la intervención.</div>
+    <div class="map-legend" style="display: flex; justify-content: center; gap: 14px; margin-top: 4px; margin-bottom: 2px; font-size: 8pt; color: #37474f;">
+      <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background-color: #4caf50; border: 0.5px solid #757575;"></span> Mejora (desescala riesgo)</span>
+      <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background-color: #e0e0e0; border: 0.5px solid #757575;"></span> Sin cambio</span>
+      <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 10px; height: 10px; border-radius: 2px; background-color: #c62828; border: 0.5px solid #757575;"></span> Riesgo crítico persistente</span>
+    </div>
+    <div class="figure-caption">Figura 7.2: Mapa de transiciones de riesgo: municipios que reducen su nivel de alerta con la intervención.{% if map_engines and map_engines.map_mun_diff == 'maplibre' %} Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL{% endif %}</div>
   </div>
 
   <div class="callout-box">

@@ -137,3 +137,10 @@ def get_settings() -> Settings:
 def index_name(kind: str) -> str:
     """Generate index name with configured prefix."""
     return f"{get_settings().index_prefix}{kind}"
+
+
+def reload_env() -> None:
+    """Reload backend/.env overriding existing environment variables and clear cached settings."""
+    load_dotenv(BACKEND_DIR / ".env", override=True)
+    get_settings.cache_clear()
+
