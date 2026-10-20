@@ -254,9 +254,22 @@ def test_resilient_store_fallback_cooldown_and_recovery():
     fake_os.unit.return_value = {"id": "09015", "name": "From OpenSearch"}
     fake_os.unit.reset_mock()
     fake_mem.unit.reset_mock()
+    fake_mem.unit.return_value = {"id": "09015", "name": "Still Memory"}
 
+    # Trigger re-probe; current request served from memory without waiting
     doc3 = resilient.unit("09015")
-    assert doc3 == {"id": "09015", "name": "From OpenSearch"}
+    assert doc3 == {"id": "09015", "name": "Still Memory"}
+    fake_mem.unit.assert_called_once_with("09015")
+
+    # Wait for background probe thread to complete
+    if resilient._probe_thread:
+        resilient._probe_thread.join(timeout=2.0)
+
+    # Next call goes to OpenSearch
+    fake_os.unit.reset_mock()
+    fake_mem.unit.reset_mock()
+    doc4 = resilient.unit("09015")
+    assert doc4 == {"id": "09015", "name": "From OpenSearch"}
     fake_os.unit.assert_called_once_with("09015")
     fake_mem.unit.assert_not_called()
     assert resilient.degraded is False
@@ -435,6 +448,15 @@ def test_resilient_store_recovery_after_successful_probe():
     mock_client.get.return_value = {"found": True, "_source": {"id": "09015", "name": "From OpenSearch"}}
     t = 1070.0
 
+    # Call triggers background re-probe, returns from memory
+    doc_mem = resilient.unit("09015")
+    assert doc_mem == {"id": "09015", "name": "From Memory"}
+
+    # Wait for probe to complete
+    if resilient._probe_thread:
+        resilient._probe_thread.join(timeout=2.0)
+
+    # Next call goes to OpenSearch
     doc = resilient.unit("09015")
     assert doc == {"id": "09015", "name": "From OpenSearch"}
     assert resilient.degraded is False
@@ -498,5 +520,115 @@ def test_config_reload_env():
         reload_env()
         mock_load.assert_called_once_with(BACKEND_DIR / ".env", override=True)
         mock_clear.assert_called_once()
+
+
+def test_top_search_sort_tie_breaking_body():
+    mock_client = MagicMock()
+    mock_client.search.return_value = {
+        "hits": {
+            "hits": [
+                {
+                    "_id": "20322",
+                    "_source": {"id": "20322", "name": "Mun A", "risk_score": 91.9, "level": "mun", "cve_ent": "20"},
+                },
+                {
+                    "_id": "20548",
+                    "_source": {"id": "20548", "name": "Mun B", "risk_score": 91.9, "level": "mun", "cve_ent": "20"},
+                },
+            ]
+        }
+    }
+
+    store = OpenSearchStore(client=mock_client)
+
+    # 1. Default order="desc"
+    store.top("risk_score", limit=10, order="desc")
+    call_body = mock_client.search.call_args.kwargs["body"]
+    assert call_body["sort"] == [
+        {"risk_score": {"order": "desc", "missing": "_last"}},
+        {"id": "asc"},
+    ]
+
+    # 2. order="asc"
+    store.top("risk_score", limit=5, order="asc")
+    call_body = mock_client.search.call_args.kwargs["body"]
+    assert call_body["sort"] == [
+        {"risk_score": {"order": "asc", "missing": "_last"}},
+        {"id": "asc"},
+    ]
+
+    # 3. participacion mapped to wide field
+    store.top("participacion", limit=10, filters={"year": 2024})
+    call_body = mock_client.search.call_args.kwargs["body"]
+    assert call_body["sort"] == [
+        {"part_dip_2024": {"order": "desc", "missing": "_last"}},
+        {"id": "asc"},
+    ]
+
+
+def test_resilient_store_fast_degradation_and_nonblocking_bg_probe():
+    import threading
+
+    mock_probe_client = MagicMock()
+    mock_probe_client.ping.side_effect = TimeoutError("Connection timed out")
+
+    fake_os = OpenSearchStore(client=mock_probe_client)
+    fake_mem = MagicMock(spec=PandasStore)
+    fake_mem.unit.return_value = {"id": "09015", "name": "From Memory"}
+    fake_mem.healthy.return_value = True
+
+    sim_time = 1000.0
+
+    resilient = ResilientStore(
+        os_store=fake_os,
+        memory_store=fake_mem,
+        cooldown_s=60.0,
+        clock=lambda: sim_time,
+    )
+
+    # First call: single probe fails and degrades immediately to memory
+    doc1 = resilient.unit("09015")
+    assert doc1 == {"id": "09015", "name": "From Memory"}
+    assert resilient.degraded is True
+    assert resilient.kind == "memory"
+    # indices.exists is NEVER called because ping failed
+    mock_probe_client.indices.exists.assert_not_called()
+    assert mock_probe_client.ping.call_count == 1
+
+    # Advance beyond cooldown
+    sim_time = 1070.0
+
+    probe_started = threading.Event()
+    probe_proceed = threading.Event()
+
+    def slow_ping(*args, **kwargs):
+        probe_started.set()
+        probe_proceed.wait(timeout=2.0)
+        return True
+
+    mock_probe_client.ping.side_effect = slow_ping
+    mock_probe_client.indices.exists.return_value = True
+    mock_probe_client.get.return_value = {"found": True, "_source": {"id": "09015", "name": "From OpenSearch"}}
+
+    # Call triggers background probe thread and does not block/wait
+    doc2 = resilient.unit("09015")
+    assert doc2 == {"id": "09015", "name": "From Memory"}
+    assert probe_started.wait(timeout=2.0) is True
+
+    # Subsequent call while probe is in flight also does not wait and serves from memory
+    doc3 = resilient.unit("09015")
+    assert doc3 == {"id": "09015", "name": "From Memory"}
+
+    # Now allow probe to proceed and complete
+    probe_proceed.set()
+    if resilient._probe_thread:
+        resilient._probe_thread.join(timeout=2.0)
+
+    # Next call goes to OpenSearch
+    doc4 = resilient.unit("09015")
+    assert doc4 == {"id": "09015", "name": "From OpenSearch"}
+    assert resilient.degraded is False
+    assert resilient.kind == "opensearch"
+
 
 

@@ -270,7 +270,7 @@ def bootstrap(
             os_store = OpenSearchStore()
 
             p_checks = run_checks(mem_store, os_store)
-            passed_count = sum(1 for _, passed, _ in p_checks)
+            passed_count = sum(1 for _, passed, _ in p_checks if passed)
             total_count = len(p_checks)
 
             for name, passed, detail in p_checks:

@@ -35,15 +35,16 @@ def _make_test_png(
     width: int,
     height: int,
     colors: list[tuple[int, int, int]],
+    border_px: int = 4,
 ) -> bytes:
     """Creates an in-memory PNG with pixel strips of the given RGB colors."""
     img = Image.new("RGB", (width, height), colors[0])
     strip_w = max(1, width // len(colors))
     for i, col in enumerate(colors):
-        x0 = i * strip_w
-        x1 = width if i == len(colors) - 1 else (i + 1) * strip_w
+        x0 = max(border_px, i * strip_w)
+        x1 = min(width - border_px, width if i == len(colors) - 1 else (i + 1) * strip_w)
         for x in range(x0, x1):
-            for y in range(height):
+            for y in range(border_px, height - border_px):
                 img.putpixel((x, y), col)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -134,7 +135,7 @@ class TestMapSpecSerialization:
             level="mun",
             fill_by_id={"01001": "#2e7d32", "01002": "#ef6c00"},
             width=600,
-            height=230,
+            height=340,
             scale=2.0,
             nodata_color="#e0e0e0",
             background="#ffffff",
@@ -148,11 +149,11 @@ class TestMapSpecSerialization:
         assert payload["level"] == "mun"
         assert payload["oversample"] == 4  # mun must oversample with k=4
         assert payload["width"] == 600
-        assert payload["height"] == 230
+        assert payload["height"] == 340
         assert payload["scale"] == 2.0
         assert payload["fill_by_id"] == {"01001": "#2e7d32", "01002": "#ef6c00"}
-        assert payload["bounds"] == [[-118.6, 14.3], [-86.5, 32.8]]
-        assert payload["padding"] == 8
+        assert payload["bounds"] == [[-118.36511, 14.5321], [-86.71069, 32.71865]]
+        assert payload["padding"] == int(round(max(8.0, 0.04 * 340) * 4))
 
         # Valid JSON serializable
         encoded = json.dumps(payload)
@@ -165,11 +166,22 @@ class TestMapSpecSerialization:
             name="state_spec",
             level="state",
             fill_by_id={"01": "#2e7d32"},
+            width=600,
+            height=330,
         )
         payload = spec_to_render_payload(spec)
         assert payload["level"] == "state"
         assert payload["oversample"] == 2  # state must oversample with k=2
-        assert payload["bounds"] == [[-118.6, 14.3], [-86.5, 32.8]]
+        assert payload["bounds"] == [[-118.36511, 14.5321], [-86.71069, 32.71865]]
+        assert payload["padding"] == int(round(max(6.0, 0.04 * 330) * 2))
+
+    def test_default_bounds_from_manifest(self) -> None:
+        from atalaya.report.map_capture import get_default_bounds
+        bounds = get_default_bounds()
+        assert bounds[0][0] == pytest.approx(-118.36511, rel=1e-4)
+        assert bounds[0][1] == pytest.approx(14.5321, rel=1e-4)
+        assert bounds[1][0] == pytest.approx(-86.71069, rel=1e-4)
+        assert bounds[1][1] == pytest.approx(32.71865, rel=1e-4)
 
 
 class TestImageValidation:
@@ -231,6 +243,36 @@ class TestImageValidation:
             name="test_missing_color",
             level="state",
             fill_by_id={"01": "#2e7d32"},
+        )
+        assert validate_image(png, spec) is False
+
+    def test_validate_image_touching_border_fails(self) -> None:
+        colors = [
+            (255, 255, 255),  # background
+            (75, 85, 99),     # line
+            (46, 125, 50),    # #2e7d32 (verde)
+            (249, 168, 37),   # #f9a825 (amarillo)
+        ]
+        # Create an image where non-background color touches outer 2 px border
+        img = Image.new("RGB", (100, 100), colors[0])
+        # Fill border rows 0 and 1 with a colored strip
+        for x in range(100):
+            for y in range(2):
+                img.putpixel((x, y), colors[2])
+        # Also put interior colors so distinct colors and top colors pass
+        for x in range(20, 80):
+            for y in range(20, 80):
+                img.putpixel((x, y), colors[3])
+            img.putpixel((x, 50), colors[1])
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        png = buf.getvalue()
+
+        spec = MapSpec(
+            name="test_touch_border",
+            level="state",
+            fill_by_id={"01": "#2e7d32", "02": "#f9a825"},
         )
         assert validate_image(png, spec) is False
 

@@ -97,18 +97,36 @@ def run_checks(mem: PandasStore, osd: OpenSearchStore) -> list[tuple[str, bool, 
     except Exception as exc:
         record("search_units first id", False, f"Exception: {type(exc).__name__}")
 
-    # Check 4: top 3 metrics (same top-10 IDs)
+    # Check 4: top 3 metrics (same top-10 IDs and values |Δ| < 1e-4)
     try:
         metrics_test = ["pred_abstention", "risk_score", "pob_tot"]
         top_mismatches = []
         for m in metrics_test:
-            p_top = [str(x.get("id")) for x in mem.top(m, limit=10)]
-            os_top = [str(x.get("id")) for x in osd.top(m, limit=10)]
+            p_items = mem.top(m, limit=10)
+            os_items = osd.top(m, limit=10)
+            p_top = [str(x.get("id")) for x in p_items]
+            os_top = [str(x.get("id")) for x in os_items]
             if p_top != os_top:
-                top_mismatches.append(f"{m} top-10 differs")
+                top_mismatches.append(f"{m} ids differ: {p_top} vs {os_top}")
+                continue
+
+            for idx, (p_item, os_item) in enumerate(zip(p_items, os_items)):
+                vp = p_item.get("value") if p_item.get("value") is not None else p_item.get(m)
+                vos = os_item.get("value") if os_item.get("value") is not None else os_item.get(m)
+                if vp is None or vos is None:
+                    if vp != vos:
+                        top_mismatches.append(f"{m} item {idx} ({p_top[idx]}) None mismatch")
+                    continue
+                try:
+                    diff = abs(float(vp) - float(vos))
+                    if diff >= 1e-4:
+                        top_mismatches.append(f"{m} item {idx} ({p_top[idx]}) Δ={diff:.2e}")
+                except (ValueError, TypeError):
+                    if str(vp) != str(vos):
+                        top_mismatches.append(f"{m} item {idx} ({p_top[idx]}) '{vp}' != '{vos}'")
 
         passed = len(top_mismatches) == 0
-        detail = "all 3 metrics matched top-10 ids" if passed else "; ".join(top_mismatches)
+        detail = "all 3 metrics matched top-10 ids and values (|Δ| < 1e-4)" if passed else "; ".join(top_mismatches)
         record("top 3 metrics", passed, detail)
     except Exception as exc:
         record("top 3 metrics", False, f"Exception: {type(exc).__name__}")

@@ -290,6 +290,10 @@ def test_build_report_with_maplibre_png_capture(synthetic_workspace, monkeypatch
     assert maps_meta.get("total_maps") == 5
     assert maps_meta.get("summary") == "mapas: maplibre 5/5"
 
+    # 5. Check new map dimensions in HTML (state 600x330, mun 600x340)
+    assert 'width="600" height="330"' in content
+    assert 'width="600" height="340"' in content
+
 
 def test_build_report_fallback_when_capture_returns_none(synthetic_workspace, monkeypatch):
     """Verifies that when capture_maps returns None, HTML preserves SVG maps without MapLibre footer."""
@@ -310,8 +314,10 @@ def test_build_report_fallback_when_capture_returns_none(synthetic_workspace, mo
     img_matches = re.findall(r'<img\s+class="map-figure"', content)
     assert len(img_matches) == 0
 
-    # 2. SVG maps are preserved
+    # 2. SVG maps are preserved with new dimensions
     assert "<svg" in content
+    assert 'viewBox="0 0 600 330"' in content
+    assert 'viewBox="0 0 600 340"' in content
     assert "Fuente: INE CCPC, INEGI MG 2024 · renderizado con MapLibre GL" not in content
 
     # 3. Traceability

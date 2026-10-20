@@ -654,3 +654,52 @@ def test_executor_profile_privacy_and_suppression(mock_store):
     assert "X" in st_sexes
 
 
+def test_executor_resolved_municipality_lookup(mock_store):
+    """Verify executor produces expected lookup data for resolved municipal unit ID."""
+    spec = QuerySpec(
+        intent="lookup",
+        level="mun",
+        unit_ids=["07101"],
+        metric="participacion",
+        year=2021,
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert len(result.rows) == 1
+    assert result.rows[0][0] == "Municipio Chis 1"
+    assert result.rows[0][1] == "Municipio"
+    assert result.rows[0][2] == "Chiapas"
+    assert result.rows[0][3] == "46.0%"
+    assert any("Municipio Chis 1" in f for f in result.facts)
+
+
+def test_executor_compound_correlation_execution(mock_store):
+    """Verify executor computes correlation between participacion and graproes across municipalities."""
+    spec = QuerySpec(
+        intent="correlation",
+        level="mun",
+        filters={"cve_ent": "07"},
+        metric="participacion",
+        x_metric="graproes",
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert result.columns[0] == "Quintil"
+    assert any("Pearson" in f for f in result.facts)
+    assert any("Correlación no implica causalidad." in f for f in result.facts)
+
+
+def test_executor_nonexistent_unit_id_gracefully_handled(mock_store):
+    """Verify nonexistent unit_id produces empty result without raising exceptions."""
+    spec = QuerySpec(
+        intent="lookup",
+        level="mun",
+        unit_ids=["99999"],
+        metric="participacion",
+    )
+    result = execute(spec)
+    assert result.empty
+    assert len(result.rows) == 0
+
+
+

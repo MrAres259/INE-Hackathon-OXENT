@@ -216,19 +216,19 @@ def generate_report(
 
     fallback_svgs: dict[str, str] = {
         "state_part_2024": _add_map_figure_class(
-            svg_choropleth(state_geojson, fill_state_part, width=600, height=230)
+            svg_choropleth(state_geojson, fill_state_part, width=600, height=330)
         ),
         "state_semaforo": _add_map_figure_class(
-            svg_choropleth(state_geojson, fill_state_semaforo, width=600, height=230)
+            svg_choropleth(state_geojson, fill_state_semaforo, width=600, height=330)
         ),
         "mun_semaforo_base": _add_map_figure_class(
-            svg_choropleth(mun_geojson, fill_mun_base, width=600, height=220) if mun_geojson else "<svg></svg>"
+            svg_choropleth(mun_geojson, fill_mun_base, width=600, height=340) if mun_geojson else "<svg></svg>"
         ),
         "mun_semaforo_intervencion": _add_map_figure_class(
-            svg_choropleth(mun_geojson, fill_mun_interv, width=600, height=220) if mun_geojson else "<svg></svg>"
+            svg_choropleth(mun_geojson, fill_mun_interv, width=600, height=340) if mun_geojson else "<svg></svg>"
         ),
         "mun_diff": _add_map_figure_class(
-            svg_choropleth(mun_geojson, fill_mun_diff, width=600, height=220) if mun_geojson else "<svg></svg>"
+            svg_choropleth(mun_geojson, fill_mun_diff, width=600, height=340) if mun_geojson else "<svg></svg>"
         ),
     }
 
@@ -250,35 +250,35 @@ def generate_report(
                 level="state",
                 fill_by_id=fill_state_part,
                 width=600,
-                height=230,
+                height=330,
             ),
             MapSpec(
                 name="state_semaforo",
                 level="state",
                 fill_by_id=fill_state_semaforo,
                 width=600,
-                height=230,
+                height=330,
             ),
             MapSpec(
                 name="mun_semaforo_base",
                 level="mun",
                 fill_by_id=fill_mun_base,
                 width=600,
-                height=220,
+                height=340,
             ),
             MapSpec(
                 name="mun_semaforo_intervencion",
                 level="mun",
                 fill_by_id=fill_mun_interv,
                 width=600,
-                height=220,
+                height=340,
             ),
             MapSpec(
                 name="mun_diff",
                 level="mun",
                 fill_by_id=fill_mun_diff,
                 width=600,
-                height=220,
+                height=340,
             ),
         ]
 

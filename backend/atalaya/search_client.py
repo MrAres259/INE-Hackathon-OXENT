@@ -17,12 +17,10 @@ from atalaya.schema import TEMPLATES, template_body
 logger = logging.getLogger(__name__)
 
 
-@functools.lru_cache(maxsize=1)
-def get_client() -> OpenSearch | None:
-    """Return a cached OpenSearch client, or None if no URLs configured."""
+def _build_client_kwargs(timeout: float, max_retries: int, retry_on_timeout: bool) -> tuple[dict[str, Any] | None, bool]:
     settings = get_settings()
     if not settings.search_urls:
-        return None
+        return None, False
 
     use_ssl = any(u.lower().startswith("https://") for u in settings.search_urls)
 
@@ -45,9 +43,9 @@ def get_client() -> OpenSearch | None:
         "verify_certs": settings.search_verify_certs,
         "ca_certs": settings.search_ca_certs or None,
         "ssl_show_warn": False,
-        "timeout": settings.search_timeout_s,
-        "max_retries": 2,
-        "retry_on_timeout": True,
+        "timeout": timeout,
+        "max_retries": max_retries,
+        "retry_on_timeout": retry_on_timeout,
         "http_compress": True,
     }
 
@@ -57,13 +55,42 @@ def get_client() -> OpenSearch | None:
     if is_ip:
         client_kwargs["ssl_assert_hostname"] = False
 
-    return OpenSearch(**client_kwargs)
+    return client_kwargs, True
+
+
+@functools.lru_cache(maxsize=1)
+def get_client() -> OpenSearch | None:
+    """Return a cached OpenSearch client, or None if no URLs configured."""
+    settings = get_settings()
+    kwargs, ok = _build_client_kwargs(
+        timeout=settings.search_timeout_s,
+        max_retries=2,
+        retry_on_timeout=True,
+    )
+    if not ok or kwargs is None:
+        return None
+    return OpenSearch(**kwargs)
+
+
+@functools.lru_cache(maxsize=1)
+def get_probe_client() -> OpenSearch | None:
+    """Return a cached OpenSearch client configured for fast probes without retries."""
+    kwargs, ok = _build_client_kwargs(
+        timeout=2.0,
+        max_retries=0,
+        retry_on_timeout=False,
+    )
+    if not ok or kwargs is None:
+        return None
+    return OpenSearch(**kwargs)
 
 
 def reset_client() -> None:
-    """Clear cached OpenSearch client for testing and retries."""
+    """Clear cached OpenSearch clients for testing and retries."""
     if hasattr(get_client, "cache_clear"):
         get_client.cache_clear()
+    if hasattr(get_probe_client, "cache_clear"):
+        get_probe_client.cache_clear()
 
 
 def ping(timeout_s: float = 5.0) -> bool:

@@ -506,4 +506,35 @@ def test_store_profile_privacy_and_suppression(tmp_path: Path):
     assert x_65["participacion"] is None
 
 
+def test_top_tie_breaking_by_id_ascending(tmp_path: Path):
+    build_dir = tmp_path / "build"
+    seed_dir = tmp_path / "seed"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+
+    # 3 units with exact same risk_score 91.9, deliberately in non-sorted order
+    units_data = {
+        "id": ["20566", "20322", "20548", "20100"],
+        "level": ["mun", "mun", "mun", "mun"],
+        "cve_ent": ["20", "20", "20", "20"],
+        "cve_mun": ["566", "322", "548", "100"],
+        "cvegeo": ["20566", "20322", "20548", "20100"],
+        "name": ["Municipio C", "Municipio A", "Municipio B", "Municipio Low"],
+        "risk_score": [91.9, 91.9, 91.9, 50.0],
+        "category": ["rojo", "rojo", "rojo", "amarillo"],
+    }
+    pd.DataFrame(units_data).to_parquet(build_dir / "units.parquet", index=False)
+
+    store = PandasStore(build_dir=build_dir, seed_dir=seed_dir)
+    top_desc = store.top("risk_score", level="mun", limit=3, order="desc")
+
+    assert [x["id"] for x in top_desc] == ["20322", "20548", "20566"]
+    assert all(x["value"] == 91.9 for x in top_desc)
+
+    # Ascending sort: lowest value first, ties on 91.9 broken by id ascending
+    top_asc = store.top("risk_score", level="mun", limit=4, order="asc")
+    assert [x["id"] for x in top_asc] == ["20100", "20322", "20548", "20566"]
+
+
+
 

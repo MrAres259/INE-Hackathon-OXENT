@@ -40,10 +40,11 @@ window.renderSpec = async function (spec) {
     const fillLayerId = isMun ? 'mun-fill' : 'states-fill';
     const nodataColor = spec.nodata_color || '#d1d5db';
     const bgColor = spec.background || '#ffffff';
-    const stateLineColor = spec.state_line_color || '#4b5563';
+    const stateLineColor = spec.state_line_color || '#374151';
     const munLineColor = spec.mun_line_color || '#ffffff';
-    const padding = spec.padding !== undefined ? spec.padding : 6;
-    const bounds = spec.bounds || [[-118.6, 14.3], [-86.5, 32.8]];
+    const defaultPadding = Math.round(Math.max(6, 0.04 * (spec.height || 340)) * k);
+    const padding = spec.padding !== undefined ? spec.padding : defaultPadding;
+    const bounds = spec.bounds || (manifest.bounds ? [[manifest.bounds[0], manifest.bounds[1]], [manifest.bounds[2], manifest.bounds[3]]] : [[-118.36511, 14.5321], [-86.71069, 32.71865]]);
 
     const layers = [
       {
@@ -82,7 +83,8 @@ window.renderSpec = async function (spec) {
         'source-layer': 'mun',
         paint: {
           'line-color': munLineColor,
-          'line-width': 0.3 * k
+          'line-opacity': 0.45,
+          'line-width': 0.12 * k
         }
       });
     }
@@ -94,7 +96,7 @@ window.renderSpec = async function (spec) {
       'source-layer': 'states',
       paint: {
         'line-color': stateLineColor,
-        'line-width': 0.6 * k
+        'line-width': 0.7 * k
       }
     });
 
@@ -104,7 +106,7 @@ window.renderSpec = async function (spec) {
       source: 'country',
       paint: {
         'line-color': stateLineColor,
-        'line-width': 0.8 * k
+        'line-width': 0.9 * k
       }
     });
 
@@ -120,7 +122,7 @@ window.renderSpec = async function (spec) {
           tiles: [location.origin + '/geo/tiles/{z}/{x}/{y}.pbf'],
           minzoom: manifest.minzoom !== undefined ? manifest.minzoom : 3,
           maxzoom: manifest.maxzoom !== undefined ? manifest.maxzoom : 9,
-          bounds: manifest.bounds || [-118.6, 14.3, -86.5, 32.8],
+          bounds: manifest.bounds || [-118.36511, 14.5321, -86.71069, 32.71865],
           promoteId: { states: 'id', mun: 'id' }
         }
       },

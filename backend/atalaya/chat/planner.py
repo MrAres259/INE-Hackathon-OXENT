@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 from typing import Any
@@ -180,6 +181,261 @@ def _build_llm_system_prompt() -> str:
     )
 
 
+def _extract_municipality_candidates(message: str) -> list[str]:
+    """Extract candidate municipality strings from user message text.
+    
+    Extracts text following 'de|en|para|del municipio de' until punctuation or year,
+    and 1-4 word n-grams with initial capital letter in the original message.
+    """
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _add(cand: str) -> None:
+        c = cand.strip(" ,;:.?!¿¡'\"()")
+        if not c or len(c) < 3 or c.isdigit():
+            return
+        if _extract_metric_candidate(c) is not None:
+            return
+        c_norm = norm_name(c).lower()
+        if c_norm in {
+            "de", "del", "en", "para", "por", "con", "el", "la", "los", "las", "un", "una",
+            "cual", "cuales", "como", "donde", "que", "quien", "quienes",
+            "cuanto", "cuanta", "cuantos", "cuantas", "municipio", "municipios",
+            "alcaldia", "alcaldias", "estado", "estados", "entidad", "entidades",
+            "participacion", "abstencion", "riesgo", "semaforo", "eleccion",
+            "tendencia", "evolucion", "historico", "dame", "dime", "muestra", "muestrame",
+            "compara", "versus", "simula", "quiero", "ver", "ayuda", "favor",
+        }:
+            return
+        if c not in seen:
+            seen.add(c)
+            candidates.append(c)
+
+    # (a) Text after 'de|en|para|del municipio de' until punctuation or year
+    prep_pattern = r"\b(?:del\s+municipio\s+de|el\s+municipio\s+de|municipio\s+de|de|en|para)\s+([^,;:\.?!¿¡]+)"
+    for m in re.finditer(prep_pattern, message, re.IGNORECASE):
+        raw = m.group(1).strip()
+        no_year = re.split(r"\b(?:19\d\d|20\d\d)\b", raw)[0].strip()
+        cleaned = re.sub(r"\s+\b(?:del|de|en|para|el|la|los|las)\b\s*$", "", no_year, flags=re.IGNORECASE).strip()
+        parts = re.split(r"\s+\b(?:en|de|para)\b\s+", cleaned, flags=re.IGNORECASE)
+        if len(parts) > 1:
+            for p in parts:
+                _add(p)
+        else:
+            _add(cleaned)
+
+    # (b) 1-4 word n-grams with initial capital letter in the original message
+    words = re.findall(r"\b[\wáéíóúñÁÉÍÓÚÑ]+\b", message)
+    skip_initial_words = {
+        "cual", "cuales", "como", "donde", "que", "quien", "quienes",
+        "cuanto", "cuanta", "cuantos", "cuantas", "dame", "dime", "muestra",
+        "muestrame", "compara", "simula", "quiero", "ver", "ayuda", "favor",
+        "por", "para", "con", "del", "los", "las", "este", "esta", "estos", "estas",
+    }
+    for i in range(len(words)):
+        if words[i][0].isupper():
+            if norm_name(words[i]).lower() in skip_initial_words:
+                continue
+            for n in range(1, 5):
+                if i + n <= len(words):
+                    ngram = " ".join(words[i : i + n])
+                    _add(ngram)
+
+    return candidates
+
+
+def _resolve_municipalities(
+    message: str,
+    states: list[str],
+    mentions_mun: bool = False,
+) -> list[dict]:
+    """Search and resolve municipal mentions using DataStore search_units.
+    
+    Accepts hit only if normalized name is in normalized message or matches candidate
+    with similarity >= 0.85 (difflib). Prioritizes municipalities of mentioned states.
+    Never raises an exception if store fails.
+    """
+    candidates = _extract_municipality_candidates(message)
+    if not candidates:
+        return []
+
+    msg_norm = norm_name(message).lower()
+    try:
+        from atalaya.store import get_store
+        store = get_store()
+        if not store or not hasattr(store, "search_units"):
+            return []
+    except Exception as e:
+        logger.debug("Could not get store for municipal resolution: %s", e)
+        return []
+
+    _init_states()
+    accepted_by_cand: dict[str, list[dict]] = {}
+    seen_ids: set[str] = set()
+
+    for cand in candidates:
+        cand_norm = norm_name(cand).lower()
+        cand_norm_upper = norm_name(cand)
+        # If candidate matches a state name exactly and no explicit municipal context, skip as mun candidate
+        if cand_norm_upper in _STATE_MAP and not mentions_mun:
+            has_mun_prefix = bool(re.search(r"\b(?:del\s+)?municipio\s+de\s+" + re.escape(cand), message, re.IGNORECASE))
+            if not has_mun_prefix:
+                continue
+
+        try:
+            hits = store.search_units(cand, level="mun", size=3)
+        except Exception as e:
+            logger.debug("search_units failed for '%s': %s", cand, e)
+            continue
+
+        cand_accepted: list[dict] = []
+        for hit in hits:
+            hit_id = str(hit.get("id", "")).strip()
+            if not hit_id or len(hit_id) != 5:
+                continue
+            hit_name = str(hit.get("name", "")).strip()
+            hit_ent = zpad(hit.get("cve_ent", hit_id[:2]), 2)
+            hit_norm = norm_name(hit_name).lower()
+            if not hit_norm or len(hit_norm) < 3:
+                continue
+
+            in_msg = hit_norm in msg_norm
+            ratio = difflib.SequenceMatcher(None, hit_norm, cand_norm).ratio()
+            is_similar = (ratio >= 0.85)
+
+            if not (in_msg or is_similar):
+                continue
+
+            in_state = bool(states and hit_ent in states)
+            if states and not in_state and not in_msg:
+                continue
+            cand_accepted.append({
+                "id": hit_id,
+                "name": hit_name,
+                "cve_ent": hit_ent,
+                "in_state": in_state,
+                "in_msg": in_msg,
+                "ratio": ratio,
+            })
+
+        if cand_accepted:
+            cand_accepted.sort(
+                key=lambda x: (1 if x["in_state"] else 0, 1 if x["in_msg"] else 0, x["ratio"]),
+                reverse=True,
+            )
+            accepted_by_cand[cand] = cand_accepted
+
+    if not accepted_by_cand:
+        return []
+
+    resolved: list[dict] = []
+    for cand, hits in accepted_by_cand.items():
+        best = hits[0]
+        if best["id"] not in seen_ids:
+            seen_ids.add(best["id"])
+            resolved.append(best)
+
+    resolved.sort(
+        key=lambda x: (1 if x["in_state"] else 0, 1 if x["in_msg"] else 0, x["ratio"]),
+        reverse=True,
+    )
+    return resolved
+
+
+def _validate_llm_spec(
+    spec: QuerySpec,
+    message: str,
+    region_id: str | None = None,
+    resolved_muns: list[dict] | None = None,
+) -> QuerySpec:
+    """Validate and correct unit_ids from LLM planning.
+    
+    Every unit_id must exist in store and its name (or state name for 2-digit ids)
+    must be mentioned in message or region_id. Otherwise replaced by step-2 resolution
+    or discarded. Logs logger.info when replacing or discarding.
+    """
+    try:
+        from atalaya.store import get_store
+        store = get_store()
+    except Exception as e:
+        logger.debug("Could not get store for LLM validation: %s", e)
+        store = None
+
+    _init_states()
+    states = _find_states_in_text(message)
+    mentions_mun = bool(re.search(r"\bmunicipio(?:s)?\b|\balcald[ií]a(?:s)?\b", message.lower()))
+    if resolved_muns is None:
+        resolved_muns = _resolve_municipalities(message, states, mentions_mun=mentions_mun)
+
+    msg_norm = norm_name(message).lower()
+    reg_norm = norm_name(region_id).lower() if region_id else ""
+    cands = _extract_municipality_candidates(message)
+
+    new_unit_ids: list[str] = []
+    replacement_queue = list(resolved_muns)
+
+    def _is_mentioned(u: dict, uid: str) -> bool:
+        if region_id and uid == region_id:
+            return True
+        if len(uid) == 2:
+            st_name = u.get("name", "")
+            st_norm = norm_name(st_name).lower()
+            if st_norm and (st_norm in msg_norm or (reg_norm and st_norm in reg_norm)):
+                return True
+            st_cve = zpad(uid, 2)
+            for alias, cve in _STATE_MAP.items():
+                if cve == st_cve and alias.lower() in msg_norm:
+                    return True
+            return False
+        else:
+            mun_name = u.get("name", "")
+            mun_norm = norm_name(mun_name).lower()
+            if not mun_norm:
+                return False
+            if mun_norm in msg_norm or (reg_norm and mun_norm in reg_norm):
+                return True
+            for cand in cands:
+                c_norm = norm_name(cand).lower()
+                if difflib.SequenceMatcher(None, mun_norm, c_norm).ratio() >= 0.85:
+                    return True
+            return False
+
+    if spec.unit_ids:
+        for uid in spec.unit_ids:
+            uid_str = str(uid).strip()
+            u = None
+            if store and hasattr(store, "unit"):
+                try:
+                    u = store.unit(uid_str)
+                except Exception as e:
+                    logger.debug("Error checking store.unit(%s): %s", uid_str, e)
+                    u = None
+
+            if u and _is_mentioned(u, uid_str):
+                new_unit_ids.append(uid_str)
+            else:
+                if replacement_queue:
+                    rep = replacement_queue.pop(0)
+                    rep_id = rep["id"]
+                    logger.info("Reemplazando unit_id '%s' propuesto por LLM con '%s' resuelto del mensaje", uid_str, rep_id)
+                    new_unit_ids.append(rep_id)
+                    spec.level = "mun"
+                    spec.filters["cve_ent"] = rep["cve_ent"]
+                else:
+                    logger.info("Descartando unit_id '%s' propuesto por LLM: no existe o no está mencionado en el mensaje", uid_str)
+    else:
+        if replacement_queue and spec.intent in ("lookup", "explain_unit", "trend", "profile"):
+            rep = replacement_queue.pop(0)
+            rep_id = rep["id"]
+            logger.info("Asignando unit_id '%s' resuelto del mensaje al plan del LLM", rep_id)
+            new_unit_ids.append(rep_id)
+            spec.level = "mun"
+            spec.filters["cve_ent"] = rep["cve_ent"]
+
+    spec.unit_ids = new_unit_ids
+    return spec
+
+
 def _plan_rules(
     message: str,
     history: list[dict] | None = None,
@@ -216,38 +472,43 @@ def _plan_rules(
 
     # Check for multipart questions joined by " y " with two distinct metrics
     # e.g. "¿Cuántos jóvenes hay en Nuevo León y cómo ha evolucionado su participación?"
-    split_pattern = r"(?<!18)(?<!65)\s+[ye]\s+(?:¿)?(?!(?:m[aá]s|naranjas?)\b)"
-    parts = re.split(split_pattern, message, maxsplit=1, flags=re.IGNORECASE)
-    if len(parts) == 2:
-        m1 = _extract_metric_candidate(parts[0], target_future)
-        m2 = _extract_metric_candidate(parts[1], target_future)
-        if m1 and m2 and m1 != m2:
-            followup_hint = "Puedo responder la otra parte si la preguntas por separado."
-            st_list = _find_states_in_text(message)
-            mentions_mun_first = bool(re.search(r"\bmunicipio(?:s)?\b|\balcald[ií]a(?:s)?\b", message.lower()))
-            
-            lvl = "mun" if mentions_mun_first else "state"
-            u_ids = [st_list[0]] if st_list else ([region_id] if region_id else [])
-            flts = {"cve_ent": st_list[0]} if st_list else {}
+    two_entity_or_metric_pattern = r"correlaci[oó]n|relaci[oó]n|se\s+relaciona|asociaci[oó]n|v[ií]nculo|entre\s+.+\s+y\s+.+|compara|versus|\bvs\.?\b"
+    if not re.search(two_entity_or_metric_pattern, text_lower):
+        split_pattern = r"(?<!18)(?<!65)\s+[ye]\s+(?:¿)?(?!(?:m[aá]s|naranjas?)\b)"
+        parts = re.split(split_pattern, message, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            m1 = _extract_metric_candidate(parts[0], target_future)
+            m2 = _extract_metric_candidate(parts[1], target_future)
+            if m1 and m2 and m1 != m2:
+                followup_hint = "Puedo responder la otra parte si la preguntas por separado."
+                st_list = _find_states_in_text(message)
+                mentions_mun_first = bool(re.search(r"\bmunicipio(?:s)?\b|\balcald[ií]a(?:s)?\b", message.lower()))
+                
+                lvl = "mun" if mentions_mun_first else "state"
+                u_ids = [st_list[0]] if st_list else ([region_id] if region_id else [])
+                flts = {"cve_ent": st_list[0]} if st_list else {}
 
-            spec = QuerySpec(
-                intent="lookup",
-                level=lvl,  # type: ignore
-                metric=m1,
-                filters=flts,
-                year=explicit_year,
-                election=election,
-                order="desc",
-                limit=10,
-                unit_ids=u_ids,
-            )
-            object.__setattr__(spec, "followup_hint", followup_hint)
-            return spec, True, followup_hint
+                spec = QuerySpec(
+                    intent="lookup",
+                    level=lvl,  # type: ignore
+                    metric=m1,
+                    filters=flts,
+                    year=explicit_year,
+                    election=election,
+                    order="desc",
+                    limit=10,
+                    unit_ids=u_ids,
+                )
+                object.__setattr__(spec, "followup_hint", followup_hint)
+                return spec, True, followup_hint
 
     # 2. Check Places (states)
     states = _find_states_in_text(message)
     mentions_mun = bool(re.search(r"\bmunicipio(?:s)?\b|\balcald[ií]a(?:s)?\b", text_lower))
     mentions_state = bool(re.search(r"\bestado(?:s)?\b|\bentidad(?:es)?\b", text_lower))
+
+    # Municipal resolution (W3-B)
+    resolved_muns = _resolve_municipalities(message, states, mentions_mun=mentions_mun)
 
     # 3. Intent detection
     intent: str | None = None
@@ -378,22 +639,38 @@ def _plan_rules(
     if intent == "correlation":
         primary = "abstencion" if "abstenci" in text_lower else "participacion"
         secondary = None
-        if re.search(r"escolaridad|educaci[oó]n|estudios", text_lower):
-            secondary = "graproes"
-        elif re.search(r"ind[ií]gena|lengua", text_lower):
-            secondary = "pct_hli"
-        elif re.search(r"marginaci[oó]n", text_lower):
-            secondary = "im_2020"
-        elif re.search(r"internet|conectividad", text_lower):
-            secondary = "pct_internet"
-        elif re.search(r"j[oó]venes|juventud", text_lower):
-            secondary = "pct_18_24"
-        elif re.search(r"rural", text_lower):
-            secondary = "pct_rural"
-        elif re.search(r"analfabeta|analfabetismo", text_lower):
-            secondary = "pct_analfabeta"
-        elif re.search(r"ingresos\s+bajos|salarios", text_lower):
-            secondary = "pct_po2sm"
+        entre_m = re.search(r"entre\s+([^,;:\.?!¿¡]+?)\s+y\s+([^,;:\.?!¿¡]+?)(?:\s+en\b|\s+de\b|\?|$)", text_lower)
+        if entre_m:
+            c1 = _extract_metric_candidate(entre_m.group(1), target_future)
+            c2 = _extract_metric_candidate(entre_m.group(2), target_future)
+            if c1 and c2 and c1 != c2:
+                if c2 in ("participacion", "abstencion", "pred_participation", "pred_abstention"):
+                    primary = c2
+                    secondary = c1
+                else:
+                    primary = c1
+                    secondary = c2
+        if secondary is None:
+            if re.search(r"escolaridad|educaci[oó]n|estudios|graproes", text_lower):
+                secondary = "graproes"
+            elif re.search(r"ind[ií]gena|lengua|hli", text_lower):
+                secondary = "pct_hli"
+            elif re.search(r"marginaci[oó]n", text_lower):
+                secondary = "im_2020"
+            elif re.search(r"internet|conectividad", text_lower):
+                secondary = "pct_internet"
+            elif re.search(r"j[oó]venes|juventud", text_lower):
+                secondary = "pct_18_24"
+            elif re.search(r"rural|campo", text_lower):
+                secondary = "pct_rural"
+            elif re.search(r"analfabeta|analfabetismo", text_lower):
+                secondary = "pct_analfabeta"
+            elif re.search(r"ingresos\s+bajos|salarios", text_lower):
+                secondary = "pct_po2sm"
+            elif re.search(r"salud|servicios\s+de\s+salud", text_lower):
+                secondary = "pct_sin_servsalud"
+            elif re.search(r"adultos\s+mayores", text_lower):
+                secondary = "pct_65ymas"
 
         metric = primary
         x_metric = secondary or "im_2020"
@@ -424,14 +701,22 @@ def _plan_rules(
         if len(states) >= 2:
             level = "state"
             unit_ids = states[:2]
+        elif len(resolved_muns) >= 2:
+            level = "mun"
+            unit_ids = [m["id"] for m in resolved_muns[:2]]
         elif states:
             level = "state"
             unit_ids = [states[0]]
             if region_id and region_id != states[0]:
                 unit_ids.append(region_id)
+        elif resolved_muns:
+            level = "mun"
+            unit_ids = [resolved_muns[0]["id"]]
+            if region_id and region_id != resolved_muns[0]["id"]:
+                unit_ids.append(region_id)
     elif intent == "ranking":
-        if mentions_state or (states and not mentions_mun):
-            if mentions_state:
+        if mentions_state or (states and not mentions_mun and not resolved_muns):
+            if mentions_state and not resolved_muns:
                 level = "state"
             else:
                 level = "mun"
@@ -448,6 +733,7 @@ def _plan_rules(
                 bool(re.search(r"aqu[ií]|este\s+municipio|este\s+estado|esta\s+zona|seleccionad[oa]", text_lower))
                 or not states
             )
+            and not resolved_muns
         )
         if use_region and region_id:
             if len(region_id) == 5:
@@ -456,6 +742,10 @@ def _plan_rules(
             else:
                 level = "state"
                 unit_ids = [region_id]
+        elif resolved_muns:
+            level = "mun"
+            unit_ids = [resolved_muns[0]["id"]]
+            filters["cve_ent"] = resolved_muns[0]["cve_ent"]
         elif states:
             if mentions_mun:
                 level = "mun"
@@ -468,9 +758,13 @@ def _plan_rules(
         level = "mun"
         if states:
             filters["cve_ent"] = states[0]
+        elif resolved_muns:
+            filters["cve_ent"] = resolved_muns[0]["cve_ent"]
     elif intent == "scenario":
         if states:
             filters["cve_ent"] = states[0]
+        elif resolved_muns:
+            filters["cve_ent"] = resolved_muns[0]["cve_ent"]
 
     # 7. Scenario parameters
     scenario_name: str | None = None
@@ -528,7 +822,9 @@ def _plan_rules(
 
     # Evaluate confidence
     high_confidence = True
-    if not explicit_intent_found and not states and not unit_ids and not region_id:
+    if resolved_muns:
+        high_confidence = True
+    elif not explicit_intent_found and not states and not unit_ids and not region_id:
         high_confidence = False
     elif intent == "lookup" and not explicit_intent_found and not states and not unit_ids and not region_id:
         high_confidence = False
@@ -597,6 +893,7 @@ def plan(
             timeout_s=30.0,
             temperature=0.0,
         )
+        llm_spec = _validate_llm_spec(llm_spec, message, region_id=region_id)
         object.__setattr__(llm_spec, "followup_hint", followup_hint)
         return PlanResult(llm_spec, "llm", followup_hint=followup_hint)
     except (llm.LLMBlocked, llm.LLMError, Exception) as err:

@@ -17,7 +17,7 @@ import pandas as pd
 from opensearchpy import helpers
 
 from atalaya.config import BUILD_DIR, SEED_DIR, get_settings, index_name
-from atalaya.search_client import get_client, ping, reset_client
+from atalaya.search_client import get_client, get_probe_client, ping, reset_client
 from atalaya.ingest.common import norm_name, zpad
 
 try:
@@ -735,6 +735,10 @@ class PandasStore:
 
         return df
 
+    # CONTRACT-NOTE: /api/ranking in api/routes.py performs its own in-memory dataframe sorting
+    # over store.units() instead of calling store.top(). As api/routes.py is outside our ownership
+    # list, we document this deviation here and ensure all store.top() implementations strictly enforce
+    # deterministic tie-breaking by id ascending.
     def top(
         self,
         metric: str,
@@ -748,21 +752,30 @@ class PandasStore:
         if df.empty or metric not in df.columns:
             return []
 
-        df["_metric_num"] = pd.to_numeric(df[metric], errors="coerce")
-        df = df[df["_metric_num"].notna()]
-        ascending = order.lower() == "asc"
-        df = df.sort_values(by="_metric_num", ascending=ascending).head(limit)
+        df = df.copy()
+        if "id" not in df.columns and "unit_id" in df.columns:
+            df["id"] = df["unit_id"].astype(str)
+        elif "id" in df.columns:
+            df["id"] = df["id"].fillna(df.get("unit_id", df["id"])).astype(str)
+        else:
+            df["id"] = df.index.astype(str)
+
+        df[metric] = pd.to_numeric(df[metric], errors="coerce")
+        df = df[df[metric].notna()]
+        asc = order.lower() == "asc"
+        df = df.sort_values([metric, "id"], ascending=[asc, True], na_position="last", kind="mergesort").head(limit)
 
         results = []
         for _, row in df.iterrows():
             u_id = row.get("unit_id") or row.get("id")
+            val = float(row[metric])
             res_item = {
                 "id": str(u_id),
                 "name": str(row.get("name", "")),
                 "level": level,
                 "cve_ent": str(row.get("cve_ent", "")),
-                "value": float(row["_metric_num"]),
-                metric: float(row["_metric_num"]),
+                "value": val,
+                metric: val,
             }
             results.append(res_item)
         return results
@@ -1501,7 +1514,7 @@ class OpenSearchStore:
         body = {
             "size": limit,
             "query": {"bool": {"filter": os_filters}},
-            "sort": [{target_field: {"order": sort_dir}}],
+            "sort": [{target_field: {"order": sort_dir, "missing": "_last"}}, {"id": "asc"}],
         }
         try:
             resp = client.search(index=idx, body=body, request_timeout=self.request_timeout)
@@ -1801,6 +1814,7 @@ class ResilientStore:
         self._last_probe_passed: bool = (kind == "opensearch")
         self._verified: bool = (kind is not None or degraded or last_error is not None)
         self._probing: bool = False
+        self._probe_thread: threading.Thread | None = None
 
     @property
     def kind(self) -> str:
@@ -1827,49 +1841,47 @@ class ResilientStore:
         return self._memory_store
 
     def _probe(self) -> tuple[bool, str | None]:
-        """Execute cheap probe: ping(timeout_s=2.0) and indices.exists(index=index_name("units"), request_timeout=2).
+        """Execute cheap probe: ping(request_timeout=2) and indices.exists(index=index_name("units"), request_timeout=2).
 
         Returns (success: bool, error_msg: str | None).
         """
+        client = getattr(self._os_store, "_injected_client", None)
+        if client is None:
+            if type(self._os_store) is not OpenSearchStore:
+                try:
+                    client = self._os_store._client()
+                except Exception:
+                    client = None
+            if client is None:
+                try:
+                    client = get_probe_client()
+                except Exception as exc:
+                    return False, _clean_error_message(exc)
+
+        if client is None:
+            return False, "OpenSearch client is not configured"
+
         try:
-            client = self._os_store._client()
+            ping_ok = bool(client.ping(request_timeout=2))
         except Exception as exc:
             return False, _clean_error_message(exc)
 
+        if not ping_ok:
+            return False, "OpenSearch no responde"
+
         try:
-            ping_ok = False
-            injected = getattr(self._os_store, "_injected_client", None)
-            if injected is not None and hasattr(injected, "ping"):
-                try:
-                    ping_ok = bool(injected.ping(request_timeout=2.0))
-                except Exception:
-                    ping_ok = False
-            else:
-                try:
-                    ping_ok = ping(timeout_s=2.0)
-                except Exception:
-                    ping_ok = False
-                if not ping_ok and hasattr(client, "ping"):
-                    try:
-                        ping_ok = bool(client.ping(request_timeout=2.0))
-                    except Exception:
-                        pass
-
-            if not ping_ok:
-                return False, "OpenSearch no responde"
-
             idx = index_name("units")
             exists = bool(client.indices.exists(index=idx, request_timeout=2))
             if not exists:
                 return False, "índice no cargado"
-
             return True, None
         except Exception as exc:
             return False, _clean_error_message(exc)
 
     def _dispatch(self, method_name: str, *args, **kwargs) -> Any:
         now = self._clock()
-        should_probe = False
+        run_sync_probe = False
+        launch_bg_probe = False
 
         with self._lock:
             if not self._verified:
@@ -1878,7 +1890,7 @@ class ResilientStore:
                     mem = self._get_memory_store()
                     return getattr(mem, method_name)(*args, **kwargs)
                 self._probing = True
-                should_probe = True
+                run_sync_probe = True
             elif self._degraded:
                 in_cooldown = (now - self._last_failure_time) < self._cooldown_s
                 if in_cooldown or self._probing:
@@ -1886,9 +1898,41 @@ class ResilientStore:
                     mem = self._get_memory_store()
                     return getattr(mem, method_name)(*args, **kwargs)
                 self._probing = True
-                should_probe = True
+                self._last_failure_time = now
+                launch_bg_probe = True
 
-        if should_probe:
+        if launch_bg_probe:
+            def _bg_probe_worker():
+                probe_ok = False
+                probe_err = None
+                try:
+                    probe_ok, probe_err = self._probe()
+                except Exception as e:
+                    probe_ok = False
+                    probe_err = _clean_error_message(e)
+                finally:
+                    probe_now = self._clock()
+                    with self._lock:
+                        self._probing = False
+                        if probe_ok:
+                            self._degraded = False
+                            self._last_error = None
+                            self._last_probe_passed = True
+                        else:
+                            self._degraded = True
+                            self._last_failure_time = probe_now
+                            self._last_error = probe_err
+                            self._last_probe_passed = False
+
+            t = threading.Thread(target=_bg_probe_worker, daemon=True, name="atalaya-probe-thread")
+            self._probe_thread = t
+            t.start()
+
+            self._last_responded_kind = "memory"
+            mem = self._get_memory_store()
+            return getattr(mem, method_name)(*args, **kwargs)
+
+        if run_sync_probe:
             probe_ok = False
             probe_err = None
             try:

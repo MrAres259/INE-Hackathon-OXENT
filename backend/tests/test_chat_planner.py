@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from atalaya.chat.guard import check as guard_check
-from atalaya.chat.planner import plan
+from atalaya.chat.planner import _plan_rules, plan
 from atalaya.chat.spec import QuerySpec
 from atalaya import llm
 
@@ -296,5 +296,104 @@ def test_planner_prioridad_and_abstencion_esperada_questions():
     assert spec3.intent == "ranking"
     assert spec3.metric == "vulnerability_pp"
     assert spec3.order == "desc"
+
+
+def test_planner_compound_correlation_does_not_split():
+    """Verify multipart question with correlation between two metrics produces correlation intent, not lookup."""
+    spec, high_conf, _ = _plan_rules("¿Cuál es la correlación entre participación y escolaridad en municipios?")
+    assert high_conf is True
+    assert spec.intent == "correlation"
+    assert spec.level == "mun"
+    assert spec.metric == "participacion"
+    assert spec.x_metric == "graproes"
+
+
+def test_planner_municipality_resolution():
+    """Verify municipal name resolution without accents/caps, with state prioritization and compare preservation."""
+    # 1. "participación de Tijuana en 2024" -> Tijuana (02004) with high confidence
+    spec1, high_conf1, _ = _plan_rules("participación de Tijuana en 2024")
+    assert high_conf1 is True
+    assert spec1.intent == "lookup"
+    assert spec1.level == "mun"
+    assert spec1.unit_ids == ["02004"]
+    assert spec1.metric == "participacion"
+    assert spec1.year == 2024
+
+    # 2. "participacion de tijuana" (lowercase, no accents) -> 02004
+    spec2, high_conf2, _ = _plan_rules("participacion de tijuana")
+    assert high_conf2 is True
+    assert spec2.intent == "lookup"
+    assert spec2.level == "mun"
+    assert spec2.unit_ids == ["02004"]
+    assert spec2.metric == "participacion"
+
+    # 3. "Juárez, Chihuahua" -> 08037 (Juárez, Chihuahua) and NOT 09014 (Benito Juárez)
+    spec3, high_conf3, _ = _plan_rules("Juárez, Chihuahua")
+    assert high_conf3 is True
+    assert spec3.level == "mun"
+    assert spec3.unit_ids == ["08037"]
+    assert "09014" not in spec3.unit_ids
+
+    # 4. "compara Puebla y Jalisco" remains compare between states
+    spec4, method4 = plan("compara Puebla y Jalisco")
+    assert method4 == "rules"
+    assert spec4.intent == "compare"
+    assert spec4.level == "state"
+    assert set(spec4.unit_ids) == {"14", "21"}
+
+
+def test_planner_llm_hallucinated_unit_id_corrected(monkeypatch):
+    """Verify LLM proposing 02002 (Mexicali) for Tijuana query is corrected to 02004."""
+    import atalaya.chat.planner as planner_mod
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    # Force low confidence on rules to trigger LLM path
+    orig_plan_rules = planner_mod._plan_rules
+    def _mock_plan_rules(msg, history=None, region_id=None):
+        spec, _, hint = orig_plan_rules(msg, history=history, region_id=region_id)
+        return spec, False, hint
+
+    monkeypatch.setattr(planner_mod, "_plan_rules", _mock_plan_rules)
+
+    # Fake LLM proposes 02002 (Mexicali)
+    hallucinated_spec = QuerySpec(
+        intent="lookup",
+        level="mun",
+        metric="participacion",
+        unit_ids=["02002"],
+        year=2024,
+    )
+    monkeypatch.setattr(llm, "chat_json", lambda *a, **kw: hallucinated_spec)
+
+    spec, method = planner_mod.plan("participación de Tijuana en 2024")
+    assert method == "llm"
+    assert spec.unit_ids == ["02004"]
+    assert spec.level == "mun"
+
+
+def test_planner_llm_hallucinated_invalid_id_discarded(monkeypatch):
+    """Verify LLM proposing non-existent unit_id with no mention in message is discarded."""
+    import atalaya.chat.planner as planner_mod
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    orig_plan_rules = planner_mod._plan_rules
+    def _mock_plan_rules(msg, history=None, region_id=None):
+        spec, _, hint = orig_plan_rules(msg, history=history, region_id=region_id)
+        return spec, False, hint
+
+    monkeypatch.setattr(planner_mod, "_plan_rules", _mock_plan_rules)
+
+    fake_spec = QuerySpec(
+        intent="lookup",
+        level="mun",
+        metric="risk_score",
+        unit_ids=["99999"],
+    )
+    monkeypatch.setattr(llm, "chat_json", lambda *a, **kw: fake_spec)
+
+    spec, method = planner_mod.plan("consulta general de riesgo")
+    assert method == "llm"
+    assert spec.unit_ids == []
+
 
 

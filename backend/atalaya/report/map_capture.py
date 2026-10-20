@@ -32,10 +32,40 @@ import websockets
 
 logger = logging.getLogger(__name__)
 
-MEXICO_BOUNDS: tuple[tuple[float, float], tuple[float, float]] = (
-    (-118.6, 14.3),
-    (-86.5, 32.8),
-)
+def get_repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def get_geo_root() -> Path:
+    return get_repo_root() / "frontend" / "public" / "geo"
+
+
+def get_maplibre_dist_dir() -> Path:
+    return get_repo_root() / "frontend" / "node_modules" / "maplibre-gl" / "dist"
+
+
+def get_print_dir() -> Path:
+    return Path(__file__).resolve().parent / "map_print"
+
+
+def get_default_bounds() -> tuple[tuple[float, float], tuple[float, float]]:
+    """Loads default bounds from frontend/public/geo/tiles.json manifest."""
+    try:
+        tiles_json = get_geo_root() / "tiles.json"
+        if tiles_json.is_file():
+            data = json.loads(tiles_json.read_text(encoding="utf-8"))
+            b = data.get("bounds")
+            if b and len(b) == 4:
+                return (
+                    (float(b[0]), float(b[1])),
+                    (float(b[2]), float(b[3])),
+                )
+    except Exception:
+        pass
+    return ((-118.36511, 14.5321), (-86.71069, 32.71865))
+
+
+MEXICO_BOUNDS: tuple[tuple[float, float], tuple[float, float]] = get_default_bounds()
 
 BROWSER_CANDIDATES: list[Path] = [
     Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
@@ -51,30 +81,14 @@ class MapSpec:
     level: Literal["state", "mun"]
     fill_by_id: Mapping[str, str]  # ID -> color hex (#rrggbb); unset IDs use nodata_color
     width: int = 600  # Map CSS width
-    height: int = 230
+    height: int = 340
     scale: float = 2.0  # deviceScaleFactor for high-res output
     nodata_color: str = "#d1d5db"
     background: str = "#ffffff"
-    state_line_color: str = "#4b5563"
+    state_line_color: str = "#374151"
     mun_line_color: str = "#ffffff"
     bounds: tuple = MEXICO_BOUNDS
     padding: int = 6
-
-
-def get_repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
-def get_geo_root() -> Path:
-    return get_repo_root() / "frontend" / "public" / "geo"
-
-
-def get_maplibre_dist_dir() -> Path:
-    return get_repo_root() / "frontend" / "node_modules" / "maplibre-gl" / "dist"
-
-
-def get_print_dir() -> Path:
-    return Path(__file__).resolve().parent / "map_print"
 
 
 def find_browser() -> Path | None:
@@ -131,11 +145,14 @@ def serialize_bounds(bounds: Any) -> list:
                 [float(bounds[0]), float(bounds[1])],
                 [float(bounds[2]), float(bounds[3])],
             ]
-    return [[-118.6, 14.3], [-86.5, 32.8]]
+    def_b = get_default_bounds()
+    return [[def_b[0][0], def_b[0][1]], [def_b[1][0], def_b[1][1]]]
 
 
 def spec_to_render_payload(spec: MapSpec) -> dict[str, Any]:
     k = 4 if spec.level == "mun" else 2
+    css_pad = max(float(spec.padding), 0.04 * float(spec.height))
+    scaled_padding = int(round(css_pad * k))
     return {
         "name": spec.name,
         "level": spec.level,
@@ -148,9 +165,15 @@ def spec_to_render_payload(spec: MapSpec) -> dict[str, Any]:
         "state_line_color": str(spec.state_line_color),
         "mun_line_color": str(spec.mun_line_color),
         "bounds": serialize_bounds(spec.bounds),
-        "padding": int(spec.padding),
+        "padding": scaled_padding,
         "oversample": k,
     }
+
+
+def _image_pixels(img: Image.Image) -> list[tuple[int, int, int]]:
+    if hasattr(img, "get_flattened_data"):
+        return list(img.get_flattened_data())
+    return list(img.getdata())  # type: ignore[no-any-return]
 
 
 def validate_image(
@@ -166,7 +189,8 @@ def validate_image(
         logger.warning("Failed to decode PNG image: %s", exc)
         return False
 
-    max_colors_probe = max(img.width * img.height, 256)
+    w, h = img.size
+    max_colors_probe = max(w * h, 256)
     colors = img.getcolors(maxcolors=max_colors_probe)
     num_distinct = max_colors_probe if colors is None else len(colors)
 
@@ -178,15 +202,52 @@ def validate_image(
         )
         return False
 
+    # Border check: outer 2 px rows and columns must be background color in >= 98%
+    try:
+        bg_rgb = hex_to_rgb(spec.background)
+    except Exception:
+        bg_rgb = (255, 255, 255)
+
+    border_pixels: list[tuple[int, int, int]] = []
+    if w >= 4 and h >= 4:
+        # Top 2 rows
+        border_pixels.extend(_image_pixels(img.crop((0, 0, w, 2))))
+        # Bottom 2 rows
+        border_pixels.extend(_image_pixels(img.crop((0, h - 2, w, h))))
+        # Left 2 columns (excluding corners already collected in top and bottom)
+        border_pixels.extend(_image_pixels(img.crop((0, 2, 2, h - 2))))
+        # Right 2 columns (excluding corners already collected in top and bottom)
+        border_pixels.extend(_image_pixels(img.crop((w - 2, 2, w, h - 2))))
+    else:
+        border_pixels.extend(_image_pixels(img))
+
+    total_border = len(border_pixels)
+    if total_border > 0:
+        bg_matches = sum(
+            1
+            for p in border_pixels
+            if abs(p[0] - bg_rgb[0]) <= channel_tolerance
+            and abs(p[1] - bg_rgb[1]) <= channel_tolerance
+            and abs(p[2] - bg_rgb[2]) <= channel_tolerance
+        )
+        border_bg_ratio = bg_matches / total_border
+        if border_bg_ratio < 0.98:
+            logger.warning(
+                "Captured image border check failed for %s: background ratio %.2f%% (< 98%%)",
+                spec.name,
+                border_bg_ratio * 100,
+            )
+            return False
+
     if not spec.fill_by_id:
         return True
 
     counts = Counter(spec.fill_by_id.values())
     top_colors = [c for c, _ in counts.most_common(3)]
     target_rgbs = []
-    for h in top_colors:
+    for h_col in top_colors:
         try:
-            target_rgbs.append(hex_to_rgb(h))
+            target_rgbs.append(hex_to_rgb(h_col))
         except Exception:
             pass
 
@@ -194,7 +255,7 @@ def validate_image(
         return True
 
     unique_rgbs = (
-        [c[1] for c in colors] if colors is not None else list(set(img.getdata()))
+        [c[1] for c in colors] if colors is not None else list(set(_image_pixels(img)))
     )
 
     found = False
@@ -592,8 +653,8 @@ def _smoke_cli(out_dir_path: str) -> int:
     }
 
     specs = [
-        MapSpec(name="smoke_state", level="state", fill_by_id=state_fill),
-        MapSpec(name="smoke_mun", level="mun", fill_by_id=mun_fill),
+        MapSpec(name="smoke_state", level="state", fill_by_id=state_fill, width=600, height=330),
+        MapSpec(name="smoke_mun", level="mun", fill_by_id=mun_fill, width=600, height=340),
     ]
 
     print(f"Running smoke capture for {len(specs)} specs...")

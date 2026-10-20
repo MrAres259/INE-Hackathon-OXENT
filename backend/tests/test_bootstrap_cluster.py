@@ -259,3 +259,24 @@ def test_main_cli_invokes_bootstrap(monkeypatch):
     assert captured_args["reset"] is True
     assert captured_args["skip_parity"] is True
     assert captured_args["api_url"] == "http://127.0.0.1:9999"
+
+
+def test_bootstrap_summary_counts_passed_correctly_with_failure(monkeypatch, capsys):
+    fake_checks = [
+        ("check_1", True, "ok"),
+        ("check_2", True, "ok"),
+        ("check_3", True, "ok"),
+        ("check_4", False, "failed diff"),
+        ("check_5", True, "ok"),
+        ("check_6", True, "ok"),
+        ("check_7", True, "ok"),
+    ]
+    monkeypatch.setattr("scripts.os_parity.run_checks", lambda m, o: fake_checks)
+
+    code = bootstrap(skip_parity=False)
+    assert code == 1
+
+    out, _ = capsys.readouterr()
+    assert "6/7 verificaciones superadas" in out
+    assert "7/7 verificaciones superadas" not in out
+

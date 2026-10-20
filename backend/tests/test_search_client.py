@@ -10,6 +10,7 @@ from atalaya.search_client import (
     cluster_info,
     ensure_index_templates,
     get_client,
+    get_probe_client,
     index_settings,
     ping,
     reset_client,
@@ -295,3 +296,45 @@ def test_bulk_index(monkeypatch):
         "_source": docs[0],
         "_id": "item_0",
     }
+
+
+def test_get_probe_client_configuration(monkeypatch):
+    captured: dict = {}
+
+    class MockOpenSearch:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("atalaya.search_client.OpenSearch", MockOpenSearch)
+    monkeypatch.setenv("OPENSEARCH_URL", "https://10.0.0.205:9200")
+    monkeypatch.setenv("OPENSEARCH_USERNAME", "admin")
+    monkeypatch.setenv("OPENSEARCH_PASSWORD", "secret_pw")
+    monkeypatch.setenv("OPENSEARCH_VERIFY_CERTS", "false")
+
+    get_settings.cache_clear()
+    reset_client()
+
+    probe_client = get_probe_client()
+    assert probe_client is not None
+    assert captured["hosts"] == ["https://10.0.0.205:9200"]
+    assert captured["timeout"] == 2.0
+    assert captured["max_retries"] == 0
+    assert captured["retry_on_timeout"] is False
+    assert captured["http_auth"] == ("admin", "secret_pw")
+    assert captured["verify_certs"] is False
+    assert captured["ssl_assert_hostname"] is False
+
+    # Verify reset_client clears probe client cache
+    captured.clear()
+    reset_client()
+    new_client = get_probe_client()
+    assert new_client is not None
+    assert captured["timeout"] == 2.0
+
+    # Without URLs, returns None
+    monkeypatch.delenv("OPENSEARCH_URL", raising=False)
+    monkeypatch.delenv("ES_URL", raising=False)
+    get_settings.cache_clear()
+    reset_client()
+    assert get_probe_client() is None
+
