@@ -15,6 +15,8 @@ import {
   MEXICO_BOUNDS,
   MAX_BOUNDS,
   BASEMAP,
+  SOURCE_LAYERS,
+  TILESET_MANIFEST,
 } from "../lib/mapStyle";
 import { CATEGORY_COLORS } from "../lib/format";
 import type { RiskItem } from "../lib/types";
@@ -23,7 +25,12 @@ describe("mapStyle Logic & Expressions Tests", () => {
   it("exports valid map constants and Esri basemap with {z}/{y}/{x}", () => {
     expect(LAYER_IDS.statesFill).toBe("states-fill");
     expect(LAYER_IDS.munFill).toBe("mun-fill");
+    expect(LAYER_IDS.selectedStates).toBe("states-selected-line");
     expect(SOURCE_IDS.states).toBe("states");
+    expect(SOURCE_IDS.vector).toBe("atalaya");
+    expect(SOURCE_LAYERS.states).toBe("states");
+    expect(SOURCE_LAYERS.mun).toBe("mun");
+    expect(TILESET_MANIFEST).toBe("/geo/tiles.json");
     expect(MEXICO_BOUNDS).toEqual([[-118.6, 14.3], [-86.5, 32.8]]);
     expect(MAX_BOUNDS).toEqual([[-130, 5], [-75, 40]]);
     expect(BASEMAP.background).toBe("#060a13");

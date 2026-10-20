@@ -11,6 +11,7 @@ export interface CompareSwipeProps {
   data: MapRiskData;
   extrude?: boolean;
   onHover?: (h: HoverInfo | null) => void;
+  onMapReady?: (map: MapLibreMap) => void;
   className?: string;
 }
 
@@ -18,6 +19,7 @@ export function CompareSwipe({
   data,
   extrude = false,
   onHover,
+  onMapReady,
   className = "",
 }: CompareSwipeProps) {
   const { comparePos = 50, setComparePos } = useAtalaya();
@@ -29,13 +31,17 @@ export function CompareSwipe({
   const isDraggingRef = useRef(false);
 
   // Handle map ready callbacks for camera synchronization
-  const handleMapAReady = useCallback((map: MapLibreMap) => {
-    mapARef.current = map;
-    if (mapBRef.current) {
-      syncRef.current?.dispose();
-      syncRef.current = createCameraSync(map, mapBRef.current);
-    }
-  }, []);
+  const handleMapAReady = useCallback(
+    (map: MapLibreMap) => {
+      mapARef.current = map;
+      onMapReady?.(map);
+      if (mapBRef.current) {
+        syncRef.current?.dispose();
+        syncRef.current = createCameraSync(map, mapBRef.current);
+      }
+    },
+    [onMapReady]
+  );
 
   const handleMapBReady = useCallback(
     (map: MapLibreMap) => {

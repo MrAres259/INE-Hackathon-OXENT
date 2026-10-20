@@ -17,6 +17,7 @@ export const LAYER_IDS = {
   hoverStates: "states-hover",
   hoverMun: "mun-hover",
   selected: "selected-line",
+  selectedStates: "states-selected-line",
   labelsRaster: "carto-labels",
 } as const;
 
@@ -26,7 +27,15 @@ export const SOURCE_IDS = {
   country: "country",
   cartoBase: "carto-base",
   cartoLabels: "carto-labels",
+  vector: "atalaya",
 } as const;
+
+export const SOURCE_LAYERS = {
+  states: "states",
+  mun: "mun",
+} as const;
+
+export const TILESET_MANIFEST = "/geo/tiles.json";
 
 export const MEXICO_BOUNDS: [[number, number], [number, number]] = [
   [-118.6, 14.3],

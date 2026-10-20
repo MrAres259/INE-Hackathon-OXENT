@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   toIndexItems,
   colorForFeature,
@@ -8,6 +8,8 @@ import {
   fetchMunAllGeoJson,
   fetchCountryGeoJson,
   getMockMunAllGeoJson,
+  fetchTileManifest,
+  absoluteTileUrl,
 } from "../lib/geo";
 import {
   getMockStatesGeoJson,
@@ -194,6 +196,103 @@ describe("Geo Adapter and Contract Tests", () => {
     } else {
       expect(country).toBeNull();
     }
+  });
+
+  describe("Tile Manifest and URL Helpers", () => {
+    it("preserves unencoded {z}/{x}/{y} in absoluteTileUrl", () => {
+      const url = absoluteTileUrl(
+        "/geo/tiles/{z}/{x}/{y}.pbf",
+        "http://localhost:3000"
+      );
+      expect(url).toBe("http://localhost:3000/geo/tiles/{z}/{x}/{y}.pbf");
+      expect(url).not.toContain("%7B");
+      expect(url).not.toContain("%7D");
+
+      const defaultUrl = absoluteTileUrl("/geo/tiles/{z}/{x}/{y}.pbf");
+      expect(defaultUrl).toContain("{z}/{x}/{y}.pbf");
+      expect(defaultUrl).toMatch(/^https?:\/\//);
+    });
+
+    it("validates valid tile manifest with fetchTileManifest", async () => {
+      const validManifest = {
+        tilejson: "3.0.0",
+        tiles: ["/geo/tiles/{z}/{x}/{y}.pbf"],
+        minzoom: 3,
+        maxzoom: 9,
+        vector_layers: [
+          { id: "states", minzoom: 3, maxzoom: 9 },
+          { id: "mun", minzoom: 5, maxzoom: 9 },
+        ],
+      };
+
+      const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => validManifest,
+      } as Response);
+
+      const result = await fetchTileManifest();
+      expect(result).toEqual(validManifest);
+      fetchSpy.mockRestore();
+    });
+
+    it("returns null if manifest lacks mun layer", async () => {
+      const manifestWithoutMun = {
+        tilejson: "3.0.0",
+        tiles: ["/geo/tiles/{z}/{x}/{y}.pbf"],
+        minzoom: 3,
+        maxzoom: 9,
+        vector_layers: [{ id: "states", minzoom: 3, maxzoom: 9 }],
+      };
+
+      const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => manifestWithoutMun,
+      } as Response);
+
+      const result = await fetchTileManifest();
+      expect(result).toBeNull();
+      fetchSpy.mockRestore();
+    });
+
+    it("returns null if manifest lacks {z} in tile URL", async () => {
+      const manifestWithoutZ = {
+        tilejson: "3.0.0",
+        tiles: ["/geo/tiles/{x}/{y}.pbf"],
+        minzoom: 3,
+        maxzoom: 9,
+        vector_layers: [
+          { id: "states", minzoom: 3, maxzoom: 9 },
+          { id: "mun", minzoom: 5, maxzoom: 9 },
+        ],
+      };
+
+      const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => manifestWithoutZ,
+      } as Response);
+
+      const result = await fetchTileManifest();
+      expect(result).toBeNull();
+      fetchSpy.mockRestore();
+    });
+
+    it("returns null when fetch fails or errors", async () => {
+      const fetchSpy404 = vi.spyOn(global, "fetch").mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      } as Response);
+
+      const result404 = await fetchTileManifest();
+      expect(result404).toBeNull();
+      fetchSpy404.mockRestore();
+
+      const fetchSpyReject = vi
+        .spyOn(global, "fetch")
+        .mockRejectedValueOnce(new Error("Network Error"));
+      const resultReject = await fetchTileManifest();
+      expect(resultReject).toBeNull();
+      fetchSpyReject.mockRestore();
+    });
   });
 });
 

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mapshaper from 'mapshaper';
+import { buildTiles } from './build_tiles.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,10 +36,13 @@ export function parseArgs(rawArgs = process.argv.slice(2)) {
   let mun = path.resolve(__dirname, '../../data/raw/geo/00mun.shp');
   let out = path.resolve(__dirname, '../../frontend/public/geo');
   let catalogDir = path.resolve(__dirname, '../../data/build');
+  let tilesOnly = false;
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
-    if (arg === '--ent' && rawArgs[i + 1]) {
+    if (arg === '--tiles-only') {
+      tilesOnly = true;
+    } else if (arg === '--ent' && rawArgs[i + 1]) {
       ent = path.resolve(process.cwd(), rawArgs[++i]);
     } else if (arg === '--mun' && rawArgs[i + 1]) {
       mun = path.resolve(process.cwd(), rawArgs[++i]);
@@ -49,7 +53,7 @@ export function parseArgs(rawArgs = process.argv.slice(2)) {
     }
   }
 
-  return { ent, mun, out, catalogDir };
+  return { ent, mun, out, catalogDir, tilesOnly };
 }
 
 function getCoordinates(geometry) {
@@ -139,7 +143,7 @@ export function computeCentroid(geometry) {
   return [Number(((bbox[0] + bbox[2]) / 2).toFixed(5)), Number(((bbox[1] + bbox[3]) / 2).toFixed(5))];
 }
 
-function getInputConfig(filePath) {
+export function getInputConfig(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const isShp = ext === '.shp';
   let encodingOpt = '';
@@ -265,7 +269,8 @@ export async function buildGeo(options = {}) {
     ent = path.resolve(__dirname, '../../data/raw/geo/00ent.shp'),
     mun = path.resolve(__dirname, '../../data/raw/geo/00mun.shp'),
     out = path.resolve(__dirname, '../../frontend/public/geo'),
-    catalogDir = path.resolve(__dirname, '../../data/build')
+    catalogDir = path.resolve(__dirname, '../../data/build'),
+    tilesOnly = false
   } = options;
 
   let statePercentage = options.statePercentage || '2%';
@@ -279,6 +284,18 @@ export async function buildGeo(options = {}) {
     console.log(`  Mun shapefile/geojson:   "${mun}" -> ${fs.existsSync(mun) ? 'FOUND' : 'MISSING'}`);
     console.log('[build_geo] Exiting cleanly with code 0 without modifying output directory.');
     return { status: 'skipped', reason: 'missing_inputs' };
+  }
+
+  if (tilesOnly) {
+    console.log('[build_geo] Running in --tiles-only mode...');
+    const tileManifest = await buildTiles({
+      ent,
+      mun,
+      outDir: out,
+      stateKeep: options.statePercentage || '20%',
+      munKeep: options.munPercentage || '25%'
+    });
+    return { status: 'ok', tilesOnly: true, manifest: tileManifest };
   }
 
   // 2. Generate CSV catalogs from original attributes (unsimplified)
@@ -494,6 +511,15 @@ export async function buildGeo(options = {}) {
       continue;
     }
 
+    console.log('[build_geo] Building vector tiles...');
+    const tileManifest = await buildTiles({
+      ent,
+      mun,
+      outDir: out,
+      stateKeep: options.statePercentage || '20%',
+      munKeep: options.munPercentage || '25%'
+    });
+
     console.log('[build_geo] Build completed successfully.');
     return {
       status: 'ok',
@@ -506,7 +532,8 @@ export async function buildGeo(options = {}) {
       totalMunSize,
       munAllSize,
       indexSize,
-      catalogs: catalogResult
+      catalogs: catalogResult,
+      tiles: tileManifest
     };
   }
 }

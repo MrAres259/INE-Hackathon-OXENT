@@ -1,6 +1,6 @@
 // GeoJSON loader with automatic fallback to synthetic mock geometry
 import type { FeatureCollection, Geometry } from "geojson";
-import type { GeoIndexFile, GeoIndexItem, RiskItem } from "./types";
+import type { GeoIndexFile, GeoIndexItem, RiskItem, TileManifest } from "./types";
 import { getMockStatesGeoJson, getMockMunGeoJson, getMockGeoIndex } from "./mocks/geo";
 import { MOCK_STATES } from "./mocks/meta";
 import { CATEGORY_COLORS } from "./format";
@@ -150,6 +150,75 @@ export async function fetchCountryGeoJson(): Promise<FeatureCollection<Geometry,
       return null;
     }
     return (await res.json()) as FeatureCollection<Geometry, CountryProperties>;
+  } catch {
+    return null;
+  }
+}
+
+export function absoluteTileUrl(template: string, origin?: string): string {
+  if (!template) return "";
+  const base =
+    origin ||
+    (typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "http://localhost:3000");
+  try {
+    const url = new URL(template, base);
+    return url
+      .toString()
+      .replace(/%7Bz%7D/gi, "{z}")
+      .replace(/%7Bx%7D/gi, "{x}")
+      .replace(/%7By%7D/gi, "{y}");
+  } catch {
+    return template;
+  }
+}
+
+export async function fetchTileManifest(): Promise<TileManifest | null> {
+  try {
+    const res = await fetch("/geo/tiles.json", { cache: "no-cache" });
+    if (!res.ok) {
+      return null;
+    }
+    const data = (await res.json()) as TileManifest;
+    if (!data || typeof data !== "object") {
+      return null;
+    }
+    if (typeof data.tilejson !== "string" || !data.tilejson) {
+      return null;
+    }
+    if (
+      !Array.isArray(data.tiles) ||
+      data.tiles.length === 0 ||
+      typeof data.tiles[0] !== "string"
+    ) {
+      return null;
+    }
+    const tile0 = data.tiles[0];
+    if (
+      !tile0.includes("{z}") ||
+      !tile0.includes("{x}") ||
+      !tile0.includes("{y}")
+    ) {
+      return null;
+    }
+    if (
+      typeof data.minzoom !== "number" ||
+      typeof data.maxzoom !== "number" ||
+      Number.isNaN(data.minzoom) ||
+      Number.isNaN(data.maxzoom)
+    ) {
+      return null;
+    }
+    if (!Array.isArray(data.vector_layers)) {
+      return null;
+    }
+    const hasStates = data.vector_layers.some((l) => l && l.id === "states");
+    const hasMun = data.vector_layers.some((l) => l && l.id === "mun");
+    if (!hasStates || !hasMun) {
+      return null;
+    }
+    return data;
   } catch {
     return null;
   }

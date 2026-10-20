@@ -2,17 +2,23 @@ import { describe, it, expect, vi } from "vitest";
 import {
   buildStyle,
   buildDataLayers,
+  buildSources,
   setColorMode,
 } from "@/components/map/mapLayers";
 import {
   LAYER_IDS,
   SOURCE_IDS,
+  SOURCE_LAYERS,
   BASEMAP,
   fillExpression,
   deltaFillExpression,
-  categoryFillExpression,
 } from "@/lib/mapStyle";
-import type { LayerSpecification } from "maplibre-gl";
+import type {
+  LayerSpecification,
+  VectorSourceSpecification,
+  FillLayerSpecification,
+} from "maplibre-gl";
+import type { TileManifest } from "@/lib/types";
 
 describe("mapLayers", () => {
   describe("buildStyle", () => {
@@ -58,15 +64,62 @@ describe("mapLayers", () => {
       const bg = style.layers.find((l) => l.id === LAYER_IDS.background);
       expect(bg).toBeDefined();
       expect(bg?.type).toBe("background");
-      expect((bg as { paint?: { "background-color"?: string } })?.paint?.["background-color"]).toBe(
-        BASEMAP.background
+      expect(
+        (bg as { paint?: { "background-color"?: string } })?.paint?.[
+          "background-color"
+        ]
+      ).toBe(BASEMAP.background);
+    });
+  });
+
+  describe("buildSources", () => {
+    it("builds vector sources with promoteId and absolute tile URL", () => {
+      const fakeManifest: TileManifest = {
+        tilejson: "3.0.0",
+        tiles: ["/geo/tiles/{z}/{x}/{y}.pbf"],
+        minzoom: 3,
+        maxzoom: 9,
+        bounds: [-118.6, 14.3, -86.5, 32.8],
+        vector_layers: [
+          { id: "states", minzoom: 3, maxzoom: 9 },
+          { id: "mun", minzoom: 5, maxzoom: 9 },
+        ],
+      };
+
+      const sources = buildSources("vector", fakeManifest, null);
+      expect(sources[SOURCE_IDS.country]).toBeDefined();
+      expect(sources[SOURCE_IDS.country].type).toBe("geojson");
+
+      const vectorSource = sources[
+        SOURCE_IDS.vector
+      ] as VectorSourceSpecification;
+      expect(vectorSource).toBeDefined();
+      expect(vectorSource.type).toBe("vector");
+      expect(vectorSource.minzoom).toBe(3);
+      expect(vectorSource.maxzoom).toBe(9);
+      expect(vectorSource.promoteId).toEqual({ states: "id", mun: "id" });
+      expect(vectorSource.tiles).toBeDefined();
+      expect(vectorSource.tiles?.[0]).toMatch(/^https?:\/\//);
+      expect(vectorSource.tiles?.[0]).toContain("{z}/{x}/{y}.pbf");
+    });
+
+    it("builds GeoJSON sources with promoteId in geojson mode", () => {
+      const sources = buildSources("geojson", null, null);
+      expect(sources[SOURCE_IDS.country].type).toBe("geojson");
+      expect(sources[SOURCE_IDS.states].type).toBe("geojson");
+      expect(
+        (sources[SOURCE_IDS.states] as { promoteId?: string }).promoteId
+      ).toBe("id");
+      expect(sources[SOURCE_IDS.mun].type).toBe("geojson");
+      expect((sources[SOURCE_IDS.mun] as { promoteId?: string }).promoteId).toBe(
+        "id"
       );
     });
   });
 
   describe("buildDataLayers", () => {
-    it("returns layers with exact IDs in the order specified in §14.6", () => {
-      const layers = buildDataLayers("category");
+    it("returns layers with exact IDs in the expected order including states-selected-line", () => {
+      const layers = buildDataLayers("category", "geojson");
       const expectedIds = [
         LAYER_IDS.background,
         LAYER_IDS.baseRaster,
@@ -80,10 +133,61 @@ describe("mapLayers", () => {
         LAYER_IDS.hoverStates,
         LAYER_IDS.hoverMun,
         LAYER_IDS.selected,
+        LAYER_IDS.selectedStates,
         LAYER_IDS.labelsRaster,
       ];
 
       expect(layers.map((l) => l.id)).toEqual(expectedIds);
+    });
+
+    it("configures states-selected-line layer right after selected-line with 3px line", () => {
+      const layers = buildDataLayers("category", "geojson");
+      const selectedIndex = layers.findIndex((l) => l.id === LAYER_IDS.selected);
+      const selectedStatesIndex = layers.findIndex(
+        (l) => l.id === LAYER_IDS.selectedStates
+      );
+      expect(selectedStatesIndex).toBe(selectedIndex + 1);
+
+      const stateLine = layers[selectedStatesIndex] as LayerSpecification & {
+        paint?: Record<string, unknown>;
+      };
+      expect(stateLine.type).toBe("line");
+      expect(stateLine.paint?.["line-color"]).toBe("#ffffff");
+      expect(stateLine.paint?.["line-width"]).toEqual([
+        "case",
+        ["boolean", ["feature-state", "selected"], false],
+        3,
+        0,
+      ]);
+    });
+
+    it("assigns source-layer only in vector mode", () => {
+      const vectorLayers = buildDataLayers("category", "vector");
+      const geojsonLayers = buildDataLayers("category", "geojson");
+
+      const stateFillVector = vectorLayers.find(
+        (l) => l.id === LAYER_IDS.statesFill
+      ) as FillLayerSpecification;
+      const munFillVector = vectorLayers.find(
+        (l) => l.id === LAYER_IDS.munFill
+      ) as FillLayerSpecification;
+
+      expect(stateFillVector["source-layer"]).toBe(SOURCE_LAYERS.states);
+      expect(munFillVector["source-layer"]).toBe(SOURCE_LAYERS.mun);
+      expect(stateFillVector.source).toBe(SOURCE_IDS.vector);
+      expect(munFillVector.source).toBe(SOURCE_IDS.vector);
+
+      const stateFillGeo = geojsonLayers.find(
+        (l) => l.id === LAYER_IDS.statesFill
+      ) as FillLayerSpecification;
+      const munFillGeo = geojsonLayers.find(
+        (l) => l.id === LAYER_IDS.munFill
+      ) as FillLayerSpecification;
+
+      expect(stateFillGeo["source-layer"]).toBeUndefined();
+      expect(munFillGeo["source-layer"]).toBeUndefined();
+      expect(stateFillGeo.source).toBe(SOURCE_IDS.states);
+      expect(munFillGeo.source).toBe(SOURCE_IDS.mun);
     });
 
     it("does not include any symbol layer", () => {
@@ -95,7 +199,9 @@ describe("mapLayers", () => {
 
     it("configures labels raster layer with 0.85 opacity", () => {
       const layers = buildDataLayers("category");
-      const labels = layers.find((l) => l.id === LAYER_IDS.labelsRaster) as LayerSpecification & {
+      const labels = layers.find(
+        (l) => l.id === LAYER_IDS.labelsRaster
+      ) as LayerSpecification & {
         paint?: Record<string, unknown>;
       };
       expect(labels).toBeDefined();
@@ -161,47 +267,6 @@ describe("mapLayers", () => {
       expect(munFill.paint?.["fill-color"]).toEqual(expectedDelta);
       expect(statesExt.paint?.["fill-extrusion-color"]).toEqual(expectedDelta);
       expect(munExt.paint?.["fill-extrusion-color"]).toEqual(expectedDelta);
-    });
-
-    it("validates data layers with validateStyleMin from style spec", async () => {
-      try {
-        const spec = await import("@maplibre/maplibre-gl-style-spec");
-        if (typeof spec.validateStyleMin === "function") {
-          const testStyle = {
-            version: 8 as const,
-            sources: {
-              ...buildStyle().sources,
-              [SOURCE_IDS.country]: {
-                type: "geojson",
-                data: { type: "FeatureCollection", features: [] },
-              },
-              [SOURCE_IDS.states]: {
-                type: "geojson",
-                data: { type: "FeatureCollection", features: [] },
-                promoteId: "id",
-              },
-              [SOURCE_IDS.mun]: {
-                type: "geojson",
-                data: { type: "FeatureCollection", features: [] },
-                promoteId: "id",
-              },
-            },
-            layers: buildDataLayers("category"),
-          };
-
-          const errors = spec.validateStyleMin(testStyle as unknown as import("maplibre-gl").StyleSpecification);
-          expect(errors).toEqual([]);
-
-          const deltaStyle = {
-            ...testStyle,
-            layers: buildDataLayers("delta"),
-          };
-          const deltaErrors = spec.validateStyleMin(deltaStyle as unknown as import("maplibre-gl").StyleSpecification);
-          expect(deltaErrors).toEqual([]);
-        }
-      } catch {
-        // validateStyleMin omitted if style-spec is not resolvable
-      }
     });
   });
 

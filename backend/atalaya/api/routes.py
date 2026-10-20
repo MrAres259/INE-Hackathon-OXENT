@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import time
 from typing import Any, Literal
 
 import numpy as np
@@ -162,6 +163,33 @@ def _load_seed_states() -> list[dict[str, str]]:
     return states
 
 
+_CLUSTER_INFO_CACHE: dict[str, Any] = {"info": None, "expires_at": 0.0}
+
+
+def _get_cached_cluster_info() -> dict[str, Any] | None:
+    now = time.monotonic()
+    if _CLUSTER_INFO_CACHE["info"] is not None and now < _CLUSTER_INFO_CACHE["expires_at"]:
+        return _CLUSTER_INFO_CACHE["info"]
+
+    try:
+        from atalaya.search_client import cluster_info
+        raw = cluster_info(timeout_s=5.0)
+        if raw and "distribution" in raw and "version" in raw:
+            se: dict[str, Any] | None = {
+                "distribution": raw.get("distribution"),
+                "version": raw.get("version"),
+            }
+        else:
+            se = None
+    except Exception as exc:
+        logger.debug("Failed to retrieve cluster_info: %s", exc)
+        se = None
+
+    _CLUSTER_INFO_CACHE["info"] = se
+    _CLUSTER_INFO_CACHE["expires_at"] = now + 60.0
+    return se
+
+
 @router.get("/health")
 def get_health() -> dict[str, Any]:
     try:
@@ -173,6 +201,7 @@ def get_health() -> dict[str, Any]:
     try:
         store = get_store()
         store_kind = store.kind
+        store_degraded = getattr(store, "degraded", False)
         stats = store.stats()
         data = {
             "units_mun": stats.get("units_mun", 0),
@@ -183,6 +212,7 @@ def get_health() -> dict[str, Any]:
     except Exception as exc:
         logger.warning("Error fetching store stats in health: %s", exc)
         store_kind = "memory"
+        store_degraded = False
         data = {
             "units_mun": 0,
             "units_state": 0,
@@ -190,9 +220,15 @@ def get_health() -> dict[str, Any]:
             "years": [],
         }
 
+    search_engine = None
+    if store_kind == "opensearch":
+        search_engine = _get_cached_cluster_info()
+
     return {
         "status": "ok",
         "store": store_kind,
+        "store_degraded": store_degraded,
+        "search_engine": search_engine,
         "llm": is_llm_enabled(),
         "warmup": warmup_state,
         "data": data,

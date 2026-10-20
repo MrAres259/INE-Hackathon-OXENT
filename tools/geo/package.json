@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "node build_geo.mjs",
-    "test": "node test/build_geo.test.mjs"
+    "test": "node --test test/build_geo.test.mjs test/build_tiles.test.mjs"
   },
   "dependencies": {
-    "mapshaper": "0.7.74"
+    "geojson-vt": "3.2.1",
+    "mapshaper": "0.7.74",
+    "vt-pbf": "3.1.3"
   }
 }

@@ -1,6 +1,49 @@
-"""Elasticsearch mapping templates and index schemas for ATALAYA."""
+"""OpenSearch mapping templates and index schemas for ATALAYA."""
 
 from __future__ import annotations
+
+from typing import Any
+
+SCHEMA_VERSION: int = 2
+
+ANALYSIS: dict[str, Any] = {
+    "normalizer": {
+        "folded_kw": {
+            "type": "custom",
+            "filter": ["lowercase", "asciifolding"],
+        },
+    },
+    "analyzer": {
+        "es_folded": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [
+                "lowercase",
+                "asciifolding",
+                "spanish_stop",
+                "spanish_stemmer",
+            ],
+        },
+        "es_prefix": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [
+                "lowercase",
+                "asciifolding",
+            ],
+        },
+    },
+    "filter": {
+        "spanish_stop": {
+            "type": "stop",
+            "stopwords": "_spanish_",
+        },
+        "spanish_stemmer": {
+            "type": "stemmer",
+            "language": "light_spanish",
+        },
+    },
+}
 
 TEMPLATES: dict[str, dict] = {
     "units": {
@@ -45,14 +88,21 @@ TEMPLATES: dict[str, dict] = {
             "cvegeo": {"type": "keyword"},
             "name": {
                 "type": "text",
-                "analyzer": "spanish",
+                "analyzer": "es_folded",
                 "fields": {
-                    "kw": {"type": "keyword"}
+                    "kw": {
+                        "type": "keyword",
+                        "normalizer": "folded_kw",
+                    },
+                    "sayt": {
+                        "type": "search_as_you_type",
+                        "analyzer": "es_prefix",
+                    },
                 },
             },
             "name_norm": {
                 "type": "text",
-                "analyzer": "standard",
+                "analyzer": "es_prefix",
             },
             # Sociodemographic features (§4.3)
             "nom_ent": {"type": "keyword"},
@@ -84,7 +134,7 @@ TEMPLATES: dict[str, dict] = {
             "risk_score": {"type": "float"},
             "category": {"type": "keyword"},
             "drivers": {"type": "object", "enabled": False},
-            # Optional geographic centroid
+            # Geographic centroid
             "centroid": {"type": "geo_point"},
         },
     },
@@ -110,14 +160,17 @@ TEMPLATES: dict[str, dict] = {
             "key": {"type": "keyword"},
             "label_es": {
                 "type": "text",
-                "analyzer": "spanish",
+                "analyzer": "es_folded",
                 "fields": {
-                    "kw": {"type": "keyword"}
+                    "kw": {
+                        "type": "keyword",
+                        "normalizer": "folded_kw",
+                    },
                 },
             },
             "description": {
                 "type": "text",
-                "analyzer": "spanish",
+                "analyzer": "es_folded",
             },
             "source": {"type": "keyword"},
             "unit": {"type": "keyword"},
@@ -142,3 +195,25 @@ TEMPLATES: dict[str, dict] = {
         },
     },
 }
+
+
+def template_body(kind: str, prefix: str, settings: dict[str, Any]) -> dict[str, Any]:
+    """Generate composite index template body for a given dataset kind."""
+    if kind not in TEMPLATES:
+        raise KeyError(f"Unknown template kind: '{kind}'")
+
+    merged_settings = dict(settings)
+    merged_settings["analysis"] = ANALYSIS
+
+    return {
+        "index_patterns": [f"{prefix}{kind}-*"],
+        "priority": 200,
+        "template": {
+            "settings": merged_settings,
+            "mappings": TEMPLATES[kind],
+        },
+        "_meta": {
+            "app": "atalaya",
+            "schema_version": SCHEMA_VERSION,
+        },
+    }

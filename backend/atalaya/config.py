@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import functools
 import os
 from pathlib import Path
@@ -25,43 +25,86 @@ load_dotenv(BACKEND_DIR / ".env", override=False)
 class Settings:
     """Application settings loaded from environment."""
 
-    es_urls: list[str]
-    es_username: str
-    es_password: str
-    es_insecure: bool
+    search_urls: list[str] = field(default_factory=list)
+    search_username: str = ""
+    search_password: str = ""
+    search_verify_certs: bool = True
+    search_ca_certs: str = ""
+    search_timeout_s: float = 30.0
+    search_replicas: int | None = None
     index_prefix: str = "atalaya-"
     store_mode: str = "auto"
     maas_base_url: str = ""
     maas_api_key: str = ""
     maas_model: str = "glm-5.2"
     llm_enabled: bool = True
-    es_timeout_s: float = 30.0
     target_year: int = 2027
 
     def __repr__(self) -> str:
-        masked_pwd = "***" if self.es_password else ""
+        masked_pwd = "***" if self.search_password else ""
         masked_key = "***" if self.maas_api_key else ""
         return (
-            f"Settings(es_urls={self.es_urls!r}, es_username={self.es_username!r}, "
-            f"es_password={masked_pwd!r}, es_insecure={self.es_insecure!r}, "
-            f"index_prefix={self.index_prefix!r}, store_mode={self.store_mode!r}, "
-            f"maas_base_url={self.maas_base_url!r}, maas_api_key={masked_key!r}, "
-            f"maas_model={self.maas_model!r}, llm_enabled={self.llm_enabled!r}, "
-            f"es_timeout_s={self.es_timeout_s!r}, target_year={self.target_year!r})"
+            f"Settings(search_urls={self.search_urls!r}, search_username={self.search_username!r}, "
+            f"search_password={masked_pwd!r}, search_verify_certs={self.search_verify_certs!r}, "
+            f"search_ca_certs={self.search_ca_certs!r}, search_timeout_s={self.search_timeout_s!r}, "
+            f"search_replicas={self.search_replicas!r}, index_prefix={self.index_prefix!r}, "
+            f"store_mode={self.store_mode!r}, maas_base_url={self.maas_base_url!r}, "
+            f"maas_api_key={masked_key!r}, maas_model={self.maas_model!r}, "
+            f"llm_enabled={self.llm_enabled!r}, target_year={self.target_year!r})"
         )
 
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Retrieve cached application settings."""
-    raw_es_urls = os.getenv("ES_URL", "")
-    es_urls = [u.strip() for u in raw_es_urls.split(",") if u.strip()]
+    raw_search_urls = os.getenv("OPENSEARCH_URL")
+    if raw_search_urls is None or raw_search_urls.strip() == "":
+        raw_search_urls = os.getenv("ES_URL", "")
+    search_urls = [u.strip() for u in raw_search_urls.split(",") if u.strip()]
 
-    es_username = os.getenv("ES_USERNAME", "")
-    es_password = os.getenv("ES_PASSWORD", "")
-    es_insecure = os.getenv("ES_INSECURE", "false").lower() in ("true", "1", "yes")
+    raw_user = os.getenv("OPENSEARCH_USERNAME")
+    search_username = raw_user if (raw_user is not None and raw_user != "") else os.getenv("ES_USERNAME", "")
+
+    raw_pw = os.getenv("OPENSEARCH_PASSWORD")
+    search_password = raw_pw if (raw_pw is not None and raw_pw != "") else os.getenv("ES_PASSWORD", "")
+
+    raw_verify = os.getenv("OPENSEARCH_VERIFY_CERTS")
+    if raw_verify is not None and raw_verify.strip() != "":
+        search_verify_certs = raw_verify.strip().lower() not in ("false", "0", "no")
+    elif "ES_INSECURE" in os.environ and os.getenv("ES_INSECURE", "").strip() != "":
+        search_verify_certs = os.getenv("ES_INSECURE", "").strip().lower() not in ("true", "1", "yes")
+    else:
+        search_verify_certs = True
+
+    search_ca_certs = os.getenv("OPENSEARCH_CA_CERTS", "")
+
+    raw_timeout = os.getenv("OPENSEARCH_TIMEOUT_S")
+    if raw_timeout is None or raw_timeout.strip() == "":
+        raw_timeout = os.getenv("ES_TIMEOUT_S", "30.0")
+    try:
+        search_timeout_s = float(raw_timeout)
+    except ValueError:
+        search_timeout_s = 30.0
+
+    raw_replicas = os.getenv("OPENSEARCH_REPLICAS")
+    search_replicas: int | None = None
+    if raw_replicas is not None and raw_replicas.strip() != "":
+        try:
+            val = int(raw_replicas.strip())
+            if val >= 0:
+                search_replicas = val
+        except ValueError:
+            search_replicas = None
+
     index_prefix = os.getenv("ATALAYA_INDEX_PREFIX", "atalaya-")
-    store_mode = os.getenv("ATALAYA_STORE", "auto").lower()
+
+    raw_store = os.getenv("ATALAYA_STORE", "auto").strip().lower()
+    if raw_store == "es":
+        store_mode = "opensearch"
+    elif raw_store in ("auto", "opensearch", "memory"):
+        store_mode = raw_store
+    else:
+        store_mode = "auto"
 
     maas_base_url = os.getenv("MAAS_BASE_URL", "")
     maas_api_key = os.getenv("MAAS_API_KEY", "")
@@ -69,27 +112,24 @@ def get_settings() -> Settings:
     llm_enabled = os.getenv("ATALAYA_LLM_ENABLED", "1").lower() not in ("false", "0", "no")
 
     try:
-        es_timeout_s = float(os.getenv("ES_TIMEOUT_S", "30.0"))
-    except ValueError:
-        es_timeout_s = 30.0
-
-    try:
         target_year = int(os.getenv("ATALAYA_TARGET_YEAR", "2027"))
     except ValueError:
         target_year = 2027
 
     return Settings(
-        es_urls=es_urls,
-        es_username=es_username,
-        es_password=es_password,
-        es_insecure=es_insecure,
+        search_urls=search_urls,
+        search_username=search_username,
+        search_password=search_password,
+        search_verify_certs=search_verify_certs,
+        search_ca_certs=search_ca_certs,
+        search_timeout_s=search_timeout_s,
+        search_replicas=search_replicas,
         index_prefix=index_prefix,
         store_mode=store_mode,
         maas_base_url=maas_base_url,
         maas_api_key=maas_api_key,
         maas_model=maas_model,
         llm_enabled=llm_enabled,
-        es_timeout_s=es_timeout_s,
         target_year=target_year,
     )
 

@@ -1,15 +1,32 @@
 import type {
   StyleSpecification,
   LayerSpecification,
+  SourceSpecification,
 } from "maplibre-gl";
 import type maplibregl from "maplibre-gl";
+import type { FeatureCollection, Geometry } from "geojson";
 import {
   LAYER_IDS,
   SOURCE_IDS,
+  SOURCE_LAYERS,
   BASEMAP,
   fillExpression,
   type ColorMode,
 } from "@/lib/mapStyle";
+import type { GeometryMode } from "@/lib/mapSupport";
+import type { TileManifest } from "@/lib/types";
+import {
+  absoluteTileUrl,
+  type CountryProperties,
+  type StateProperties,
+  type MunProperties,
+} from "@/lib/geo";
+
+export type GeoSourcesData = {
+  country?: FeatureCollection<Geometry, CountryProperties> | null;
+  states?: FeatureCollection<Geometry, StateProperties> | null;
+  mun?: FeatureCollection<Geometry, MunProperties> | null;
+};
 
 /**
  * Builds the initial MapLibre style specification.
@@ -50,12 +67,80 @@ export function buildStyle(): StyleSpecification {
 }
 
 /**
- * Builds data layer specifications in the exact order specified in §14.6:
+ * Builds source specifications for MapLibre map initialization.
+ * In vector mode, provides vector tiles source with promoteId and country geojson.
+ * In geojson / mock mode, provides states, mun, and country geojson sources.
+ */
+export function buildSources(
+  mode: GeometryMode,
+  manifest?: TileManifest | null,
+  geo?: GeoSourcesData | null
+): Record<string, SourceSpecification> {
+  const emptyFC: FeatureCollection<Geometry, any> = {
+    type: "FeatureCollection",
+    features: [],
+  };
+
+  if (mode === "vector") {
+    const tileTemplates =
+      manifest?.tiles && manifest.tiles.length > 0
+        ? manifest.tiles
+        : ["/geo/tiles/{z}/{x}/{y}.pbf"];
+    const absoluteTiles = tileTemplates.map((t) => absoluteTileUrl(t));
+
+    return {
+      [SOURCE_IDS.country]: {
+        type: "geojson",
+        data: geo?.country ?? emptyFC,
+      },
+      [SOURCE_IDS.vector]: {
+        type: "vector",
+        tiles: absoluteTiles,
+        minzoom: manifest?.minzoom ?? 3,
+        maxzoom: manifest?.maxzoom ?? 9,
+        bounds: manifest?.bounds ?? [-118.6, 14.3, -86.5, 32.8],
+        promoteId: { states: "id", mun: "id" },
+        attribution: BASEMAP.attribution,
+      },
+    };
+  }
+
+  return {
+    [SOURCE_IDS.country]: {
+      type: "geojson",
+      data: geo?.country ?? emptyFC,
+    },
+    [SOURCE_IDS.states]: {
+      type: "geojson",
+      data: geo?.states ?? emptyFC,
+      promoteId: "id",
+    },
+    [SOURCE_IDS.mun]: {
+      type: "geojson",
+      data: geo?.mun ?? emptyFC,
+      promoteId: "id",
+    },
+  };
+}
+
+/**
+ * Builds data layer specifications in the exact order:
  * bg -> carto-base -> country-fill -> states-fill -> mun-fill -> mun-line ->
  * states-line -> states-extrusion -> mun-extrusion -> states-hover ->
- * mun-hover -> selected-line -> carto-labels
+ * mun-hover -> selected-line -> states-selected-line -> carto-labels
  */
-export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
+export function buildDataLayers(
+  colorMode: ColorMode,
+  mode: GeometryMode = "geojson"
+): LayerSpecification[] {
+  const isVector = mode === "vector";
+  const stateSource = isVector ? SOURCE_IDS.vector : SOURCE_IDS.states;
+  const munSource = isVector ? SOURCE_IDS.vector : SOURCE_IDS.mun;
+  const stateLayerProp = isVector
+    ? { "source-layer": SOURCE_LAYERS.states }
+    : {};
+  const munLayerProp = isVector ? { "source-layer": SOURCE_LAYERS.mun } : {};
+
   return [
     {
       id: LAYER_IDS.background,
@@ -81,7 +166,8 @@ export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
     {
       id: LAYER_IDS.statesFill,
       type: "fill",
-      source: SOURCE_IDS.states,
+      source: stateSource,
+      ...stateLayerProp,
       paint: {
         "fill-color": fillExpression(colorMode),
         "fill-opacity": [
@@ -98,7 +184,8 @@ export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
     {
       id: LAYER_IDS.munFill,
       type: "fill",
-      source: SOURCE_IDS.mun,
+      source: munSource,
+      ...munLayerProp,
       paint: {
         "fill-color": fillExpression(colorMode),
         "fill-opacity": [
@@ -115,7 +202,8 @@ export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
     {
       id: LAYER_IDS.munLine,
       type: "line",
-      source: SOURCE_IDS.mun,
+      source: munSource,
+      ...munLayerProp,
       minzoom: 5,
       paint: {
         "line-color": "rgba(148,163,184,0.25)",
@@ -133,7 +221,8 @@ export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
     {
       id: LAYER_IDS.statesLine,
       type: "line",
-      source: SOURCE_IDS.states,
+      source: stateSource,
+      ...stateLayerProp,
       paint: {
         "line-color": "rgba(226,232,240,0.55)",
         "line-width": [
@@ -150,7 +239,8 @@ export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
     {
       id: LAYER_IDS.statesExtrusion,
       type: "fill-extrusion",
-      source: SOURCE_IDS.states,
+      source: stateSource,
+      ...stateLayerProp,
       maxzoom: 6.2,
       layout: {
         visibility: "none",
@@ -165,7 +255,8 @@ export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
     {
       id: LAYER_IDS.munExtrusion,
       type: "fill-extrusion",
-      source: SOURCE_IDS.mun,
+      source: munSource,
+      ...munLayerProp,
       minzoom: 5,
       layout: {
         visibility: "none",
@@ -180,28 +271,62 @@ export function buildDataLayers(colorMode: ColorMode): LayerSpecification[] {
     {
       id: LAYER_IDS.hoverStates,
       type: "line",
-      source: SOURCE_IDS.states,
+      source: stateSource,
+      ...stateLayerProp,
       paint: {
         "line-color": "#ffffff",
-        "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 2.2, 0],
+        "line-width": [
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          2.2,
+          0,
+        ],
       },
     },
     {
       id: LAYER_IDS.hoverMun,
       type: "line",
-      source: SOURCE_IDS.mun,
+      source: munSource,
+      ...munLayerProp,
       paint: {
         "line-color": "#ffffff",
-        "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 2.2, 0],
+        "line-width": [
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          2.2,
+          0,
+        ],
       },
     },
     {
       id: LAYER_IDS.selected,
       type: "line",
-      source: SOURCE_IDS.mun,
+      source: munSource,
+      ...munLayerProp,
       paint: {
         "line-color": "#ffffff",
-        "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3, 0],
+        "line-width": [
+          "case",
+          ["boolean", ["feature-state", "selected"], false],
+          3,
+          0,
+        ],
+        "line-blur": 0.5,
+      },
+    },
+    {
+      id: LAYER_IDS.selectedStates,
+      type: "line",
+      source: stateSource,
+      ...stateLayerProp,
+      paint: {
+        "line-color": "#ffffff",
+        "line-width": [
+          "case",
+          ["boolean", ["feature-state", "selected"], false],
+          3,
+          0,
+        ],
         "line-blur": 0.5,
       },
     },

@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useAtalaya } from "@/lib/state";
 import { useMapRisk } from "@/lib/useMapRisk";
+import type { Map as MapLibreMap } from "maplibre-gl";
 import { Breadcrumb } from "./Breadcrumb";
 import { MapToolbar } from "./MapToolbar";
 import { RegionSearch } from "./RegionSearch";
@@ -57,12 +58,40 @@ const CompareSwipe = dynamic(
 );
 
 export function RiskMap() {
-  const { mapMode = "semaforo", extrude3d = false } = useAtalaya();
+  const {
+    mapMode = "semaforo",
+    extrude3d = false,
+    scenario = "base",
+  } = useAtalaya();
 
   // Single invocation of useMapRisk per §14.4 / §14.7
   const data = useMapRisk();
 
+  const mapInstanceRef = useRef<MapLibreMap | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
+
+  const handleExportPng = React.useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    map.once("render", () => {
+      try {
+        const canvas = map.getCanvas();
+        const dataUrl = canvas.toDataURL("image/png");
+        const a = document.createElement("a");
+        const filename = `atalaya-mapa-${mapMode}-${scenario}.png`;
+        a.href = dataUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err) {
+        console.error("Error al exportar mapa PNG:", err);
+      }
+    });
+
+    map.triggerRepaint();
+  }, [mapMode, scenario]);
   const [containerRect, setContainerRect] = useState<{ width: number; height: number }>({
     width: 800,
     height: 520,
@@ -96,6 +125,9 @@ export function RiskMap() {
             data={data}
             extrude={extrude3d}
             onHover={setHover}
+            onMapReady={(map) => {
+              mapInstanceRef.current = map;
+            }}
           />
         ) : mapMode === "delta" ? (
           <AtalayaMap
@@ -104,6 +136,9 @@ export function RiskMap() {
             colorMode="delta"
             extrude={extrude3d}
             onHover={setHover}
+            onMapReady={(map) => {
+              mapInstanceRef.current = map;
+            }}
           />
         ) : (
           <AtalayaMap
@@ -112,6 +147,9 @@ export function RiskMap() {
             colorMode="category"
             extrude={extrude3d}
             onHover={setHover}
+            onMapReady={(map) => {
+              mapInstanceRef.current = map;
+            }}
           />
         )}
       </div>
@@ -120,7 +158,7 @@ export function RiskMap() {
       {/* Top Left: Breadcrumb + MapToolbar */}
       <div className="absolute top-3 left-3 z-20 flex flex-col gap-2 pointer-events-none">
         <Breadcrumb />
-        <MapToolbar data={data} />
+        <MapToolbar data={data} onExportPng={handleExportPng} />
       </div>
 
       {/* Top Right: RegionSearch */}

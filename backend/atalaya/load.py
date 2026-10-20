@@ -1,8 +1,10 @@
-"""Loader CLI to index data into Elasticsearch or validate via --dry-run."""
+"""Loader CLI to index data into OpenSearch or validate via --dry-run."""
 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+import re
 import sys
 from typing import Any
 
@@ -10,8 +12,15 @@ import numpy as np
 import pandas as pd
 
 from atalaya.config import BUILD_DIR, SEED_DIR, get_settings, index_name
-from atalaya.es_client import bulk_index, ensure_templates, get_es, ping_es
 from atalaya.ingest.common import zpad
+from atalaya.search_client import (
+    auto_replicas,
+    bulk_index,
+    cluster_info,
+    ensure_index_templates,
+    get_client,
+    ping,
+)
 from atalaya.store import PandasStore
 
 
@@ -280,11 +289,189 @@ def validate_docs(
     return errors
 
 
+def assert_prefixed(name: str) -> None:
+    """Raise ValueError if the given index or alias name does not start with the configured prefix."""
+    prefix = get_settings().index_prefix
+    if not prefix or not name.startswith(prefix):
+        raise ValueError(
+            f"Index or alias '{name}' does not start with configured prefix '{prefix}'"
+        )
+
+
+def versioned_name(kind: str, stamp: str) -> str:
+    """Generate a versioned physical index name and validate its prefix."""
+    alias = index_name(kind)
+    assert_prefixed(alias)
+    name = f"{alias}-{stamp}"
+    assert_prefixed(name)
+    return name
+
+
+def physical_versions(client: Any, kind: str) -> list[str]:
+    """Return physical index names matching '{alias}-<14 digits>' sorted from oldest to newest."""
+    alias = index_name(kind)
+    assert_prefixed(alias)
+    pattern = rf"^{re.escape(alias)}-\d{{14}}$"
+    rx = re.compile(pattern)
+    try:
+        res = client.indices.get(index=f"{alias}-*", ignore=[404])
+        if not isinstance(res, dict) or res.get("status") == 404 or "error" in res:
+            return []
+        matching = [name for name in res.keys() if rx.match(name)]
+        return sorted(matching)
+    except Exception:
+        return []
+
+
+def swap_alias(client: Any, alias: str, new_index: str) -> list[str]:
+    """Atomically point alias to new_index, removing any prior index associations."""
+    assert_prefixed(alias)
+    assert_prefixed(new_index)
+
+    current_indices: list[str] = []
+    try:
+        if hasattr(client.indices, "exists_alias") and client.indices.exists_alias(name=alias):
+            alias_map = client.indices.get_alias(name=alias, ignore=[404])
+            if isinstance(alias_map, dict) and not alias_map.get("error"):
+                current_indices = list(alias_map.keys())
+        elif hasattr(client.indices, "get_alias"):
+            alias_map = client.indices.get_alias(name=alias, ignore=[404])
+            if isinstance(alias_map, dict) and not alias_map.get("error"):
+                current_indices = list(alias_map.keys())
+    except Exception:
+        current_indices = []
+
+    actions: list[dict[str, Any]] = []
+    for old_idx in current_indices:
+        assert_prefixed(old_idx)
+        actions.append({"remove": {"index": old_idx, "alias": alias}})
+    actions.append({"add": {"index": new_index, "alias": alias}})
+
+    client.indices.update_aliases(body={"actions": actions})
+    return current_indices
+
+
+def load_kind(
+    client: Any,
+    kind: str,
+    docs: list[dict[str, Any]],
+    *,
+    stamp: str,
+    replicas: int,
+    keep: int,
+) -> dict[str, Any]:
+    """Load documents into a versioned index and atomically swap alias."""
+    alias = index_name(kind)
+    assert_prefixed(alias)
+    new_index = versioned_name(kind, stamp)
+    assert_prefixed(new_index)
+
+    # 1. Create index with 0 replicas and disabled refresh for fast ingestion
+    assert_prefixed(new_index)
+    client.indices.create(
+        index=new_index,
+        body={"settings": {"number_of_replicas": 0, "refresh_interval": "-1"}},
+    )
+
+    try:
+        # 2. Bulk load documents
+        ok, errors = bulk_index(client, new_index, docs, id_field="id", chunk=1000)
+
+        # 3. Restore replicas and refresh_interval
+        assert_prefixed(new_index)
+        client.indices.put_settings(
+            index=new_index,
+            body={"index": {"number_of_replicas": replicas, "refresh_interval": "1s"}},
+        )
+        client.indices.refresh(index=new_index)
+
+        # 4. Count validation
+        cnt_res = client.count(index=new_index)
+        count = cnt_res.get("count", 0) if isinstance(cnt_res, dict) else cnt_res
+
+        if ok != len(docs) or count != len(docs):
+            raise RuntimeError(
+                f"Document count mismatch for '{kind}': expected {len(docs)}, bulk_ok={ok}, count={count}"
+            )
+    except Exception:
+        # Delete new index and keep alias intact
+        try:
+            assert_prefixed(new_index)
+            if client.indices.exists(index=new_index):
+                client.indices.delete(index=new_index)
+        except Exception:
+            pass
+        raise
+
+    # 5. If a concrete index exists with the name of the alias, delete it
+    if client.indices.exists(index=alias) and not client.indices.exists_alias(name=alias):
+        assert_prefixed(alias)
+        client.indices.delete(index=alias)
+
+    # 6. Atomic swap alias
+    removed_from = swap_alias(client, alias, new_index)
+
+    # 7. Delete older versions keeping `keep` previous versions
+    versions = physical_versions(client, kind)
+    older_versions = [v for v in versions if v != new_index]
+    deleted: list[str] = []
+    if keep == 0:
+        to_delete = older_versions
+    elif keep > 0:
+        if len(older_versions) > keep:
+            to_delete = older_versions[:-keep]
+        else:
+            to_delete = []
+    else:
+        to_delete = []
+
+    for old_idx in to_delete:
+        assert_prefixed(old_idx)
+        client.indices.delete(index=old_idx)
+        deleted.append(old_idx)
+
+    return {
+        "kind": kind,
+        "index": new_index,
+        "docs": len(docs),
+        "ok": ok,
+        "errors": errors,
+        "removed_from": removed_from,
+        "deleted": deleted,
+    }
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ATALAYA Elasticsearch Loader")
-    parser.add_argument("--dry-run", action="store_true", help="Validate documents and print counts without connecting to ES")
-    parser.add_argument("--only", type=str, default="units,participation,catalog,profile", help="Comma-separated list of indices to load")
+    parser = argparse.ArgumentParser(description="ATALAYA OpenSearch Loader")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate documents and print counts without connecting to OpenSearch",
+    )
+    parser.add_argument(
+        "--only",
+        type=str,
+        default="units,participation,catalog,profile",
+        help="Comma-separated list of indices to load",
+    )
+    parser.add_argument(
+        "--keep",
+        type=int,
+        default=1,
+        help="Number of previous versions to keep besides the new one (default: 1)",
+    )
+    parser.add_argument(
+        "--replicas",
+        type=int,
+        default=None,
+        help="Number of index replicas (default: auto)",
+    )
     args = parser.parse_args()
+
+    if args.keep < 0:
+        parser.error("--keep must be non-negative")
+    if args.replicas is not None and args.replicas < 0:
+        parser.error("--replicas must be non-negative")
 
     targets = [t.strip() for t in args.only.split(",") if t.strip()]
 
@@ -320,39 +507,76 @@ def main() -> None:
             print(f"  {kind}: {count}")
 
     if args.dry_run:
-        print("[dry-run] Validation complete. No Elasticsearch changes made.")
+        print("[dry-run] Validation complete. No OpenSearch changes made.")
         return
 
     # Real indexing: ping cluster first
-    if not ping_es(timeout_s=5.0):
-        print("cluster unreachable")
+    if not ping(timeout_s=5.0):
+        print("OpenSearch cluster unreachable (ping failed)")
         sys.exit(2)
 
-    es = get_es()
-    if es is None:
-        print("cluster unreachable")
+    client = get_client()
+    if client is None:
+        print("OpenSearch client could not be initialized")
         sys.exit(2)
 
-    ensure_templates(es)
+    info = cluster_info(timeout_s=5.0)
+    dist = info.get("distribution", "opensearch")
+    ver = info.get("version", "unknown")
+    nodes = info.get("nodes", 1)
+    status = info.get("status", "unknown")
+    print(f"OpenSearch Cluster: distribution={dist}, version={ver}, nodes={nodes}, status={status}")
+
+    ensure_index_templates(client)
+
+    if args.replicas is not None:
+        replicas = args.replicas
+    else:
+        replicas = auto_replicas(client)
+
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    results: list[dict[str, Any]] = []
+    has_failure = False
 
     for kind in targets:
         docs = all_docs.get(kind, [])
-        idx = index_name(kind)
-
-        # Delete and recreate index
+        idx_target = versioned_name(kind, stamp)
         try:
-            if es.indices.exists(index=idx):
-                es.indices.delete(index=idx)
-            es.indices.create(index=idx)
+            res = load_kind(
+                client,
+                kind,
+                docs,
+                stamp=stamp,
+                replicas=replicas,
+                keep=args.keep,
+            )
+            results.append({
+                "kind": kind,
+                "index": res["index"],
+                "docs": len(docs),
+                "status": "OK",
+            })
+            print(f"Indexed {res['ok']}/{len(docs)} documents into {res['index']} (alias: {index_name(kind)})")
         except Exception as e:
-            print(f"Failed to create index {idx}: {e}")
-            sys.exit(1)
+            has_failure = True
+            results.append({
+                "kind": kind,
+                "index": idx_target,
+                "docs": len(docs),
+                "status": f"FAILED: {e}",
+            })
+            print(f"Failed to load {kind}: {e}", file=sys.stderr)
 
-        ok_count, errors = bulk_index(es, idx, docs, id_field="id", chunk=2000)
-        es.indices.refresh(index=idx)
-        print(f"Indexed {ok_count}/{len(docs)} documents into {idx}")
-        if errors:
-            print(f"Sample errors ({len(errors)}): {errors[:2]}")
+    # Print summary table
+    print("\nSummary:")
+    print(f"{'Kind':<15} {'Index':<35} {'Docs':<10} {'Status'}")
+    print("-" * 75)
+    for r in results:
+        print(f"{r['kind']:<15} {r['index']:<35} {r['docs']:<10} {r['status']}")
+
+    if has_failure:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 sse-starlette
 httpx
-elasticsearch==7.17.13
+opensearch-py==3.0.0
 python-dotenv
 pydantic>=2
 pandas
@@ -10,5 +10,7 @@ numpy
 pyarrow
 openpyxl
 xlrd
+websockets
+Pillow
 pytest
 pytest-timeout

@@ -19,12 +19,15 @@ body {
 /* MapLibre controls dark theme */
 .maplibregl-ctrl-group {
   background: #0f172a;
-  border: 1px solid #1e293b;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
 }
 
 .maplibregl-ctrl-group button {
   background: transparent;
-  border-bottom: 1px solid #1e293b;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 .maplibregl-ctrl-group button:last-child {
@@ -38,10 +41,18 @@ body {
 .maplibregl-ctrl-attrib {
   font-size: 10px;
   color: #94a3b8;
-  background-color: rgba(15, 23, 42, 0.75);
+  background-color: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 4px;
+  padding: 2px 6px;
 }
 
 .maplibregl-ctrl-attrib a {
-  color: #94a3b8;
+  color: #38bdf8;
+  text-decoration: underline;
+}
+
+.maplibregl-ctrl-attrib a:hover {
+  color: #7dd3fc;
 }
 

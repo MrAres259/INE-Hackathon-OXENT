@@ -145,11 +145,11 @@ try {
     }
 
     # Step 10: Load dry-run validation
-    Run-Step -StepNumber "10" -StepTitle "Validating Elasticsearch Documents (dry-run)" -Action {
+    Run-Step -StepNumber "10" -StepTitle "Validating OpenSearch Documents (dry-run)" -Action {
         python -m atalaya.load --dry-run
     }
 
-    # Step 11: Optional load to Elasticsearch / Cloud Search
+    # Step 11: Optional load to OpenSearch / Cloud Search
     Run-Step -StepNumber "11" -StepTitle "Loading Index into Cluster" -Action {
         if ($Load) {
             $checkScript = Join-Path $repoRoot "scripts\check_cluster.py"
@@ -157,8 +157,20 @@ try {
                 python $checkScript
                 $clusterCheck = $LASTEXITCODE
                 if ($clusterCheck -eq 0) {
-                    Write-Host "Cluster is reachable. Loading documents..." -ForegroundColor Green
+                    Write-Host "OpenSearch cluster is reachable. Loading documents..." -ForegroundColor Green
                     python -m atalaya.load
+                    $loadExit = $LASTEXITCODE
+                    if ($loadExit -ne 0) {
+                        if ($loadExit -eq 1) {
+                            Write-Host "[-] OpenSearch ingestion failed during indexing (exit code: 1)." -ForegroundColor Red
+                        } elseif ($loadExit -eq 2) {
+                            Write-Host "[-] OpenSearch cluster connection failed (exit code: 2)." -ForegroundColor Red
+                        } else {
+                            Write-Host "[-] OpenSearch load failed with unexpected exit code: $loadExit" -ForegroundColor Red
+                        }
+                        $global:LASTEXITCODE = $loadExit
+                        return
+                    }
                 } else {
                     Write-Host "Cluster check returned $clusterCheck (unreachable). Skipping live load." -ForegroundColor Yellow
                     $global:LASTEXITCODE = 0

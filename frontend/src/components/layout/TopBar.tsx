@@ -18,7 +18,7 @@ export function TopBar() {
     apiAvailable,
   } = useAtalaya();
 
-  const storeType = meta?.store ?? "memoria";
+  const storeLabel = meta?.store === "opensearch" ? "OpenSearch" : "memoria";
 
   return (
     <header className="bg-slate-900 text-white border-b border-slate-800 shadow-sm sticky top-0 z-30">
@@ -116,7 +116,7 @@ export function TopBar() {
           ) : (
             <div className="flex items-center gap-1.5 text-xs bg-emerald-950/80 text-emerald-300 border border-emerald-800/80 px-2.5 py-1 rounded-full">
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              <span className="font-medium uppercase">{storeType}</span>
+              <span className="font-medium">{storeLabel}</span>
             </div>
           )}
 

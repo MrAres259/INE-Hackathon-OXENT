@@ -9,12 +9,14 @@ import shutil
 from typing import Any
 import pytest
 import elasticsearch
+import opensearchpy
 import pandas as pd
 
 import atalaya.ingest.common as _ingest_common
 
 # Force offline and memory settings before any atalaya imports
 os.environ["ES_URL"] = ""
+os.environ["OPENSEARCH_URL"] = ""
 os.environ["ATALAYA_STORE"] = "memory"
 os.environ["ATALAYA_LLM_ENABLED"] = "0"
 os.environ["MAAS_API_KEY"] = ""
@@ -138,28 +140,39 @@ def _restore_guarded_write_operations():
 
 
 @pytest.fixture(autouse=True)
-def block_elasticsearch_init(monkeypatch):
-    """Enforce offline execution: forbid instantiating Elasticsearch during tests."""
-    def _forbid_init(*args, **kwargs):
+def block_opensearch_init(monkeypatch):
+    """Enforce offline execution: forbid instantiating OpenSearch or Elasticsearch during tests."""
+    def _forbid_opensearch_init(*args, **kwargs):
+        raise RuntimeError("Network/OpenSearch client instantiation is blocked in tests.")
+
+    def _forbid_es_init(*args, **kwargs):
         raise RuntimeError("Network/Elasticsearch client instantiation is blocked in tests.")
 
-    monkeypatch.setattr(elasticsearch.Elasticsearch, "__init__", _forbid_init)
+    monkeypatch.setattr(opensearchpy.OpenSearch, "__init__", _forbid_opensearch_init)
+    monkeypatch.setattr(elasticsearch.Elasticsearch, "__init__", _forbid_es_init)
 
 
 @pytest.fixture(autouse=True)
 def reset_lru_caches():
-    """Clear settings, es client, and store caches between test runs."""
+    """Clear settings, search client, and store caches between test runs."""
     from atalaya.config import get_settings
-    from atalaya.es_client import get_es
-    from atalaya.store import get_store
+    from atalaya.search_client import reset_client
 
     get_settings.cache_clear()
-    get_es.cache_clear()
-    get_store.cache_clear()
+    reset_client()
+    try:
+        from atalaya.store import get_store
+        get_store.cache_clear()
+    except (ImportError, AttributeError):
+        pass
     yield
     get_settings.cache_clear()
-    get_es.cache_clear()
-    get_store.cache_clear()
+    reset_client()
+    try:
+        from atalaya.store import get_store
+        get_store.cache_clear()
+    except (ImportError, AttributeError):
+        pass
 
 
 @pytest.fixture

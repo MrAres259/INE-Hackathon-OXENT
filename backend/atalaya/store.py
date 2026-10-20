@@ -1,4 +1,4 @@
-"""DataStore implementations: PandasStore (offline/fallback) and EsStore (CSS cluster)."""
+"""DataStore implementations: PandasStore (offline/fallback) and OpenSearchStore (CSS cluster)."""
 
 from __future__ import annotations
 
@@ -7,15 +7,17 @@ import functools
 import json
 import logging
 import re
+import threading
+import time
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 import numpy as np
 import pandas as pd
-from elasticsearch.helpers import scan
+from opensearchpy import helpers
 
 from atalaya.config import BUILD_DIR, SEED_DIR, get_settings, index_name
-from atalaya.es_client import get_es, ping_es
+from atalaya.search_client import get_client, ping, reset_client
 from atalaya.ingest.common import norm_name, zpad
 
 try:
@@ -75,7 +77,7 @@ class StoreError(Exception):
 class DataStore(Protocol):
     """Protocol defining the DataStore interface."""
 
-    kind: str  # "es" | "memory"
+    kind: str  # "opensearch" | "memory"
 
     def healthy(self) -> bool:
         ...
@@ -156,6 +158,8 @@ class PandasStore:
     """In-memory DataStore backed by Parquet build files and seed CSVs."""
 
     kind: str = "memory"
+    degraded: bool = False
+    last_error: str | None = None
 
     def __init__(self, build_dir: Path | str = BUILD_DIR, seed_dir: Path | str = SEED_DIR):
         self.build_dir = Path(build_dir)
@@ -1086,54 +1090,74 @@ class PandasStore:
             return {k: (None if pd.isna(v) else v) for k, v in row.items()}
 
 
-class EsStore:
-    """DataStore backed by Elasticsearch (Huawei CSS)."""
+def _clean_error_message(exc: Exception) -> str:
+    """Format a clean, short error message without URLs or credentials."""
+    msg = str(exc)
+    msg = re.sub(r"://([^:]+):([^@]+)@", "://***:***@", msg)
+    msg = re.sub(r"https?://[^\s\'\"]+", "<cluster-url>", msg)
+    msg = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}:\d+\b", "<ip:port>", msg)
+    if len(msg) > 160:
+        msg = msg[:157] + "..."
+    return msg
 
-    kind: str = "es"
 
-    def __init__(self):
+class OpenSearchStore:
+    """DataStore backed by OpenSearch (Huawei CSS cluster)."""
+
+    kind: str = "opensearch"
+    degraded: bool = False
+    last_error: str | None = None
+
+    def __init__(self, client: Any | None = None):
         self.settings = get_settings()
+        self._injected_client = client
 
     def healthy(self) -> bool:
-        return ping_es(timeout_s=self.settings.es_timeout_s)
+        return ping(timeout_s=self.settings.search_timeout_s)
 
-    def _client(self):
-        es = get_es()
-        if es is None:
-            raise StoreError("Elasticsearch client is not configured")
-        return es
+    def _client(self) -> Any:
+        client = self._injected_client if self._injected_client is not None else get_client()
+        if client is None:
+            raise StoreError("OpenSearch client is not configured")
+        return client
 
     def units(self, level: str = "mun", ent: str | None = None) -> pd.DataFrame:
-        es = self._client()
+        client = self._client()
         idx = index_name("units")
-        query: dict[str, Any] = {"bool": {"filter": []}}
+        filters: list[dict[str, Any]] = []
         if level:
-            query["bool"]["filter"].append({"term": {"level": level}})
+            filters.append({"term": {"level": level}})
         if ent:
-            query["bool"]["filter"].append({"term": {"cve_ent": zpad(ent, 2)}})
+            filters.append({"term": {"cve_ent": zpad(ent, 2)}})
 
+        query = {"bool": {"filter": filters}} if filters else {"match_all": {}}
         try:
-            hits = scan(
-                es,
+            hits = helpers.scan(
+                client,
                 index=idx,
                 query={"query": query},
-                request_timeout=self.settings.es_timeout_s,
+                request_timeout=self.settings.search_timeout_s,
             )
             rows = [hit["_source"] for hit in hits]
             return pd.DataFrame(rows)
         except Exception as e:
-            raise StoreError(f"Error reading units from ES: {e}") from e
+            raise StoreError(f"Error reading units from OpenSearch: {_clean_error_message(e)}") from e
 
     def unit(self, unit_id: str) -> dict | None:
-        es = self._client()
+        client = self._client()
         idx = index_name("units")
         try:
-            resp = es.get(index=idx, id=str(unit_id), ignore=[404], request_timeout=self.settings.es_timeout_s)
-            if resp.get("found"):
+            resp = client.get(
+                index=idx,
+                id=str(unit_id),
+                ignore=[404],
+                request_timeout=self.settings.search_timeout_s,
+            )
+            if resp and resp.get("found"):
                 return resp["_source"]
             return None
         except Exception as e:
-            raise StoreError(f"Error fetching unit {unit_id} from ES: {e}") from e
+            raise StoreError(f"Error fetching unit {unit_id} from OpenSearch: {_clean_error_message(e)}") from e
 
     def participation(
         self,
@@ -1143,52 +1167,85 @@ class EsStore:
         election: str | None = "DIP_FED",
         years: list[int] | None = None,
     ) -> pd.DataFrame:
-        es = self._client()
+        client = self._client()
         idx = index_name("participation")
-        filters: list[dict] = []
+        filters: list[dict[str, Any]] = []
         if level:
             filters.append({"term": {"level": level}})
         if election:
             filters.append({"term": {"election": election}})
         if unit_ids:
-            filters.append({"terms": {"unit_id": unit_ids}})
+            filters.append({"terms": {"unit_id": [str(u) for u in unit_ids]}})
         if years:
-            filters.append({"terms": {"year": years}})
+            filters.append({"terms": {"year": [int(y) for y in years]}})
 
-        query = {"query": {"bool": {"filter": filters}}} if filters else {"query": {"match_all": {}}}
+        query = {"bool": {"filter": filters}} if filters else {"match_all": {}}
         try:
-            hits = scan(es, index=idx, query=query, request_timeout=self.settings.es_timeout_s)
+            hits = helpers.scan(
+                client,
+                index=idx,
+                query={"query": query},
+                request_timeout=self.settings.search_timeout_s,
+            )
             rows = [h["_source"] for h in hits]
             return pd.DataFrame(rows)
         except Exception as e:
-            raise StoreError(f"Error reading participation from ES: {e}") from e
+            raise StoreError(f"Error reading participation from OpenSearch: {_clean_error_message(e)}") from e
 
     def search_units(self, text: str, *, level: str | None = None, size: int = 5) -> list[dict]:
-        es = self._client()
+        client = self._client()
         idx = index_name("units")
-        filters = []
+        filters: list[dict[str, Any]] = []
         if level:
             filters.append({"term": {"level": level}})
 
-        body = {
+        normalized_kw = norm_name(text).lower()
+        should_clauses: list[dict[str, Any]] = [
+            {
+                "multi_match": {
+                    "query": text,
+                    "type": "bool_prefix",
+                    "fields": [
+                        "name.sayt",
+                        "name.sayt._2gram",
+                        "name.sayt._3gram",
+                    ],
+                }
+            },
+            {
+                "match": {
+                    "name": {
+                        "query": text,
+                        "fuzziness": "AUTO",
+                    }
+                }
+            },
+            {
+                "term": {
+                    "name.kw": {
+                        "value": normalized_kw,
+                        "boost": 10,
+                    }
+                }
+            },
+        ]
+
+        body: dict[str, Any] = {
             "size": size,
             "query": {
                 "bool": {
-                    "must": [
-                        {
-                            "multi_match": {
-                                "query": text,
-                                "fields": ["name^2", "name_norm"],
-                                "fuzziness": "AUTO",
-                            }
-                        }
-                    ],
+                    "should": should_clauses,
+                    "minimum_should_match": 1,
                     "filter": filters,
                 }
             },
         }
         try:
-            resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            resp = client.search(
+                index=idx,
+                body=body,
+                request_timeout=self.settings.search_timeout_s,
+            )
             hits = resp.get("hits", {}).get("hits", [])
             results = []
             for h in hits:
@@ -1202,22 +1259,27 @@ class EsStore:
                 })
             return results
         except Exception as e:
-            raise StoreError(f"Error searching units in ES: {e}") from e
+            raise StoreError(f"Error searching units in OpenSearch: {_clean_error_message(e)}") from e
 
     def search_catalog(self, text: str, size: int = 5) -> list[dict]:
-        es = self._client()
+        client = self._client()
         idx = index_name("catalog")
         body = {
             "size": size,
             "query": {
                 "multi_match": {
                     "query": text,
-                    "fields": ["label_es^2", "description"],
+                    "fields": ["label_es^3", "description", "key^2"],
+                    "fuzziness": "AUTO",
                 }
             },
         }
         try:
-            resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            resp = client.search(
+                index=idx,
+                body=body,
+                request_timeout=self.settings.search_timeout_s,
+            )
             hits = resp.get("hits", {}).get("hits", [])
             results = []
             for h in hits:
@@ -1226,31 +1288,31 @@ class EsStore:
                 results.append(item)
             return results
         except Exception as e:
-            raise StoreError(f"Error searching catalog in ES: {e}") from e
+            raise StoreError(f"Error searching catalog in OpenSearch: {_clean_error_message(e)}") from e
 
-    def _build_es_filter(self, filters: dict | None, level: str) -> list[dict]:
+    def _build_filter(self, filters: dict | None, level: str) -> list[dict]:
         filters = filters or {}
-        es_filters: list[dict] = [{"term": {"level": level}}]
+        os_filters: list[dict] = [{"term": {"level": level}}]
 
         if "cve_ent" in filters:
             v = filters["cve_ent"]
             if isinstance(v, list):
-                es_filters.append({"terms": {"cve_ent": [zpad(x, 2) for x in v]}})
+                os_filters.append({"terms": {"cve_ent": [zpad(x, 2) for x in v]}})
             else:
-                es_filters.append({"term": {"cve_ent": zpad(v, 2)}})
+                os_filters.append({"term": {"cve_ent": zpad(v, 2)}})
 
         if "category" in filters:
             v = filters["category"]
             cats = v if isinstance(v, list) else [v]
-            es_filters.append({"terms": {"category": cats}})
+            os_filters.append({"terms": {"category": cats}})
 
         if "gm_2020" in filters:
             v = filters["gm_2020"]
             gms = v if isinstance(v, list) else [v]
-            es_filters.append({"terms": {"gm_2020": gms}})
+            os_filters.append({"terms": {"gm_2020": gms}})
 
         if "ids" in filters:
-            es_filters.append({"terms": {"id": filters["ids"]}})
+            os_filters.append({"terms": {"id": filters["ids"]}})
 
         for k, v in filters.items():
             if isinstance(v, dict):
@@ -1259,13 +1321,13 @@ class EsStore:
                     if op in v:
                         rng[op] = v[op]
                 if rng:
-                    es_filters.append({"range": {k: rng}})
+                    os_filters.append({"range": {k: rng}})
 
-        return es_filters
+        return os_filters
 
     @functools.lru_cache(maxsize=8)
     def _get_latest_part_year(self, election: str = "DIP_FED") -> int:
-        es = self._client()
+        client = self._client()
         idx = index_name("participation")
         body = {
             "size": 0,
@@ -1273,7 +1335,7 @@ class EsStore:
             "aggs": {"max_year": {"max": {"field": "year"}}},
         }
         try:
-            res = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            res = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
             val = res.get("aggregations", {}).get("max_year", {}).get("value")
             return int(val) if val is not None else 2024
         except Exception:
@@ -1300,7 +1362,7 @@ class EsStore:
         return {}
 
     def profile(self, unit_id: str, year: int | None = None) -> list[dict]:
-        es = self._client()
+        client = self._client()
         idx = index_name("profile")
         filters: list[dict] = [{"term": {"unit_id": str(unit_id)}}]
         if year is not None:
@@ -1312,7 +1374,7 @@ class EsStore:
             "sort": [{"year": "asc"}, {"age_group": "asc"}, {"sexo": "asc"}],
         }
         try:
-            resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
             hits = resp.get("hits", {}).get("hits", [])
             if not hits:
                 return []
@@ -1340,7 +1402,7 @@ class EsStore:
                 })
             return results
         except Exception as e:
-            logger.warning("Error fetching profile from ES: %s", e)
+            logger.warning("Error fetching profile from OpenSearch: %s", _clean_error_message(e))
             return []
 
     def ccpc_features(self, unit_id: str, year: int | None = None) -> dict | None:
@@ -1398,7 +1460,7 @@ class EsStore:
                     row = matches.iloc[0].to_dict()
                     return {k: (None if pd.isna(v) else v) for k, v in row.items()}
             except Exception as e:
-                logger.warning("Error reading ccpc_features in EsStore: %s", e)
+                logger.warning("Error reading ccpc_features in OpenSearchStore: %s", _clean_error_message(e))
                 return None
         return None
 
@@ -1411,34 +1473,34 @@ class EsStore:
         order: str = "desc",
         limit: int = 10,
     ) -> list[dict]:
-        es = self._client()
+        client = self._client()
         filters = filters or {}
         election = filters.get("election", "DIP_FED")
         target_field = metric
 
         if metric in ("participacion", "abstencion") and election == "DIP_FED":
             idx = index_name("units")
-            es_filters = self._build_es_filter(filters, level)
+            os_filters = self._build_filter(filters, level)
             yr = filters.get("year") or self._get_latest_part_year("DIP_FED")
             target_field = f"part_dip_{yr}" if metric == "participacion" else f"abst_dip_{yr}"
         elif metric in PARTICIPATION_METRICS:
             idx = index_name("participation")
-            es_filters = self._build_es_filter(filters, level)
+            os_filters = self._build_filter(filters, level)
             yr = filters.get("year") or self._get_latest_part_year(election)
-            es_filters.append({"term": {"year": yr}})
-            es_filters.append({"term": {"election": election}})
+            os_filters.append({"term": {"year": yr}})
+            os_filters.append({"term": {"election": election}})
         else:
             idx = index_name("units")
-            es_filters = self._build_es_filter(filters, level)
+            os_filters = self._build_filter(filters, level)
 
         sort_dir = "desc" if order.lower() == "desc" else "asc"
         body = {
             "size": limit,
-            "query": {"bool": {"filter": es_filters}},
+            "query": {"bool": {"filter": os_filters}},
             "sort": [{target_field: {"order": sort_dir}}],
         }
         try:
-            resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
             hits = resp.get("hits", {}).get("hits", [])
             results = []
             for h in hits:
@@ -1455,7 +1517,7 @@ class EsStore:
                 })
             return results
         except Exception as e:
-            raise StoreError(f"Error computing top for {metric} in ES: {e}") from e
+            raise StoreError(f"Error computing top for {metric} in OpenSearch: {_clean_error_message(e)}") from e
 
     def aggregate(
         self,
@@ -1466,25 +1528,25 @@ class EsStore:
         filters: dict | None = None,
         stat: str = "avg",
     ) -> list[dict]:
-        es = self._client()
+        client = self._client()
         filters = filters or {}
         election = filters.get("election", "DIP_FED")
         target_field = metric
 
         if metric in ("participacion", "abstencion") and election == "DIP_FED":
             idx = index_name("units")
-            es_filters = self._build_es_filter(filters, level)
+            os_filters = self._build_filter(filters, level)
             yr = filters.get("year") or self._get_latest_part_year("DIP_FED")
             target_field = f"part_dip_{yr}" if metric == "participacion" else f"abst_dip_{yr}"
         elif metric in PARTICIPATION_METRICS:
             idx = index_name("participation")
-            es_filters = self._build_es_filter(filters, level)
+            os_filters = self._build_filter(filters, level)
             yr = filters.get("year") or self._get_latest_part_year(election)
-            es_filters.append({"term": {"year": yr}})
-            es_filters.append({"term": {"election": election}})
+            os_filters.append({"term": {"year": yr}})
+            os_filters.append({"term": {"election": election}})
         else:
             idx = index_name("units")
-            es_filters = self._build_es_filter(filters, level)
+            os_filters = self._build_filter(filters, level)
 
         stat_map = {
             "avg": "avg",
@@ -1495,28 +1557,28 @@ class EsStore:
             "count": "value_count",
             "median": "percentiles",
         }
-        es_stat = stat_map.get(stat.lower(), "avg")
+        os_stat = stat_map.get(stat.lower(), "avg")
         stat_body: dict[str, Any] = {"field": target_field}
-        if es_stat == "percentiles":
+        if os_stat == "percentiles":
             stat_body["percents"] = [50]
 
         if group_by:
             aggs = {
                 "by_group": {
                     "terms": {"field": group_by, "size": 1000},
-                    "aggs": {"stat_val": {es_stat: stat_body}},
+                    "aggs": {"stat_val": {os_stat: stat_body}},
                 }
             }
         else:
-            aggs = {"stat_val": {es_stat: stat_body}}
+            aggs = {"stat_val": {os_stat: stat_body}}
 
         body = {
             "size": 0,
-            "query": {"bool": {"filter": es_filters}},
+            "query": {"bool": {"filter": os_filters}},
             "aggs": aggs,
         }
         try:
-            resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
             agg_resp = resp.get("aggregations", {})
 
             if group_by:
@@ -1524,7 +1586,7 @@ class EsStore:
                 results = []
                 for b in buckets:
                     val_obj = b.get("stat_val", {})
-                    if es_stat == "percentiles":
+                    if os_stat == "percentiles":
                         val = val_obj.get("values", {}).get("50.0")
                     else:
                         val = val_obj.get("value")
@@ -1536,7 +1598,7 @@ class EsStore:
                 return results
             else:
                 val_obj = agg_resp.get("stat_val", {})
-                if es_stat == "percentiles":
+                if os_stat == "percentiles":
                     val = val_obj.get("values", {}).get("50.0")
                 else:
                     val = val_obj.get("value")
@@ -1546,7 +1608,7 @@ class EsStore:
                     "count": resp.get("hits", {}).get("total", {}).get("value", 0),
                 }]
         except Exception as e:
-            raise StoreError(f"Error aggregating {metric} in ES: {e}") from e
+            raise StoreError(f"Error aggregating {metric} in OpenSearch: {_clean_error_message(e)}") from e
 
     def correlation(
         self,
@@ -1555,76 +1617,135 @@ class EsStore:
         level: str = "mun",
         filters: dict | None = None,
     ) -> dict:
-        es = self._client()
+        client = self._client()
         idx = index_name("units")
-        es_filters = self._build_es_filter(filters, level)
+        os_filters = self._build_filter(filters, level)
         filters = filters or {}
         election = filters.get("election", "DIP_FED")
 
-        es_fields = []
+        os_fields = []
         field_alias_map = {}
         for f in fields:
             if f in ("participacion", "abstencion") and election == "DIP_FED":
                 yr = filters.get("year") or self._get_latest_part_year("DIP_FED")
                 translated = f"part_dip_{yr}" if f == "participacion" else f"abst_dip_{yr}"
-                es_fields.append(translated)
+                os_fields.append(translated)
                 field_alias_map[translated] = f
             else:
-                es_fields.append(f)
+                os_fields.append(f)
                 field_alias_map[f] = f
 
-        body = {
-            "size": 0,
-            "query": {"bool": {"filter": es_filters}},
-            "aggs": {
-                "matrix": {
-                    "matrix_stats": {
-                        "fields": es_fields
-                    }
-                }
-            },
-        }
+        use_client_route = False
+        doc_count = 0
+        corr_matrix: dict[str, dict[str, float | None]] = {f: {} for f in fields}
+
         try:
-            resp = es.search(index=idx, body=body, request_timeout=self.settings.es_timeout_s)
+            body = {
+                "size": 0,
+                "query": {"bool": {"filter": os_filters}},
+                "aggs": {
+                    "matrix": {
+                        "matrix_stats": {
+                            "fields": os_fields
+                        }
+                    }
+                },
+            }
+            resp = client.search(index=idx, body=body, request_timeout=self.settings.search_timeout_s)
             matrix_agg = resp.get("aggregations", {}).get("matrix", {})
             doc_count = matrix_agg.get("doc_count", 0)
-            fields_res = matrix_agg.get("fields", [])
 
-            corr_matrix: dict[str, dict[str, float | None]] = {f: {} for f in fields}
-            res_dict = {item["name"]: item.get("correlation", {}) for item in fields_res}
+            if doc_count < 3:
+                use_client_route = True
+            else:
+                fields_res = matrix_agg.get("fields", [])
+                res_dict = {item["name"]: item.get("correlation", {}) for item in fields_res}
+                for f1 in fields:
+                    for f2 in fields:
+                        if f1 == f2:
+                            corr_matrix[f1][f2] = 1.0
+                        else:
+                            t1 = next((k for k, v in field_alias_map.items() if v == f1), f1)
+                            t2 = next((k for k, v in field_alias_map.items() if v == f2), f2)
+                            val = res_dict.get(t1, {}).get(t2)
+                            corr_matrix[f1][f2] = round(float(val), 4) if val is not None else None
 
-            for f1 in fields:
-                for f2 in fields:
-                    if f1 == f2:
-                        corr_matrix[f1][f2] = 1.0
-                    else:
-                        t1 = next((k for k, v in field_alias_map.items() if v == f1), f1)
-                        t2 = next((k for k, v in field_alias_map.items() if v == f2), f2)
-                        val = res_dict.get(t1, {}).get(t2)
-                        corr_matrix[f1][f2] = round(float(val), 4) if val is not None else None
+                return {"n": doc_count, "fields": fields, "matrix": corr_matrix, "method": "matrix_stats"}
+        except Exception as agg_exc:
+            logger.debug("matrix_stats failed, falling back to client correlation: %s", agg_exc)
+            use_client_route = True
 
-            return {"n": doc_count, "fields": fields, "matrix": corr_matrix}
-        except Exception as e:
-            raise StoreError(f"Error computing correlation in ES: {e}") from e
+        if use_client_route:
+            try:
+                scan_query = {"query": {"bool": {"filter": os_filters}}}
+                hits = helpers.scan(
+                    client,
+                    index=idx,
+                    query=scan_query,
+                    request_timeout=self.settings.search_timeout_s,
+                )
+                data_rows = []
+                for h in hits:
+                    src = h["_source"]
+                    row_vals = {}
+                    for f in fields:
+                        target_col = next((k for k, v in field_alias_map.items() if v == f), f)
+                        val = src.get(target_col)
+                        try:
+                            row_vals[f] = float(val) if val is not None and pd.notna(val) else np.nan
+                        except (ValueError, TypeError):
+                            row_vals[f] = np.nan
+                    data_rows.append(row_vals)
+
+                if data_rows:
+                    df_sub = pd.DataFrame(data_rows)[fields].dropna()
+                    n = len(df_sub)
+                else:
+                    n = 0
+
+                matrix = {f1: {} for f1 in fields}
+                if n >= 2:
+                    for f1 in fields:
+                        for f2 in fields:
+                            if f1 == f2:
+                                matrix[f1][f2] = 1.0
+                            else:
+                                s1 = df_sub[f1].to_numpy(dtype=float)
+                                s2 = df_sub[f2].to_numpy(dtype=float)
+                                std1 = float(np.std(s1, ddof=1)) if len(s1) > 1 else 0.0
+                                std2 = float(np.std(s2, ddof=1)) if len(s2) > 1 else 0.0
+                                if std1 > 0 and std2 > 0:
+                                    r = float(np.corrcoef(s1, s2)[0, 1])
+                                    matrix[f1][f2] = round(r, 4) if np.isfinite(r) else None
+                                else:
+                                    matrix[f1][f2] = None
+                else:
+                    for f1 in fields:
+                        for f2 in fields:
+                            matrix[f1][f2] = 1.0 if f1 == f2 else None
+
+                return {"n": n, "fields": fields, "matrix": matrix, "method": "client"}
+            except Exception as scan_exc:
+                raise StoreError(f"Error computing correlation in OpenSearch: {_clean_error_message(scan_exc)}") from scan_exc
 
     def stats(self) -> dict:
-        es = self._client()
+        client = self._client()
         try:
             units_idx = index_name("units")
             part_idx = index_name("participation")
 
-            u_resp = es.search(
+            u_resp = client.search(
                 index=units_idx,
                 body={
                     "size": 0,
                     "aggs": {"by_level": {"terms": {"field": "level"}}},
                 },
-                request_timeout=self.settings.es_timeout_s,
+                request_timeout=self.settings.search_timeout_s,
             )
             buckets = u_resp.get("aggregations", {}).get("by_level", {}).get("buckets", [])
             level_counts = {b["key"]: b["doc_count"] for b in buckets}
 
-            p_resp = es.search(
+            p_resp = client.search(
                 index=part_idx,
                 body={
                     "size": 0,
@@ -1633,7 +1754,7 @@ class EsStore:
                         "elections": {"terms": {"field": "election", "size": 100}},
                     },
                 },
-                request_timeout=self.settings.es_timeout_s,
+                request_timeout=self.settings.search_timeout_s,
             )
             p_total = p_resp.get("hits", {}).get("total", {}).get("value", 0)
             y_buckets = p_resp.get("aggregations", {}).get("years", {}).get("buckets", [])
@@ -1647,27 +1768,195 @@ class EsStore:
                 "elections": sorted([str(b["key"]) for b in e_buckets]),
             }
         except Exception as e:
-            raise StoreError(f"Error computing stats in ES: {e}") from e
+            raise StoreError(f"Error computing stats in OpenSearch: {_clean_error_message(e)}") from e
+
+
+class ResilientStore:
+    """Resilient DataStore wrapping OpenSearchStore with circuit breaker and lazy PandasStore fallback."""
+
+    def __init__(
+        self,
+        os_store: OpenSearchStore | None = None,
+        memory_store: PandasStore | None = None,
+        *,
+        cooldown_s: float = 60.0,
+        clock: Callable[[], float] | None = None,
+    ):
+        self._os_store = os_store if os_store is not None else OpenSearchStore()
+        self._memory_store = memory_store
+        self._cooldown_s = float(cooldown_s)
+        self._clock = clock if clock is not None else time.monotonic
+        self._lock = threading.Lock()
+        self._last_failure_time: float = 0.0
+        self._degraded: bool = False
+        self._last_error: str | None = None
+        self._current_kind: str = "opensearch"
+
+    @property
+    def kind(self) -> str:
+        with self._lock:
+            return self._current_kind
+
+    @property
+    def degraded(self) -> bool:
+        with self._lock:
+            return self._degraded
+
+    @property
+    def last_error(self) -> str | None:
+        with self._lock:
+            return self._last_error
+
+    def _get_memory_store(self) -> PandasStore:
+        if self._memory_store is None:
+            with self._lock:
+                if self._memory_store is None:
+                    self._memory_store = PandasStore()
+        return self._memory_store
+
+    def _dispatch(self, method_name: str, *args, **kwargs) -> Any:
+        now = self._clock()
+        with self._lock:
+            in_cooldown = self._degraded and ((now - self._last_failure_time) < self._cooldown_s)
+
+        if in_cooldown:
+            with self._lock:
+                self._current_kind = "memory"
+            mem = self._get_memory_store()
+            return getattr(mem, method_name)(*args, **kwargs)
+
+        try:
+            res = getattr(self._os_store, method_name)(*args, **kwargs)
+            with self._lock:
+                self._degraded = False
+                self._last_error = None
+                self._current_kind = "opensearch"
+            return res
+        except Exception as exc:
+            msg = _clean_error_message(exc)
+            now = self._clock()
+            with self._lock:
+                self._last_failure_time = now
+                self._degraded = True
+                self._last_error = msg
+                self._current_kind = "memory"
+            logger.warning("OpenSearch failed during %s, falling back to memory: %s", method_name, msg)
+            mem = self._get_memory_store()
+            return getattr(mem, method_name)(*args, **kwargs)
+
+    def healthy(self) -> bool:
+        now = self._clock()
+        with self._lock:
+            in_cooldown = self._degraded and ((now - self._last_failure_time) < self._cooldown_s)
+        if in_cooldown:
+            return self._get_memory_store().healthy()
+        try:
+            if self._os_store.healthy():
+                return True
+        except Exception:
+            pass
+        return self._get_memory_store().healthy()
+
+    def reload(self) -> None:
+        try:
+            self._os_store.reload()
+        except Exception as exc:
+            logger.warning("OpenSearch reload failed: %s", _clean_error_message(exc))
+        if self._memory_store is not None:
+            self._memory_store.reload()
+
+    def units(self, level: str = "mun", ent: str | None = None) -> pd.DataFrame:
+        return self._dispatch("units", level=level, ent=ent)
+
+    def unit(self, unit_id: str) -> dict | None:
+        return self._dispatch("unit", unit_id)
+
+    def participation(
+        self,
+        unit_ids: list[str] | None = None,
+        *,
+        level: str = "mun",
+        election: str | None = "DIP_FED",
+        years: list[int] | None = None,
+    ) -> pd.DataFrame:
+        return self._dispatch("participation", unit_ids=unit_ids, level=level, election=election, years=years)
+
+    def search_units(self, text: str, *, level: str | None = None, size: int = 5) -> list[dict]:
+        return self._dispatch("search_units", text, level=level, size=size)
+
+    def search_catalog(self, text: str, size: int = 5) -> list[dict]:
+        return self._dispatch("search_catalog", text, size=size)
+
+    def top(
+        self,
+        metric: str,
+        *,
+        level: str = "mun",
+        filters: dict | None = None,
+        order: str = "desc",
+        limit: int = 10,
+    ) -> list[dict]:
+        return self._dispatch("top", metric, level=level, filters=filters, order=order, limit=limit)
+
+    def aggregate(
+        self,
+        metric: str,
+        *,
+        level: str = "mun",
+        group_by: str | None = None,
+        filters: dict | None = None,
+        stat: str = "avg",
+    ) -> list[dict]:
+        return self._dispatch("aggregate", metric, level=level, group_by=group_by, filters=filters, stat=stat)
+
+    def correlation(
+        self,
+        fields: list[str],
+        *,
+        level: str = "mun",
+        filters: dict | None = None,
+    ) -> dict:
+        return self._dispatch("correlation", fields, level=level, filters=filters)
+
+    def drivers(self, unit_id: str) -> list[dict]:
+        return self._dispatch("drivers", unit_id)
+
+    def profile(self, unit_id: str, year: int | None = None) -> list[dict]:
+        return self._dispatch("profile", unit_id, year=year)
+
+    def ccpc_features(self, unit_id: str, year: int | None = None) -> dict | None:
+        return self._dispatch("ccpc_features", unit_id, year=year)
+
+    def metrics(self) -> dict:
+        return self._dispatch("metrics")
+
+    def stats(self) -> dict:
+        return self._dispatch("stats")
 
 
 @functools.lru_cache(maxsize=1)
 def get_store() -> DataStore:
     """Retrieve configured DataStore instance according to store_mode."""
-    settings = get_settings()
-    mode = settings.store_mode.lower()
+    try:
+        settings = get_settings()
+        mode = settings.store_mode.lower()
+        if mode == "es":
+            mode = "opensearch"
 
-    if mode == "memory":
+        if mode == "memory":
+            return PandasStore()
+        elif mode == "opensearch":
+            return ResilientStore()
+        elif mode == "auto":
+            if ping(timeout_s=3.0):
+                try:
+                    client = get_client()
+                    if client is not None and client.indices.exists(index=index_name("units")):
+                        return ResilientStore()
+                except Exception:
+                    pass
+            return PandasStore()
         return PandasStore()
-    elif mode == "es":
-        return EsStore()
-    elif mode == "auto":
-        if ping_es(timeout_s=3.0):
-            try:
-                es = get_es()
-                if es and es.indices.exists(index=index_name("units")):
-                    return EsStore()
-            except Exception:
-                pass
+    except Exception:
         return PandasStore()
 
-    return PandasStore()

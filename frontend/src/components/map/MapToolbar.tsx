@@ -7,9 +7,10 @@ import type { MapMode } from "@/lib/types";
 
 export interface MapToolbarProps {
   data: MapRiskData;
+  onExportPng?: () => void;
 }
 
-export function MapToolbar({ data }: MapToolbarProps) {
+export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
   const {
     mapMode = "semaforo",
     setMapMode,
@@ -137,6 +138,28 @@ export function MapToolbar({ data }: MapToolbarProps) {
           </svg>
           <span>3D</span>
         </button>
+
+        {/* PNG export button */}
+        {onExportPng && (
+          <button
+            type="button"
+            role="button"
+            onClick={onExportPng}
+            title="Exportar imagen PNG del mapa"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all border bg-slate-950/70 text-slate-300 hover:text-white border-slate-800 hover:bg-slate-800/60"
+          >
+            <svg
+              className="w-3.5 h-3.5 shrink-0"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.5 11.5v2h11v-2M8 2.5v7m0 0l-2.5-2.5M8 9.5l2.5-2.5" />
+            </svg>
+            <span>PNG</span>
+          </button>
+        )}
       </div>
 
       {/* Bottom row: Alternate scenario label from data.altLabel + Adjust button */}

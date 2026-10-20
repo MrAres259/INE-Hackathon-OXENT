@@ -142,7 +142,9 @@ def test_health(client: TestClient):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert data["store"] in ("memory", "es")
+    assert data["store"] in ("memory", "opensearch")
+    assert "store_degraded" in data
+    assert isinstance(data["store_degraded"], bool)
     assert "warmup" in data
     assert "data" in data
     assert data["data"]["units_mun"] == 3

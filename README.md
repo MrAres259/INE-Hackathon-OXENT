@@ -16,7 +16,7 @@ A partir de los microdatos de la **Plataforma de Conteos Censales de Participaci
 3. **Prioriza recursos** calculando el volumen estimado de personas que no acudirían a las urnas (`abstencion_esperada = pred_abstention × lista_nominal`) y ordenando los municipios de atención prioritaria (rojo/naranja).
 4. **Simula escenarios interactivos**: escenario base (*sin intervención*), escenario *con intervención focalizada* (por nivel de riesgo, grupo prioritario e impacto parametrizable) y escenario *pesimista*.
 5. **Genera recomendaciones preventivas específicas** basadas en los factores estructurales y demográficos que más empujan el abstencionismo en cada territorio.
-6. **Integra un asistente conversacional híbrido**: interpreta preguntas en lenguaje natural, ejecuta consultas deterministas sobre los datos oficiales (vía Elasticsearch / Huawei CSS o almacén en memoria) y redacta respuestas auditables citando fuentes y año, respaldado por un LLM (GLM-5.2) o mediante generación determinista sin conexión.
+6. **Integra un asistente conversacional híbrido**: interpreta preguntas en lenguaje natural, ejecuta consultas deterministas sobre los datos oficiales (vía OpenSearch / Huawei CSS o almacén en memoria) y redacta respuestas auditables citando fuentes y año, respaldado por un LLM (GLM-5.2) o mediante generación determinista sin conexión.
 
 ---
 
@@ -54,7 +54,7 @@ Para reproducir el pipeline completo desde las fuentes primarias oficiales, desc
 │   │   ├── model/        # Modelado predictivo, semáforo de riesgo, escenarios y recomendaciones
 │   │   ├── report/       # Generación de gráficas SVG y renderizado de PDF
 │   │   ├── privacy.py    # Control estadístico de revelación y supresión de celdas pequeñas
-│   │   └── store.py      # Almacén de datos (PandasStore offline y EsStore clúster CSS)
+│   │   └── store.py      # Almacén de datos (PandasStore offline, OpenSearchStore y ResilientStore clúster CSS)
 │   ├── tests/            # Batería de pruebas unitarias y de integración
 │   └── requirements.txt  # Dependencias de Python
 ├── frontend/
@@ -113,7 +113,22 @@ Opciones disponibles en el script:
 - `-SkipGeo`: Omite el procesamiento de capas cartográficas si ya están simplificadas en `frontend/public/geo/`.
 - `-SkipModel`: Omite el re-entrenamiento del modelo estadístico.
 - `-SkipExport`: Omite la exportación de bases de datos finales y archivos shapefile.
-- `-Load`: Si se dispone de conectividad al clúster Huawei CSS / Elasticsearch, valida y carga los índices.
+- `-Load`: Si se dispone de conectividad al clúster Huawei CSS / OpenSearch (OpenSearch 3.x), valida y carga los índices.
+
+### 6.1 Operaciones con el clúster OpenSearch
+
+- **Diagnóstico de conectividad y estado del clúster**:
+  ```powershell
+  python scripts/check_cluster.py
+  ```
+- **Carga de índices versionados con alias atómico**:
+  ```powershell
+  python -m atalaya.load [--dry-run] [--only units,participation,catalog,profile] [--keep 1] [--replicas N]
+  ```
+- **Auditoría de paridad OpenSearch vs. almacén en memoria**:
+  ```powershell
+  python scripts/os_parity.py
+  ```
 
 ---
 
@@ -174,17 +189,19 @@ Las variables de configuración se gestionan mediante el archivo `backend/.env` 
 
 | Variable | Descripción |
 |---|---|
-| `ES_URL` | URL del clúster Elasticsearch / Huawei Cloud CSS. |
-| `ES_USERNAME` | Usuario para autenticación básica en el clúster. |
-| `ES_PASSWORD` | Contraseña del clúster Elasticsearch. |
-| `ES_INSECURE` | Permite deshabilitar la verificación estricta SSL en entornos de prueba. |
-| `ES_TIMEOUT_S` | Tiempo límite de espera para consultas al clúster (segundos). |
+| `OPENSEARCH_URL` | URL(s) del clúster OpenSearch 3.x / Huawei Cloud CSS (separadas por coma). Respaldo heredado: `ES_URL`. |
+| `OPENSEARCH_USERNAME` | Usuario para autenticación básica en el clúster OpenSearch. Respaldo: `ES_USERNAME`. |
+| `OPENSEARCH_PASSWORD` | Contraseña del clúster OpenSearch. Respaldo: `ES_PASSWORD`. |
+| `OPENSEARCH_VERIFY_CERTS` | Verificación SSL/TLS de certificados (`true`/`false`, default `true`). Respaldo: `ES_INSECURE=true` ⇒ `False`. |
+| `OPENSEARCH_CA_CERTS` | Ruta al archivo de certificados CA en formato PEM (opcional). |
+| `OPENSEARCH_TIMEOUT_S` | Tiempo límite de espera para consultas al clúster en segundos (default `30.0`). Respaldo: `ES_TIMEOUT_S`. |
+| `OPENSEARCH_REPLICAS` | Número de réplicas de índice (`null`/omitido = cálculo automático según número de nodos). |
+| `ATALAYA_INDEX_PREFIX` | Prefijo para los índices, alias y plantillas en OpenSearch (default `atalaya-`). |
+| `ATALAYA_STORE` | Modo del almacén de datos: `auto`, `opensearch` o `memory` (`es` se normaliza a `opensearch`). |
 | `MAAS_BASE_URL` | Endpoint del servicio ModelArts MaaS (Huawei Cloud). |
 | `MAAS_API_KEY` | Clave de acceso a la API del modelo de lenguaje. |
 | `MAAS_MODEL` | Modelo LLM configurado (ej. `glm-5.2`). |
 | `MAAS_EXTRA_BODY` | Parámetros adicionales en formato JSON para el proveedor LLM. |
-| `ATALAYA_INDEX_PREFIX` | Prefijo para los índices creados en Elasticsearch (default `atalaya-`). |
-| `ATALAYA_STORE` | Modo del almacén de datos: `auto`, `memory` o `es`. |
 | `ATALAYA_LLM_ENABLED` | Habilita (`1`) o deshabilita (`0`) la consulta al LLM en el asistente. |
 | `ATALAYA_TARGET_YEAR` | Año electoral federal objetivo de planeación (`2027`). |
 

@@ -1,0 +1,50 @@
+{
+  "tilejson": "3.0.0",
+  "name": "atalaya-mg2024",
+  "version": "a626743678e1",
+  "scheme": "xyz",
+  "tiles": [
+    "/geo/tiles/{z}/{x}/{y}.pbf"
+  ],
+  "minzoom": 3,
+  "maxzoom": 9,
+  "bounds": [
+    -118.36511,
+    14.5321,
+    -86.71069,
+    32.71865
+  ],
+  "center": [
+    -102.5379,
+    23.62537,
+    4
+  ],
+  "vector_layers": [
+    {
+      "id": "states",
+      "minzoom": 3,
+      "maxzoom": 9,
+      "fields": {
+        "id": "String",
+        "name": "String"
+      }
+    },
+    {
+      "id": "mun",
+      "minzoom": 5,
+      "maxzoom": 9,
+      "fields": {
+        "id": "String",
+        "ent": "String",
+        "name": "String"
+      }
+    }
+  ],
+  "feature_counts": {
+    "states": 32,
+    "mun": 2478
+  },
+  "tile_count": 1899,
+  "bytes": 5845869,
+  "generated_at": "2026-10-20T18:53:42.504Z"
+}

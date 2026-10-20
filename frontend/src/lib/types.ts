@@ -135,7 +135,7 @@ export type Meta = {
   states: { id: string; name: string }[];
   scenarios: ScenarioDef[];
   categories: { id: Category; label: string; color: string; rule: string }[];
-  store: "es" | "memory";
+  store: "opensearch" | "memory";
   llm: boolean;
   data_sources?: MetaDataSource[];
 };
@@ -214,7 +214,7 @@ export type ModelMetrics = {
 
 export type HealthResponse = {
   status: string;
-  store: "es" | "memory";
+  store: "opensearch" | "memory";
   llm: boolean;
   warmup: "ready" | "loading";
   data: {
@@ -223,6 +223,33 @@ export type HealthResponse = {
     participation_rows: number;
     years: number[];
   };
+};
+
+export type TileVectorLayer = {
+  id: string;
+  minzoom: number;
+  maxzoom: number;
+  fields?: Record<string, string>;
+};
+
+export type TileManifest = {
+  tilejson: string;
+  name?: string;
+  version?: string;
+  scheme?: string;
+  tiles: string[];
+  minzoom: number;
+  maxzoom: number;
+  bounds?: [number, number, number, number];
+  center?: [number, number, number];
+  vector_layers: TileVectorLayer[];
+  feature_counts?: {
+    states?: number;
+    mun?: number;
+  };
+  tile_count?: number;
+  bytes?: number;
+  generated_at?: string;
 };
 
 export type GeoIndexState = {

@@ -266,6 +266,8 @@ cd backend; python -m atalaya.report.build_report; python -m atalaya.report.buil
 # Demo (API :8001 + web :3000; PIDs en data/cache/*.pid)
 powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1      # -Mock: solo frontend con datos de demostración
 powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
+# Acceso público: una ventana de Windows Terminal con dos paneles (API | web); solo se publica el puerto web
+powershell -ExecutionPolicy Bypass -File scripts\start_public.ps1 [-Port 3000] [-Rebuild] [-NoFirewall]
 # Pruebas (sin red; una guardia impide que escriban en datos reales)
 cd backend;  python -m pytest -q          # 216 pruebas
 cd frontend; npm run typecheck; npm test; npm run build   # 84 pruebas
@@ -294,7 +296,7 @@ frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,g
 frontend/public/geo/   capas GeoJSON generadas (versionadas)
 tools/geo/         build_geo.mjs + pruebas
 data/seed/         catálogos y reglas curadas
-scripts/           build_all · start_demo · stop_demo · run-safe
+scripts/           build_all · start_demo · start_public · stop_demo · run-safe
 AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 ```
 
