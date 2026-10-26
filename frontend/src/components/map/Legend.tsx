@@ -102,9 +102,14 @@ export function Legend({ data }: LegendProps) {
             ))}
 
             {extrude3d && (
-              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-400 font-medium flex items-center gap-1.5">
-                <ColumnMiniDiagram />
-                <span>Altura = tamaño del cambio |Δ| (pp)</span>
+              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] space-y-0.5">
+                <div className="text-emerald-400 font-medium flex items-center gap-1.5">
+                  <ColumnMiniDiagram />
+                  <span>Altura = tamaño del cambio |Δ| (pp)</span>
+                </div>
+                <div className="text-slate-400 text-[9px] pl-8">
+                  Al acercarte: solo el estado en foco
+                </div>
               </div>
             )}
           </div>
@@ -247,9 +252,14 @@ export function Legend({ data }: LegendProps) {
           )}
 
           {extrude3d && (
-            <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-400 font-medium flex items-center gap-1.5">
-              <ColumnMiniDiagram />
-              <span>Altura = índice de riesgo (0–100)</span>
+            <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] space-y-0.5">
+              <div className="text-emerald-400 font-medium flex items-center gap-1.5">
+                <ColumnMiniDiagram />
+                <span>Altura = índice de riesgo (0–100)</span>
+              </div>
+              <div className="text-slate-400 text-[9px] pl-8">
+                Al acercarte: solo el estado en foco
+              </div>
             </div>
           )}
         </div>

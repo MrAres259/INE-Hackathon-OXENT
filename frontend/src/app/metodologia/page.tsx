@@ -147,7 +147,7 @@ export default function MetodologiaPage() {
       },
       {
         category: "Mapa",
-        description: "Modos de visualización cartográfica, columnas 3D, navegación y comparador con cortina.",
+        description: "Modos de visualización cartográfica, bloques 3D con foco, navegación y comparador con cortina.",
         items: [],
       },
       {
@@ -217,7 +217,7 @@ export default function MetodologiaPage() {
           Metodología y Manual de Uso de ATALAYA
         </h1>
         <p className="text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
-          Guía integral del sistema: pasos de navegación, glosario canónico interactivo, motor cartográfico 3D por columnas, salvaguardas éticas del asistente, modelos predictivos y fuentes oficiales CCPC/INE/INEGI.
+          Guía integral del sistema: pasos de navegación, glosario canónico interactivo, motor cartográfico 3D de bloques con foco, salvaguardas éticas del asistente, modelos predictivos y fuentes oficiales CCPC/INE/INEGI.
         </p>
       </div>
 
@@ -421,10 +421,10 @@ export default function MetodologiaPage() {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-            El Mapa 3D: Visualización por Columnas de Riesgo
+            El Mapa 3D: Bloques de Riesgo con Foco Dinámico
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Diseño cartográfico orientado al rendimiento y la legibilidad inmediata de zonas críticas:
+          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+            Los estados y municipios se levantan como bloques cuya altura es su índice de riesgo (rojo más alto que verde; en Cambio Δ, el tamaño del cambio). En vista nacional se levantan los estados; al acercarte a un estado se levantan solo sus municipios y el resto queda plano para que veas el contexto. Si seleccionas un estado, ese queda en foco. Inclinada para apreciar alturas, Cenital para ver desde arriba. No es topografía.
           </p>
         </div>
 
@@ -432,26 +432,26 @@ export default function MetodologiaPage() {
           <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              Columnas sobre mapa plano
+              Modo foco: por qué y cómo funciona
             </h3>
             <p className="text-slate-300 leading-relaxed">
-              En lugar de extruir los polígonos municipales completos (lo que generaba miles de muros y degradaba la fluidez gráfica), ATALAYA renderiza prismas de 12 lados ubicados sobre el punto interior garantizado (<span className="font-mono text-emerald-300">anchor</span>) de cada zona.
+              Extruir simultáneamente los polígonos de los 2,478 municipios generaba miles de muros tridimensionales que ralentizaban el mapa y producían oclusión visual: los bloques altos tapaban por completo a los municipios vecinos más bajos y no permitían distinguir el territorio.
             </p>
             <p className="text-slate-400 leading-relaxed">
-              En zoom menor a 5.5 se presentan columnas a nivel estatal; a partir de zoom 5.5 emergen las columnas municipales. El mapa coroplético se mantiene plano debajo con sus colores y límites siempre visibles.
+              Por ello, ATALAYA implementa un <strong className="text-slate-200">modo foco dinámico</strong>: en vista nacional (zoom &lt; 5.5) se extruyen los 32 bloques estatales. Al acercarte a nivel municipal (zoom ≥ 5.5), se levantan únicamente los municipios del estado en foco (el estado seleccionado o el que se ubica bajo el centro del mapa), mientras que el resto del país permanece plano con sus límites y colores visibles para mantener siempre el contexto territorial y garantizar alta fluidez gráfica.
             </p>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-              Altura = Índice de Riesgo (Curva que acentúa lo grave)
+              Altura = Índice de Riesgo y reducción progresiva por zoom
             </h3>
             <p className="text-slate-300 leading-relaxed">
-              En modo Categoría / Semáforo, la altura de la columna representa directamente el <strong className="text-white">Índice de Riesgo (0 a 100)</strong> mediante una curva potencial exponencial (<span className="font-mono text-amber-300">(score/100)^1.6</span>) que amplifica visualmente las zonas críticas: el color rojo siempre se alza por encima del naranja, amarillo y verde.
+              En modo Semáforo, la altura de cada bloque representa directamente su <strong className="text-white">Índice de Riesgo (0 a 100)</strong> mediante una curva exponencial (<span className="font-mono text-amber-300">(score/100)^1.6</span>) que acentúa las zonas críticas: el color rojo siempre se alza por encima del naranja, amarillo y verde.
             </p>
             <p className="text-slate-400 leading-relaxed">
-              En modo <strong className="text-white">Cambio Δ</strong>, la altura representa el tamaño del cambio absoluto <span className="font-mono text-sky-300">|Δ|</span> en puntos porcentuales (hasta 5 pp). Las zonas sin información suficiente (<span className="font-mono">sin_dato</span>) tienen altura 0.
+              Para evitar que los bloques cercanos tapen a sus vecinos inmediatos al aproximar la cámara, la altura se reduce progresivamente conforme aumenta el zoom (a nivel municipal se escala gradualmente desde 1× en zoom 5.5 hasta 0.2× en zoom 12). En modo <strong className="text-white">Cambio Δ</strong>, la altura mide el tamaño absoluto del cambio <span className="font-mono text-sky-300">|Δ|</span> en puntos porcentuales (hasta 5 pp). Las zonas sin dato tienen altura 0.
             </p>
           </div>
 
@@ -461,10 +461,10 @@ export default function MetodologiaPage() {
               Dos vistas de cámara: Inclinada y Cenital
             </h3>
             <p className="text-slate-300 leading-relaxed">
-              <strong className="text-white">Inclinada:</strong> Cámara a 50° de inclinación (pitch) y rotación de −12° para apreciar el relieve comparativo de alturas entre territorios colindantes. El usuario puede además inclinar y rotar libremente con clic derecho + arrastre (o Ctrl + arrastre) hasta 65°.
+              <strong className="text-white">Inclinada:</strong> Cámara a 50° de inclinación (pitch) y rotación de −12° para apreciar el relieve relativo de alturas entre zonas. Además, en 3D puedes inclinar y rotar libremente con clic derecho + arrastre (o Ctrl + arrastre) hasta 65°.
             </p>
             <p className="text-slate-400 leading-relaxed">
-              <strong className="text-white">Cenital:</strong> Inclinación a 0° (vista superior vertical). Permite examinar el mapa sin que los prismas altos tapen a municipios vecinos más bajos.
+              <strong className="text-white">Cenital:</strong> Inclinación a 0° (vista superior vertical). Permite examinar el mapa manteniendo la extrusión 3D desde arriba, sin que ningún bloque alto obstruya la visibilidad de los nombres o límites vecinos.
             </p>
           </div>
 
@@ -474,10 +474,10 @@ export default function MetodologiaPage() {
               Por qué no es topografía ni relieve físico
             </h3>
             <p className="text-slate-300 leading-relaxed">
-              La altura no mide montañas, orografía física ni volumen poblacional. Una ciudad densa con alta participación ciudadana se verá como una columna baja (verde), mientras que un municipio con riesgo crítico de abstención se erguirá como una torre prominente (roja).
+              La altura de los bloques no representa montañas, elevación geográfica ni tamaño de población. Una zona metropolitana densa con alta participación ciudadana se verá como un bloque plano o bajo (verde), mientras que un municipio con riesgo crítico de abstención se alzará como un bloque prominente (rojo).
             </p>
             <p className="text-slate-400 leading-relaxed">
-              Esto garantiza que la atención visual se dirija inmediatamente a los focos de vulnerabilidad electoral y no al tamaño geográfico o demográfico del territorio.
+              Esto asegura que la jerarquía visual dirija la atención directamente a los focos de vulnerabilidad electoral para la planeación operativa del INE, y no a la extensión territorial ni al volumen demográfico.
             </p>
           </div>
         </div>

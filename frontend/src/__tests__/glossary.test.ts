@@ -206,4 +206,13 @@ describe("Glossary (Single Source of Truth)", () => {
     expect(riskScore.body).toContain("20");
     expect(riskScore.body).toContain("15");
   });
+
+  it("modo.3d does not contain 'columna' and mentions 'foco'", () => {
+    const modo3d = GLOSSARY["modo.3d"];
+    expect(modo3d).toBeDefined();
+    const fullText = `${modo3d.title} ${modo3d.body}`.toLowerCase();
+    expect(fullText).not.toContain("columna");
+    expect(fullText).toContain("foco");
+    expect(fullText).toContain("bloques");
+  });
 });

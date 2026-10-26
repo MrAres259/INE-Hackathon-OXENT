@@ -217,8 +217,8 @@ export const GLOSSARY = {
     body: "Vista interactiva con cortina deslizante: a la izquierda el escenario sin intervención y a la derecha con intervención. Arrastra la cortina para contrastar resultados.",
   },
   "modo.3d": {
-    title: "Vista 3D (Columnas)",
-    body: "Muestra columnas sobre cada zona donde la altura representa el índice de riesgo (rojo más alto) o la magnitud del cambio |Δ|. Usa «Inclinada» para ver alturas o «Cenital» desde arriba.",
+    title: "Vista 3D",
+    body: "Los estados y municipios se levantan como bloques cuya altura es su índice de riesgo (rojo más alto que verde; en Cambio Δ, el tamaño del cambio). En vista nacional se levantan los estados; al acercarte a un estado se levantan solo sus municipios y el resto queda plano para ver el contexto. Si seleccionas un estado, ese queda en foco. Inclinada para apreciar alturas, Cenital para ver desde arriba. No es topografía.",
   },
   motor: {
     title: "Motor de Datos",

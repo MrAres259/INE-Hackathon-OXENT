@@ -12,8 +12,8 @@ export const LAYER_IDS = {
   munFill: "mun-fill",
   munLine: "mun-line",
   statesLine: "states-line",
-  stateColumns: "state-columns",
-  munColumns: "mun-columns",
+  statesExtrusion: "states-extrusion",
+  munExtrusion: "mun-extrusion",
   hoverStates: "states-hover",
   hoverMun: "mun-hover",
   selected: "selected-line",
@@ -28,8 +28,6 @@ export const SOURCE_IDS = {
   cartoBase: "carto-base",
   cartoLabels: "carto-labels",
   vector: "atalaya",
-  stateColumns: "state-columns",
-  munColumns: "mun-columns",
 } as const;
 
 export const SOURCE_LAYERS = {
@@ -117,35 +115,48 @@ export function fillExpression(mode: ColorMode): ExpressionSpecification {
   return mode === "delta" ? deltaFillExpression() : categoryFillExpression();
 }
 
-export const COLUMN_MAX_M = { state: 380_000, mun: 70_000 } as const;
-export const COLUMN_MIN_FRACTION = 0.04;
-export const COLUMN_ZOOM_SPLIT = 5.5;
+export const EXTRUSION_MAX_M = { state: 350_000, mun: 60_000 } as const;
+export const EXTRUSION_MIN_FRACTION = 0.04;
+export const EXTRUSION_ZOOM_SPLIT = 5.5;
 
 /**
- * Dynamic height expression for 3D columns: height in meters scales down as zoom increases
- * to prevent columns from obstructing neighbor areas at state-level zoom.
+ * Dynamic height expression for 3D extrusions: height in meters scales down as zoom increases
+ * to prevent extruded focus blocks from obstructing neighbor areas.
  * In MapLibre ["zoom"] must only be used as the input of a top-level interpolate/step expression.
+ * States (zoom < 5.5): 3 -> 1x, 5.5 -> 0.8x
+ * Municipalities (zoom >= 5.5): 5.5 -> 1x, 7 -> 0.6x, 9 -> 0.35x, 12 -> 0.2x
  */
-export function columnHeightExpression(): ExpressionSpecification {
+export function extrusionHeightExpression(level: Level): ExpressionSpecification {
   const h: ExpressionSpecification = [
     "coalesce",
     ["feature-state", "h"],
     0,
   ] as ExpressionSpecification;
+
+  if (level === "state") {
+    return [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      3,
+      ["*", h, 1],
+      5.5,
+      ["*", h, 0.8],
+    ] as unknown as ExpressionSpecification;
+  }
+
   return [
     "interpolate",
     ["linear"],
     ["zoom"],
-    3,
-    ["*", h, 1],
     5.5,
-    ["*", h, 0.85],
+    ["*", h, 1],
     7,
-    ["*", h, 0.5],
+    ["*", h, 0.6],
     9,
-    ["*", h, 0.28],
+    ["*", h, 0.35],
     12,
-    ["*", h, 0.15],
+    ["*", h, 0.2],
   ] as unknown as ExpressionSpecification;
 }
 
@@ -155,7 +166,7 @@ export function riskHeight(score: number | null | undefined, maxMeters: number):
   }
   const clamped = Math.max(0, Math.min(100, score));
   const fraction = Math.pow(clamped / 100, 1.6);
-  return maxMeters * Math.max(COLUMN_MIN_FRACTION, fraction);
+  return maxMeters * Math.max(EXTRUSION_MIN_FRACTION, fraction);
 }
 
 export function deltaHeight(deltaPp: number | null | undefined, maxMeters: number): number {
@@ -164,7 +175,7 @@ export function deltaHeight(deltaPp: number | null | undefined, maxMeters: numbe
   }
   const absDelta = Math.abs(deltaPp);
   const fraction = Math.min(absDelta, 5) / 5;
-  return maxMeters * Math.max(COLUMN_MIN_FRACTION, fraction);
+  return maxMeters * Math.max(EXTRUSION_MIN_FRACTION, fraction);
 }
 
 /**
@@ -207,7 +218,7 @@ const DIM_FACTOR = 0.7;
 const HOVER_FACTOR = 0.35;
 const HOVER_TARGET = "#ffffff";
 
-// Precomputed category variants for column shaders
+// Precomputed category variants for extrusion shaders
 const CATEGORY_HOVER_COLORS: Record<Category, string> = {
   verde: mixHex(CATEGORY_COLORS.verde, HOVER_TARGET, HOVER_FACTOR),
   amarillo: mixHex(CATEGORY_COLORS.amarillo, HOVER_TARGET, HOVER_FACTOR),
@@ -224,7 +235,8 @@ const CATEGORY_DIM_COLORS: Record<Category, string> = {
   sin_dato: mixHex(CATEGORY_COLORS.sin_dato, BASEMAP.land, DIM_FACTOR),
 };
 
-function categoryColumnVariantExpression(variant: "base" | "hover" | "dim"): ExpressionSpecification {
+// Precomputed category variants for extrusion shaders
+function categoryExtrusionVariantExpression(variant: "base" | "hover" | "dim"): ExpressionSpecification {
   const colors =
     variant === "hover"
       ? CATEGORY_HOVER_COLORS
@@ -244,13 +256,13 @@ function categoryColumnVariantExpression(variant: "base" | "hover" | "dim"): Exp
   ] as ExpressionSpecification;
 }
 
-// Precomputed delta bin variants for column shaders
+// Precomputed delta bin variants for extrusion shaders
 const DELTA_BINS_HOVER = DELTA_BINS.map((b) => mixHex(b.color, HOVER_TARGET, HOVER_FACTOR));
 const DELTA_BINS_DIM = DELTA_BINS.map((b) => mixHex(b.color, BASEMAP.land, DIM_FACTOR));
 const DELTA_NODATA_HOVER = mixHex(DELTA_NODATA, HOVER_TARGET, HOVER_FACTOR);
 const DELTA_NODATA_DIM = mixHex(DELTA_NODATA, BASEMAP.land, DIM_FACTOR);
 
-function deltaColumnVariantExpression(variant: "base" | "hover" | "dim"): ExpressionSpecification {
+function deltaExtrusionVariantExpression(variant: "base" | "hover" | "dim"): ExpressionSpecification {
   const binColors =
     variant === "hover"
       ? DELTA_BINS_HOVER
@@ -282,19 +294,19 @@ function deltaColumnVariantExpression(variant: "base" | "hover" | "dim"): Expres
   ] as ExpressionSpecification;
 }
 
-export function columnColorExpression(mode: ColorMode): ExpressionSpecification {
+export function extrusionColorExpression(mode: ColorMode): ExpressionSpecification {
   const hoverExpr =
     mode === "delta"
-      ? deltaColumnVariantExpression("hover")
-      : categoryColumnVariantExpression("hover");
+      ? deltaExtrusionVariantExpression("hover")
+      : categoryExtrusionVariantExpression("hover");
   const dimExpr =
     mode === "delta"
-      ? deltaColumnVariantExpression("dim")
-      : categoryColumnVariantExpression("dim");
+      ? deltaExtrusionVariantExpression("dim")
+      : categoryExtrusionVariantExpression("dim");
   const baseExpr =
     mode === "delta"
-      ? deltaColumnVariantExpression("base")
-      : categoryColumnVariantExpression("base");
+      ? deltaExtrusionVariantExpression("base")
+      : categoryExtrusionVariantExpression("base");
 
   return [
     "case",
@@ -342,7 +354,7 @@ export function featureStateFor(
     delta = (item.pred_abstention - base.pred_abstention) * 100;
   }
 
-  const maxMeters = COLUMN_MAX_M[level];
+  const maxMeters = EXTRUSION_MAX_M[level];
   const h =
     colorMode === "delta"
       ? deltaHeight(delta, maxMeters)

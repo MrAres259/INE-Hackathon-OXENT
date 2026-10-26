@@ -144,7 +144,7 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
               role="button"
               aria-pressed={extrude3d}
               onClick={() => setExtrude3d(!extrude3d)}
-              title="Columnas 3D: altura = índice de riesgo (rojo más alto)"
+              title="Vista 3D: bloques con altura = índice de riesgo (con foco al acercarte)"
               className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all border whitespace-nowrap shrink-0 ${
                 extrude3d
                   ? "bg-emerald-600/30 text-emerald-300 border-emerald-500/60 shadow-xs font-semibold"
@@ -176,7 +176,7 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
                   role="button"
                   aria-pressed={view3d === "inclinada"}
                   onClick={() => setView3d("inclinada")}
-                  title="Vista inclinada: perspectiva para apreciar la altura de las columnas"
+                  title="Vista inclinada: perspectiva para apreciar la altura de los bloques"
                   aria-label="Vista inclinada"
                   className={`flex items-center justify-center p-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
                     view3d === "inclinada"
@@ -202,7 +202,7 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
                   role="button"
                   aria-pressed={view3d === "cenital"}
                   onClick={() => setView3d("cenital")}
-                  title="Vista cenital: vista desde arriba manteniendo las columnas"
+                  title="Vista cenital: vista desde arriba manteniendo los bloques 3D"
                   aria-label="Vista cenital"
                   className={`flex items-center justify-center p-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
                     view3d === "cenital"
@@ -227,12 +227,10 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
               </div>
             )}
 
-            {/* InfoTip 2: 3D columns & perspective */}
+            {/* InfoTip 2: 3D perspective */}
             <div className="shrink-0">
               <InfoTip
                 term="modo.3d"
-                title="Vista 3D (Columnas)"
-                text="Columnas sobre cada zona: altura = índice de riesgo (rojo más alto) o magnitud de cambio |Δ|. Usa Inclinada para ver alturas o Cenital para vista desde arriba."
                 side="bottom"
               />
             </div>

@@ -11,9 +11,9 @@ import {
   SOURCE_LAYERS,
   BASEMAP,
   fillExpression,
-  columnColorExpression,
-  columnHeightExpression,
-  COLUMN_ZOOM_SPLIT,
+  extrusionColorExpression,
+  extrusionHeightExpression,
+  EXTRUSION_ZOOM_SPLIT,
   type ColorMode,
 } from "@/lib/mapStyle";
 import type { GeometryMode } from "@/lib/mapSupport";
@@ -29,7 +29,6 @@ export type GeoSourcesData = {
   country?: FeatureCollection<Geometry, CountryProperties> | null;
   states?: FeatureCollection<Geometry, StateProperties> | null;
   mun?: FeatureCollection<Geometry, MunProperties> | null;
-  columns?: { state: FeatureCollection; mun: FeatureCollection } | null;
 };
 
 /**
@@ -85,19 +84,6 @@ export function buildSources(
     features: [],
   };
 
-  const columnSources = {
-    [SOURCE_IDS.stateColumns]: {
-      type: "geojson" as const,
-      data: geo?.columns?.state ?? emptyFC,
-      promoteId: "id",
-    },
-    [SOURCE_IDS.munColumns]: {
-      type: "geojson" as const,
-      data: geo?.columns?.mun ?? emptyFC,
-      promoteId: "id",
-    },
-  };
-
   if (mode === "vector") {
     const tileTemplates =
       manifest?.tiles && manifest.tiles.length > 0
@@ -119,7 +105,6 @@ export function buildSources(
         promoteId: { states: "id", mun: "id" },
         attribution: BASEMAP.attribution,
       },
-      ...columnSources,
     };
   }
 
@@ -138,14 +123,13 @@ export function buildSources(
       data: geo?.mun ?? emptyFC,
       promoteId: "id",
     },
-    ...columnSources,
   };
 }
 
 /**
  * Builds data layer specifications in the exact order:
  * bg -> carto-base -> country-fill -> states-fill -> mun-fill -> mun-line ->
- * states-line -> state-columns -> mun-columns -> states-hover ->
+ * states-line -> states-extrusion -> mun-extrusion -> states-hover ->
  * mun-hover -> selected-line -> states-selected-line -> carto-labels
  */
 export function buildDataLayers(
@@ -271,34 +255,38 @@ export function buildDataLayers(
       },
     },
     {
-      id: LAYER_IDS.stateColumns,
+      id: LAYER_IDS.statesExtrusion,
       type: "fill-extrusion",
-      source: SOURCE_IDS.stateColumns,
-      maxzoom: COLUMN_ZOOM_SPLIT,
+      source: stateSource,
+      ...stateLayerProp,
+      maxzoom: EXTRUSION_ZOOM_SPLIT,
       layout: {
         visibility: "none",
       },
       paint: {
-        "fill-extrusion-color": columnColorExpression(colorMode),
-        "fill-extrusion-height": columnHeightExpression(),
+        "fill-extrusion-color": extrusionColorExpression(colorMode),
+        "fill-extrusion-height": extrusionHeightExpression("state"),
         "fill-extrusion-base": 0,
-        "fill-extrusion-opacity": 0.95,
+        "fill-extrusion-opacity": 0.92,
         "fill-extrusion-vertical-gradient": true,
       },
     },
     {
-      id: LAYER_IDS.munColumns,
+      // All municipal geometry sources (vector tiles, GeoJSON, and mock data) consistently provide 'ent' as the 2-digit state identifier.
+      id: LAYER_IDS.munExtrusion,
       type: "fill-extrusion",
-      source: SOURCE_IDS.munColumns,
-      minzoom: COLUMN_ZOOM_SPLIT,
+      source: munSource,
+      ...munLayerProp,
+      minzoom: EXTRUSION_ZOOM_SPLIT,
+      filter: ["==", ["get", "ent"], ""],
       layout: {
         visibility: "none",
       },
       paint: {
-        "fill-extrusion-color": columnColorExpression(colorMode),
-        "fill-extrusion-height": columnHeightExpression(),
+        "fill-extrusion-color": extrusionColorExpression(colorMode),
+        "fill-extrusion-height": extrusionHeightExpression("mun"),
         "fill-extrusion-base": 0,
-        "fill-extrusion-opacity": 0.95,
+        "fill-extrusion-opacity": 0.92,
         "fill-extrusion-vertical-gradient": true,
       },
     },
@@ -376,37 +364,66 @@ export function buildDataLayers(
 }
 
 /**
- * Dynamically switches layer fill and column colors according to color mode.
+ * Dynamically switches layer fill and extrusion colors according to color mode.
  */
 export function setColorMode(map: maplibregl.Map, mode: ColorMode): void {
-  const expr = fillExpression(mode);
-  if (map.getLayer(LAYER_IDS.statesFill)) {
-    map.setPaintProperty(LAYER_IDS.statesFill, "fill-color", expr);
-  }
-  if (map.getLayer(LAYER_IDS.munFill)) {
-    map.setPaintProperty(LAYER_IDS.munFill, "fill-color", expr);
-  }
-  const colExpr = columnColorExpression(mode);
-  if (map.getLayer(LAYER_IDS.stateColumns)) {
-    map.setPaintProperty(LAYER_IDS.stateColumns, "fill-extrusion-color", colExpr);
-  }
-  if (map.getLayer(LAYER_IDS.munColumns)) {
-    map.setPaintProperty(LAYER_IDS.munColumns, "fill-extrusion-color", colExpr);
+  try {
+    const expr = fillExpression(mode);
+    if (map?.getLayer && map.getLayer(LAYER_IDS.statesFill)) {
+      map.setPaintProperty(LAYER_IDS.statesFill, "fill-color", expr);
+    }
+    if (map?.getLayer && map.getLayer(LAYER_IDS.munFill)) {
+      map.setPaintProperty(LAYER_IDS.munFill, "fill-color", expr);
+    }
+    const extExpr = extrusionColorExpression(mode);
+    if (map?.getLayer && map.getLayer(LAYER_IDS.statesExtrusion)) {
+      map.setPaintProperty(LAYER_IDS.statesExtrusion, "fill-extrusion-color", extExpr);
+    }
+    if (map?.getLayer && map.getLayer(LAYER_IDS.munExtrusion)) {
+      map.setPaintProperty(LAYER_IDS.munExtrusion, "fill-extrusion-color", extExpr);
+    }
+  } catch {
+    // Never throws
   }
 }
 
 /**
- * Dynamically toggles visibility of state and municipal 3D column layers.
+ * Dynamically toggles visibility of state and municipal 3D extrusion layers.
  * Never throws if map or layers are not loaded.
  */
-export function setColumnsVisible(map: maplibregl.Map, visible: boolean): void {
+export function setExtrusionVisible(map: maplibregl.Map, visible: boolean): void {
   try {
     const vis = visible ? "visible" : "none";
-    if (map?.getLayer && map.getLayer(LAYER_IDS.stateColumns)) {
-      map.setLayoutProperty(LAYER_IDS.stateColumns, "visibility", vis);
+    if (map?.getLayer && map.getLayer(LAYER_IDS.statesExtrusion)) {
+      map.setLayoutProperty(LAYER_IDS.statesExtrusion, "visibility", vis);
     }
-    if (map?.getLayer && map.getLayer(LAYER_IDS.munColumns)) {
-      map.setLayoutProperty(LAYER_IDS.munColumns, "visibility", vis);
+    if (map?.getLayer && map.getLayer(LAYER_IDS.munExtrusion)) {
+      map.setLayoutProperty(LAYER_IDS.munExtrusion, "visibility", vis);
+    }
+  } catch {
+    // Never throws
+  }
+}
+
+const focusCache = new WeakMap<maplibregl.Map, string>();
+
+/**
+ * Updates the extrusion focus filter on the municipal extrusion layer.
+ * Only the municipalities belonging to the focused state (ent) are extruded.
+ * Caches the current focus per map instance via WeakMap to avoid redundant setFilter calls.
+ * Never throws if map or layer is unavailable.
+ */
+export function setExtrusionFocus(map: maplibregl.Map, ent: string | null): void {
+  try {
+    if (!map) return;
+    const targetEnt = ent ?? "";
+    const current = focusCache.get(map);
+    if (current === targetEnt) {
+      return;
+    }
+    if (map?.getLayer && map.getLayer(LAYER_IDS.munExtrusion)) {
+      map.setFilter(LAYER_IDS.munExtrusion, ["==", ["get", "ent"], targetEnt]);
+      focusCache.set(map, targetEnt);
     }
   } catch {
     // Never throws

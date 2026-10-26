@@ -9,11 +9,11 @@ import {
   riskHeight,
   deltaHeight,
   mixHex,
-  columnColorExpression,
-  columnHeightExpression,
-  COLUMN_MAX_M,
-  COLUMN_MIN_FRACTION,
-  COLUMN_ZOOM_SPLIT,
+  extrusionColorExpression,
+  extrusionHeightExpression,
+  EXTRUSION_MAX_M,
+  EXTRUSION_MIN_FRACTION,
+  EXTRUSION_ZOOM_SPLIT,
   featureStateFor,
   categoryLegend,
   deltaLegend,
@@ -30,16 +30,14 @@ import type { RiskItem } from "../lib/types";
 import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 
 describe("mapStyle Logic & Expressions Tests", () => {
-  it("exports valid map constants, layer IDs, column bounds, and basemap", () => {
+  it("exports valid map constants, layer IDs, extrusion bounds, and basemap", () => {
     expect(LAYER_IDS.statesFill).toBe("states-fill");
     expect(LAYER_IDS.munFill).toBe("mun-fill");
-    expect(LAYER_IDS.stateColumns).toBe("state-columns");
-    expect(LAYER_IDS.munColumns).toBe("mun-columns");
+    expect(LAYER_IDS.statesExtrusion).toBe("states-extrusion");
+    expect(LAYER_IDS.munExtrusion).toBe("mun-extrusion");
     expect(LAYER_IDS.selectedStates).toBe("states-selected-line");
     expect(SOURCE_IDS.states).toBe("states");
     expect(SOURCE_IDS.mun).toBe("mun");
-    expect(SOURCE_IDS.stateColumns).toBe("state-columns");
-    expect(SOURCE_IDS.munColumns).toBe("mun-columns");
     expect(SOURCE_IDS.vector).toBe("atalaya");
     expect(SOURCE_LAYERS.states).toBe("states");
     expect(SOURCE_LAYERS.mun).toBe("mun");
@@ -54,10 +52,10 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(BASEMAP.maxzoom).toBe(16);
     expect(BASEMAP.attribution).toContain("Esri");
     expect(BASEMAP.attribution).toContain("INEGI MG 2024");
-    expect(COLUMN_MAX_M.state).toBe(380_000);
-    expect(COLUMN_MAX_M.mun).toBe(70_000);
-    expect(COLUMN_MIN_FRACTION).toBe(0.04);
-    expect(COLUMN_ZOOM_SPLIT).toBe(5.5);
+    expect(EXTRUSION_MAX_M.state).toBe(350_000);
+    expect(EXTRUSION_MAX_M.mun).toBe(60_000);
+    expect(EXTRUSION_MIN_FRACTION).toBe(0.04);
+    expect(EXTRUSION_ZOOM_SPLIT).toBe(5.5);
   });
 
   it("resolves deltaColor accurately on every class boundary", () => {
@@ -123,7 +121,7 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(fillExpression("delta")).toEqual(deltaExpr);
   });
 
-  it("calculates monotonic riskHeight with 80 > 60 > 40 > 20 > 0 and null/NaN => 0 with COLUMN_MIN_FRACTION minimum", () => {
+  it("calculates monotonic riskHeight with 80 > 60 > 40 > 20 > 0 and null/NaN => 0 with EXTRUSION_MIN_FRACTION minimum", () => {
     const maxMeters = 100_000;
 
     // null, undefined, NaN -> 0
@@ -133,7 +131,7 @@ describe("mapStyle Logic & Expressions Tests", () => {
 
     // Score 0 returns minimum fraction height > 0
     const h0 = riskHeight(0, maxMeters);
-    expect(h0).toBe(maxMeters * COLUMN_MIN_FRACTION);
+    expect(h0).toBe(maxMeters * EXTRUSION_MIN_FRACTION);
     expect(h0).toBeGreaterThan(0);
 
     // Monotonic riskHeight: 80 (rojo) > 60 (naranja) > 40 (amarillo) > 20 (verde) > 0
@@ -161,7 +159,7 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(deltaHeight(NaN, maxMeters)).toBe(0);
 
     // Zero delta has minimum fraction
-    expect(deltaHeight(0, maxMeters)).toBe(maxMeters * COLUMN_MIN_FRACTION);
+    expect(deltaHeight(0, maxMeters)).toBe(maxMeters * EXTRUSION_MIN_FRACTION);
 
     // Symmetry: deltaHeight(-x) === deltaHeight(x)
     expect(deltaHeight(-3.2, maxMeters)).toBeCloseTo(deltaHeight(3.2, maxMeters));
@@ -192,9 +190,9 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(mixHex("#f00", "#00f", 1)).toBe("#0000ff");
   });
 
-  it("constructs valid columnColorExpression with dim and hover branches for both modes", () => {
+  it("constructs valid extrusionColorExpression with dim and hover branches for both modes", () => {
     for (const mode of ["category", "delta"] as const) {
-      const expr = columnColorExpression(mode) as unknown[];
+      const expr = extrusionColorExpression(mode) as unknown[];
       expect(Array.isArray(expr)).toBe(true);
       expect(expr[0]).toBe("case");
       // Check feature-state hover check
@@ -204,50 +202,82 @@ describe("mapStyle Logic & Expressions Tests", () => {
     }
   });
 
-  it("constructs valid columnHeightExpression with decreasing factors and passes style-spec validation", () => {
-    const expr = columnHeightExpression() as unknown[];
-    expect(Array.isArray(expr)).toBe(true);
-    expect(expr[0]).toBe("interpolate");
-    expect(expr[1]).toEqual(["linear"]);
-    expect(expr[2]).toEqual(["zoom"]);
+  it("constructs valid extrusionHeightExpression with decreasing factors and passes style-spec validation", () => {
+    // 1. State level (zoom < 5.5): stops 3 -> 1, 5.5 -> 0.8
+    const stateExpr = extrusionHeightExpression("state") as unknown[];
+    expect(Array.isArray(stateExpr)).toBe(true);
+    expect(stateExpr[0]).toBe("interpolate");
+    expect(stateExpr[1]).toEqual(["linear"]);
+    expect(stateExpr[2]).toEqual(["zoom"]);
 
-    // Stops: 3 -> 1, 5.5 -> 0.85, 7 -> 0.5, 9 -> 0.28, 12 -> 0.15
-    const stops: { zoom: number; factor: number }[] = [];
-    for (let i = 3; i < expr.length; i += 2) {
-      const z = expr[i] as number;
-      const mult = expr[i + 1] as unknown[];
+    const stateStops: { zoom: number; factor: number }[] = [];
+    for (let i = 3; i < stateExpr.length; i += 2) {
+      const z = stateExpr[i] as number;
+      const mult = stateExpr[i + 1] as unknown[];
       expect(Array.isArray(mult)).toBe(true);
       expect(mult[0]).toBe("*");
       expect(mult[1]).toEqual(["coalesce", ["feature-state", "h"], 0]);
       const factor = mult[2] as number;
-      stops.push({ zoom: z, factor });
+      stateStops.push({ zoom: z, factor });
     }
 
-    expect(stops).toHaveLength(5);
-    expect(stops.map((s) => s.zoom)).toEqual([3, 5.5, 7, 9, 12]);
-    expect(stops.map((s) => s.factor)).toEqual([1, 0.85, 0.5, 0.28, 0.15]);
+    expect(stateStops).toHaveLength(2);
+    expect(stateStops.map((s) => s.zoom)).toEqual([3, 5.5]);
+    expect(stateStops.map((s) => s.factor)).toEqual([1, 0.8]);
+    expect(stateStops[1].factor).toBeLessThan(stateStops[0].factor);
 
-    // Verify factor is strictly decreasing as zoom increases
-    for (let i = 1; i < stops.length; i++) {
-      expect(stops[i].factor).toBeLessThan(stops[i - 1].factor);
+    // 2. Municipal level (zoom >= 5.5): stops 5.5 -> 1, 7 -> 0.6, 9 -> 0.35, 12 -> 0.2
+    const munExpr = extrusionHeightExpression("mun") as unknown[];
+    expect(Array.isArray(munExpr)).toBe(true);
+    expect(munExpr[0]).toBe("interpolate");
+    expect(munExpr[1]).toEqual(["linear"]);
+    expect(munExpr[2]).toEqual(["zoom"]);
+
+    const munStops: { zoom: number; factor: number }[] = [];
+    for (let i = 3; i < munExpr.length; i += 2) {
+      const z = munExpr[i] as number;
+      const mult = munExpr[i + 1] as unknown[];
+      expect(Array.isArray(mult)).toBe(true);
+      expect(mult[0]).toBe("*");
+      expect(mult[1]).toEqual(["coalesce", ["feature-state", "h"], 0]);
+      const factor = mult[2] as number;
+      munStops.push({ zoom: z, factor });
+    }
+
+    expect(munStops).toHaveLength(4);
+    expect(munStops.map((s) => s.zoom)).toEqual([5.5, 7, 9, 12]);
+    expect(munStops.map((s) => s.factor)).toEqual([1, 0.6, 0.35, 0.2]);
+
+    for (let i = 1; i < munStops.length; i++) {
+      expect(munStops[i].factor).toBeLessThan(munStops[i - 1].factor);
     }
 
     // Validate against MapLibre style specification using validateStyleMin
     const minimalStyle = {
       version: 8 as const,
       sources: {
-        columns: {
-          type: "geojson" as const,
-          data: { type: "FeatureCollection" as const, features: [] },
+        atalaya: {
+          type: "vector" as const,
+          tiles: ["https://example.com/{z}/{x}/{y}.pbf"],
         },
       },
       layers: [
         {
-          id: "test-column-height-layer",
+          id: "test-state-height-layer",
           type: "fill-extrusion" as const,
-          source: "columns",
+          source: "atalaya",
+          "source-layer": "states",
           paint: {
-            "fill-extrusion-height": columnHeightExpression(),
+            "fill-extrusion-height": extrusionHeightExpression("state"),
+          },
+        },
+        {
+          id: "test-mun-height-layer",
+          type: "fill-extrusion" as const,
+          source: "atalaya",
+          "source-layer": "mun",
+          paint: {
+            "fill-extrusion-height": extrusionHeightExpression("mun"),
           },
         },
       ],
@@ -292,7 +322,7 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(stateCat.delta).toBeNull();
     expect(stateCat.cat).toBe("naranja");
     expect(stateCat.reliable).toBe(true);
-    expect(stateCat.h).toBe(riskHeight(60, COLUMN_MAX_M.state));
+    expect(stateCat.h).toBe(riskHeight(60, EXTRUSION_MAX_M.state));
 
     // Delta mode when item === base: delta is null -> h is deltaHeight(null) = 0
     const stateDeltaBase = featureStateFor(baseItem, baseItem, "delta", "state");
@@ -309,12 +339,12 @@ describe("mapStyle Logic & Expressions Tests", () => {
 
     // In category mode: height from risk_score (82)
     const stateMunCat = featureStateFor(itemExplicitDelta, baseItem, "category", "mun");
-    expect(stateMunCat.h).toBe(riskHeight(82, COLUMN_MAX_M.mun));
+    expect(stateMunCat.h).toBe(riskHeight(82, EXTRUSION_MAX_M.mun));
 
     // In delta mode: height from |delta| (-3.5)
     const stateMunDelta = featureStateFor(itemExplicitDelta, baseItem, "delta", "mun");
     expect(stateMunDelta.delta).toBe(-3.5);
-    expect(stateMunDelta.h).toBe(deltaHeight(-3.5, COLUMN_MAX_M.mun));
+    expect(stateMunDelta.h).toBe(deltaHeight(-3.5, EXTRUSION_MAX_M.mun));
 
     // 4. Derived delta (pred_abstention difference * 100)
     const itemDerivedDelta: RiskItem = {
@@ -324,7 +354,7 @@ describe("mapStyle Logic & Expressions Tests", () => {
     };
     const stateDerived = featureStateFor(itemDerivedDelta, baseItem, "delta", "state");
     expect(stateDerived.delta).toBeCloseTo(-8.0);
-    expect(stateDerived.h).toBe(deltaHeight(-8.0, COLUMN_MAX_M.state));
+    expect(stateDerived.h).toBe(deltaHeight(-8.0, EXTRUSION_MAX_M.state));
 
     // 5. reliable=false when explicit false or category is sin_dato
     const itemUnreliable: RiskItem = {

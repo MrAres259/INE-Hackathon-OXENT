@@ -15,11 +15,11 @@ import {
 import {
   detectWebGL,
   featureTarget,
-  columnTarget,
   levelOfFeature,
   createTileErrorTracker,
   type GeometryMode,
 } from "@/lib/mapSupport";
+import { resolveFocusEnt, entFromFeature } from "@/lib/focus";
 import { createHoverScheduler } from "@/lib/hoverThrottle";
 import type { MapRiskData } from "@/lib/mapRisk";
 import {
@@ -30,13 +30,13 @@ import {
   fetchTileManifest,
 } from "@/lib/geo";
 import { useAtalaya } from "@/lib/state";
-import { buildColumnCollections } from "@/lib/columns";
 import {
   buildStyle,
   buildDataLayers,
   buildSources,
   setColorMode,
-  setColumnsVisible,
+  setExtrusionVisible,
+  setExtrusionFocus,
 } from "./mapLayers";
 import { MapFallback } from "./MapFallback";
 
@@ -118,6 +118,7 @@ function AtalayaMapImpl({
   controls = true,
   className,
 }: AtalayaMapProps): React.JSX.Element {
+  const outerRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
@@ -171,8 +172,10 @@ function AtalayaMapImpl({
   const lastAppliedLevelRef = useRef<Level | null>(null);
 
   const lightSetRef = useRef(false);
-  const columnsEverPaintedRef = useRef(false);
-  const columnsNeedSyncRef = useRef(false);
+
+  // 3D focus state and ref (exposed as data-focus-ent on outer container)
+  const focusEntRef = useRef<string | null>(null);
+  const [focusEnt, setFocusEnt] = useState<string | null>(null);
 
   // Cache for incremental feature-state painting (prevents redundant setFeatureState calls)
   const lastStateSignaturesRef = useRef<Map<string, string>>(new Map());
@@ -189,7 +192,10 @@ function AtalayaMapImpl({
   const levelRef = useRef(level);
   levelRef.current = level;
 
-  // Pre-load GeoIndex for fast camera bounds lookup and column collection generation
+  const selectedEntRef = useRef(selectedEnt);
+  selectedEntRef.current = selectedEnt;
+
+  // Pre-load GeoIndex for fast camera bounds lookup
   useEffect(() => {
     const p = fetchGeoIndex()
       .then((items) => {
@@ -204,16 +210,65 @@ function AtalayaMapImpl({
     geoIndexPromiseRef.current = p;
   }, []);
 
-  // Handle retry from fallback or context loss (only updates state and increments retryKey)
+  // Handle retry from fallback or context loss
   const handleRetry = useCallback(() => {
     lastStateSignaturesRef.current.clear();
-    columnsEverPaintedRef.current = false;
-    columnsNeedSyncRef.current = false;
     setMapState("loading");
     setRetryKey((k) => k + 1);
   }, []);
 
-  // Helper to paint a single item onto polygon and optionally column target
+  // Update 3D extrusion focus and visibility
+  const updateFocus = useCallback((mapInstance?: maplibregl.Map | null) => {
+    const map = mapInstance ?? mapRef.current;
+    if (!map || mapStateRef.current !== "ready") return;
+
+    if (!extrudeRef.current) {
+      setExtrusionVisible(map, false);
+      setExtrusionFocus(map, null);
+      focusEntRef.current = null;
+      setFocusEnt(null);
+      if (outerRef.current) {
+        outerRef.current.dataset.focusEnt = "";
+      }
+      return;
+    }
+
+    setExtrusionVisible(map, true);
+
+    let centerEnt: string | null = null;
+    try {
+      const canvas = map.getCanvas();
+      const w = canvas.clientWidth || canvas.width || 800;
+      const h = canvas.clientHeight || canvas.height || 600;
+      const centerPt: [number, number] = [w / 2, h / 2];
+
+      if (map.getLayer(LAYER_IDS.statesFill)) {
+        const feats = map.queryRenderedFeatures(centerPt, {
+          layers: [LAYER_IDS.statesFill],
+        });
+        if (feats && feats.length > 0) {
+          centerEnt = entFromFeature(feats[0]);
+        }
+      }
+    } catch {}
+
+    const newFocus = resolveFocusEnt({
+      selectedEnt: selectedEntRef.current,
+      zoom: map.getZoom(),
+      centerEnt,
+      previous: focusEntRef.current,
+    });
+
+    focusEntRef.current = newFocus;
+    setFocusEnt(newFocus);
+    if (outerRef.current) {
+      outerRef.current.dataset.focusEnt = newFocus ?? "";
+    }
+
+    setExtrusionFocus(map, newFocus);
+  }, []);
+
+  // Helper to paint a single item onto polygon target
   const paintFeature = (
     id: string,
     lvl: Level,
@@ -222,8 +277,7 @@ function AtalayaMapImpl({
     mode: GeometryMode,
     curColorMode: ColorMode,
     signatures: Map<string, string>,
-    mapInstance: maplibregl.Map,
-    paintCols: boolean
+    mapInstance: maplibregl.Map
   ) => {
     let fs: any;
     try {
@@ -248,9 +302,8 @@ function AtalayaMapImpl({
 
     const sig = `${curColorMode}|${safeFs.cat}|${safeFs.delta}|${safeFs.h}|${safeFs.reliable}|${dim}|${isSelected}`;
 
-    // 1. Polygon target
     const polyTarget = featureTarget(mode, lvl, id);
-    const polyKey = `${polyTarget.source}|${id}`;
+    const polyKey = `${polyTarget.source}|${polyTarget.sourceLayer ?? ""}|${id}`;
     if (signatures.get(polyKey) !== sig) {
       try {
         mapInstance.setFeatureState(polyTarget, {
@@ -263,25 +316,6 @@ function AtalayaMapImpl({
           window.__atalayaPerf.paintCalls++;
         }
       } catch {}
-    }
-
-    // 2. Column target (only painted when 3D is active or being activated)
-    if (paintCols) {
-      const colTarget = columnTarget(lvl, id);
-      const colKey = `${colTarget.source}|${id}`;
-      if (signatures.get(colKey) !== sig) {
-        try {
-          mapInstance.setFeatureState(colTarget, {
-            ...safeFs,
-            dim,
-            selected: isSelected,
-          });
-          signatures.set(colKey, sig);
-          if (typeof window !== "undefined" && window.__atalayaPerf) {
-            window.__atalayaPerf.paintCalls++;
-          }
-        } catch {}
-      }
     }
   };
 
@@ -407,7 +441,6 @@ function AtalayaMapImpl({
       }
       if (!isMounted || mapRef.current !== map) return;
       lastStateSignaturesRef.current.clear();
-      columnsEverPaintedRef.current = false;
       setMapState("ready");
       try {
         map.triggerRepaint();
@@ -443,11 +476,6 @@ function AtalayaMapImpl({
             hoveredRef.current.id
           );
           map.setFeatureState(target, { hover: false });
-          const colTarget = columnTarget(
-            hoveredRef.current.level,
-            hoveredRef.current.id
-          );
-          map.setFeatureState(colTarget, { hover: false });
         } catch {}
         hoveredRef.current = null;
       }
@@ -464,15 +492,18 @@ function AtalayaMapImpl({
       const isMunVisible = zoom >= 5.5;
       const is3d = extrudeRef.current;
 
+      const statesExtLayer = LAYER_IDS.statesExtrusion;
+      const munExtLayer = LAYER_IDS.munExtrusion;
+
       const layers: string[] = [];
       if (is3d) {
         if (isMunVisible) {
-          if (map.getLayer("mun-columns")) layers.push("mun-columns");
-          if (map.getLayer("state-columns")) layers.push("state-columns");
+          if (map.getLayer(munExtLayer)) layers.push(munExtLayer);
+          if (map.getLayer(statesExtLayer)) layers.push(statesExtLayer);
           layers.push(LAYER_IDS.munFill, LAYER_IDS.statesFill);
         } else {
-          if (map.getLayer("state-columns")) layers.push("state-columns");
-          if (map.getLayer("mun-columns")) layers.push("mun-columns");
+          if (map.getLayer(statesExtLayer)) layers.push(statesExtLayer);
+          if (map.getLayer(munExtLayer)) layers.push(munExtLayer);
           layers.push(LAYER_IDS.statesFill, LAYER_IDS.munFill);
         }
       } else {
@@ -523,7 +554,6 @@ function AtalayaMapImpl({
 
       const fLevel = levelOfFeature(feat);
       const target = featureTarget(geometryModeRef.current, fLevel, id);
-      const colTarget = columnTarget(fLevel, id);
       const ent = String(
         feat.properties?.ent ?? (id.length === 2 ? id : id.slice(0, 2))
       );
@@ -540,20 +570,12 @@ function AtalayaMapImpl({
             hoveredRef.current.id
           );
           map.setFeatureState(prevTarget, { hover: false });
-          const prevCol = columnTarget(
-            hoveredRef.current.level,
-            hoveredRef.current.id
-          );
-          map.setFeatureState(prevCol, { hover: false });
         } catch {}
       }
 
       hoveredRef.current = { level: fLevel, id };
       try {
         map.setFeatureState(target, { hover: true });
-        if (is3d) {
-          map.setFeatureState(colTarget, { hover: true });
-        }
       } catch {}
 
       try {
@@ -620,6 +642,9 @@ function AtalayaMapImpl({
       if (!isMounted || mapRef.current !== map) return;
       hoverScheduler.cancel(true);
       clearHover();
+      if (extrudeRef.current) {
+        updateFocus(map);
+      }
     });
 
     map.on("mouseleave", () => {
@@ -634,15 +659,18 @@ function AtalayaMapImpl({
       const isMunVisible = zoom >= 5.5;
       const is3d = extrudeRef.current;
 
+      const statesExtLayer = LAYER_IDS.statesExtrusion;
+      const munExtLayer = LAYER_IDS.munExtrusion;
+
       const layers: string[] = [];
       if (is3d) {
         if (isMunVisible) {
-          if (map.getLayer("mun-columns")) layers.push("mun-columns");
-          if (map.getLayer("state-columns")) layers.push("state-columns");
+          if (map.getLayer(munExtLayer)) layers.push(munExtLayer);
+          if (map.getLayer(statesExtLayer)) layers.push(statesExtLayer);
           layers.push(LAYER_IDS.munFill, LAYER_IDS.statesFill);
         } else {
-          if (map.getLayer("state-columns")) layers.push("state-columns");
-          if (map.getLayer("mun-columns")) layers.push("mun-columns");
+          if (map.getLayer(statesExtLayer)) layers.push(statesExtLayer);
+          if (map.getLayer(munExtLayer)) layers.push(munExtLayer);
           layers.push(LAYER_IDS.statesFill, LAYER_IDS.munFill);
         }
       } else {
@@ -705,30 +733,12 @@ function AtalayaMapImpl({
         setGeometryMode(activeMode);
         geometryModeRef.current = activeMode;
 
-        // Obtain GeoIndex items for column collections
-        let geoItems: GeoIndexItem[] = [];
-        if (geoIndexRef.current.size > 0) {
-          geoItems = Array.from(geoIndexRef.current.values());
-        } else if (geoIndexPromiseRef.current) {
-          geoItems = await geoIndexPromiseRef.current;
-        } else {
-          geoItems = await fetchGeoIndex().catch(() => []);
-        }
-
-        let columns: { state: any; mun: any } | null = null;
-        try {
-          if (geoItems.length > 0) {
-            columns = buildColumnCollections(geoItems);
-          }
-        } catch {}
-
         let sources;
         if (activeMode === "vector") {
           const countryGeo = await fetchCountryGeoJson();
           if (!isMounted || mapRef.current !== map) return;
           sources = buildSources("vector", manifest, {
             country: countryGeo,
-            columns,
           });
         } else {
           const [statesGeo, munGeo, countryGeo] = await Promise.all([
@@ -741,7 +751,6 @@ function AtalayaMapImpl({
             country: countryGeo,
             states: statesGeo,
             mun: munGeo,
-            columns,
           });
         }
 
@@ -761,6 +770,13 @@ function AtalayaMapImpl({
         clearTimeout(timeoutId);
         setMapState("ready");
         onMapReadyRef.current?.(map);
+
+        if (extrudeRef.current) {
+          updateFocus(map);
+        } else {
+          setExtrusionVisible(map, false);
+          setExtrusionFocus(map, null);
+        }
       } catch (err) {
         if (typeof window !== "undefined" && window.__atalayaMapErrors) {
           window.__atalayaMapErrors.push(err);
@@ -820,7 +836,7 @@ function AtalayaMapImpl({
         mapRef.current = null;
       }
     };
-  }, [retryKey, controls]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [retryKey, controls, updateFocus]);
 
   // Incremental feature-state painting (data, dimming, and selection)
   useEffect(() => {
@@ -829,11 +845,6 @@ function AtalayaMapImpl({
 
     const mode = geometryMode;
     const signatures = lastStateSignaturesRef.current;
-    const is3d = extrude;
-
-    if (!is3d) {
-      columnsNeedSyncRef.current = true;
-    }
 
     const idx =
       view === "base"
@@ -859,8 +870,7 @@ function AtalayaMapImpl({
         mode,
         colorMode,
         signatures,
-        map,
-        is3d
+        map
       );
     }
 
@@ -877,16 +887,10 @@ function AtalayaMapImpl({
         mode,
         colorMode,
         signatures,
-        map,
-        is3d
+        map
       );
     }
-
-    if (is3d) {
-      columnsEverPaintedRef.current = true;
-      columnsNeedSyncRef.current = false;
-    }
-  }, [mapState, geometryMode, data, view, colorMode, selectedEnt, selectedRegionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapState, geometryMode, data, view, colorMode, selectedEnt, selectedRegionId]);
 
   // 3D extrusion toggle and camera angle
   useEffect(() => {
@@ -900,61 +904,7 @@ function AtalayaMapImpl({
     const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
 
     if (extrude) {
-      setColumnsVisible(map, true);
-
-      // On first activation or if data changed while in 2D, paint all columns once
-      if (!columnsEverPaintedRef.current || columnsNeedSyncRef.current) {
-        const mode = geometryModeRef.current;
-        const signatures = lastStateSignaturesRef.current;
-        const curData = dataRef.current;
-        const curView = viewRef.current;
-        const curColorMode = colorModeRef.current;
-        const idx =
-          curView === "base"
-            ? curData.base
-            : curView === "alt"
-            ? (curData.alt ?? curData.base)
-            : curData.active;
-
-        const allStateIds = new Set([
-          ...idx.state.keys(),
-          ...curData.base.state.keys(),
-        ]);
-        for (const id of allStateIds) {
-          paintFeature(
-            id,
-            "state",
-            idx.state.get(id),
-            curData.base.state.get(id),
-            mode,
-            curColorMode,
-            signatures,
-            map,
-            true
-          );
-        }
-
-        const allMunIds = new Set([
-          ...idx.mun.keys(),
-          ...curData.base.mun.keys(),
-        ]);
-        for (const id of allMunIds) {
-          paintFeature(
-            id,
-            "mun",
-            idx.mun.get(id),
-            curData.base.mun.get(id),
-            mode,
-            curColorMode,
-            signatures,
-            map,
-            true
-          );
-        }
-
-        columnsEverPaintedRef.current = true;
-        columnsNeedSyncRef.current = false;
-      }
+      updateFocus(map);
 
       if (map.getLayer(LAYER_IDS.labelsRaster)) {
         map.setPaintProperty(LAYER_IDS.labelsRaster, "raster-opacity", 0.6);
@@ -980,7 +930,13 @@ function AtalayaMapImpl({
         (map as any).setPixelRatio(Math.min(dpr, 1.5));
       }
     } else {
-      setColumnsVisible(map, false);
+      setExtrusionVisible(map, false);
+      setExtrusionFocus(map, null);
+      focusEntRef.current = null;
+      setFocusEnt(null);
+      if (outerRef.current) {
+        outerRef.current.dataset.focusEnt = "";
+      }
 
       if (map.getLayer(LAYER_IDS.labelsRaster)) {
         map.setPaintProperty(LAYER_IDS.labelsRaster, "raster-opacity", 0.85);
@@ -995,7 +951,7 @@ function AtalayaMapImpl({
         (map as any).setPixelRatio(Math.min(dpr, 2));
       }
     }
-  }, [mapState, extrude, view3d]);
+  }, [mapState, extrude, view3d, updateFocus]);
 
   // Color mode update
   useEffect(() => {
@@ -1032,22 +988,31 @@ function AtalayaMapImpl({
       } else if (level === "state") {
         map.fitBounds(MEXICO_BOUNDS, { padding: 24, duration });
       }
+
+      if (extrudeRef.current) {
+        updateFocus(map);
+      }
     } else if (
       level === "state" &&
       !selectedEnt &&
       lastAppliedLevelRef.current !== "state"
     ) {
       map.fitBounds(MEXICO_BOUNDS, { padding: 24, duration });
+      if (extrudeRef.current) {
+        updateFocus(map);
+      }
     }
 
     lastAppliedLevelRef.current = level;
-  }, [mapState, selectedEnt, level]);
+  }, [mapState, selectedEnt, level, updateFocus]);
 
   return (
     <div
+      ref={outerRef}
       className={`relative w-full h-full ${className ?? ""}`}
       data-map-state={mapState}
       data-geometry={geometryMode}
+      data-focus-ent={focusEnt ?? ""}
     >
       <div ref={containerRef} className="absolute inset-0" />
       {mapState === "unsupported" && <MapFallback reason="unsupported" />}

@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   detectWebGL,
   featureTarget,
-  columnTarget,
   levelOfFeature,
   createTileErrorTracker,
 } from "@/lib/mapSupport";
@@ -102,24 +101,6 @@ describe("mapSupport", () => {
     });
   });
 
-  describe("columnTarget", () => {
-    it("returns state-columns source for state level", () => {
-      const target = columnTarget("state", "07");
-      expect(target).toEqual({
-        source: "state-columns",
-        id: "07",
-      });
-    });
-
-    it("returns mun-columns source for mun level", () => {
-      const target = columnTarget("mun", "07101");
-      expect(target).toEqual({
-        source: "mun-columns",
-        id: "07101",
-      });
-    });
-  });
-
   describe("levelOfFeature", () => {
     it("resolves level from sourceLayer if present", () => {
       expect(levelOfFeature({ sourceLayer: "states" })).toBe("state");
@@ -131,14 +112,14 @@ describe("mapSupport", () => {
       expect(levelOfFeature({ layer: { id: "mun-line" } })).toBe("mun");
     });
 
-    it("resolves level from 3D column layer IDs", () => {
-      expect(levelOfFeature({ layer: { id: "state-columns" } })).toBe("state");
-      expect(levelOfFeature({ layer: { id: "mun-columns" } })).toBe("mun");
+    it("resolves level from 3D extrusion layer IDs", () => {
+      expect(levelOfFeature({ layer: { id: "states-extrusion" } })).toBe("state");
+      expect(levelOfFeature({ layer: { id: "mun-extrusion" } })).toBe("mun");
     });
 
-    it("resolves level from 3D column source names", () => {
-      expect(levelOfFeature({ source: "state-columns" })).toBe("state");
-      expect(levelOfFeature({ source: "mun-columns" })).toBe("mun");
+    it("resolves level from source names", () => {
+      expect(levelOfFeature({ source: "states" })).toBe("state");
+      expect(levelOfFeature({ source: "mun" })).toBe("mun");
     });
 
     it("resolves level from id length if neither sourceLayer nor layer.id is informative", () => {
