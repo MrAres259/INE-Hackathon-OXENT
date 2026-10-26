@@ -22,6 +22,75 @@ import {
 } from "./api";
 import { defaultParamsFromMeta, paramsForScenario } from "./scenarioParams";
 
+export type View3d = "inclinada" | "cenital";
+
+export interface MapUrlState {
+  mapMode: MapMode;
+  extrude3d: boolean;
+  view3d: View3d;
+  scenario: ScenarioId;
+}
+
+export function parseMapUrlState(search: string): MapUrlState {
+  const cleanSearch = search.startsWith("?") ? search.slice(1) : search;
+  const sp = new URLSearchParams(cleanSearch);
+
+  const mapa = sp.get("mapa");
+  const mapMode: MapMode =
+    mapa === "delta" || mapa === "compare" ? mapa : "semaforo";
+
+  const d3 = sp.get("3d");
+  const extrude3d = d3 === "1" || d3 === "true";
+
+  const vista = sp.get("vista");
+  const view3d: View3d = extrude3d && vista === "cenital" ? "cenital" : "inclinada";
+
+  const esc = sp.get("escenario");
+  const scenario: ScenarioId =
+    esc === "intervencion" || esc === "pesimista" ? esc : "base";
+
+  return {
+    mapMode,
+    extrude3d,
+    view3d,
+    scenario,
+  };
+}
+
+export function serializeMapUrlState(
+  state: Partial<MapUrlState>,
+  existingSearch?: string
+): string {
+  const clean = existingSearch?.startsWith("?") ? existingSearch.slice(1) : existingSearch;
+  const sp = new URLSearchParams(clean ?? "");
+
+  if (state.mapMode && state.mapMode !== "semaforo") {
+    sp.set("mapa", state.mapMode);
+  } else {
+    sp.delete("mapa");
+  }
+
+  if (state.extrude3d) {
+    sp.set("3d", "1");
+  } else {
+    sp.delete("3d");
+  }
+
+  if (state.extrude3d && state.view3d === "cenital") {
+    sp.set("vista", "cenital");
+  } else {
+    sp.delete("vista");
+  }
+
+  if (state.scenario && state.scenario !== "base") {
+    sp.set("escenario", state.scenario);
+  } else {
+    sp.delete("escenario");
+  }
+
+  return sp.toString();
+}
+
 interface AtalayaContextValue {
   scenario: ScenarioId;
   setScenario: (s: ScenarioId) => void;
@@ -46,6 +115,8 @@ interface AtalayaContextValue {
   setMapMode: (m: MapMode) => void;
   extrude3d: boolean;
   setExtrude3d: (e: boolean) => void;
+  view3d: View3d;
+  setView3d: (v: View3d) => void;
   comparePos: number;
   setComparePos: (pos: number) => void;
   selectState: (ent: string) => void;
@@ -76,24 +147,25 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   const [hasData, setHasData] = useState<boolean>(true);
   const [mapMode, setMapMode] = useState<MapMode>("semaforo");
   const [extrude3d, setExtrude3d] = useState<boolean>(false);
+  const [view3d, setView3d] = useState<View3d>("inclinada");
   const [comparePos, setComparePos] = useState<number>(50);
   const [isUrlInitialized, setIsUrlInitialized] = useState<boolean>(false);
 
   // Read initial map parameters from URL on client mount (avoids hydration mismatch)
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const sp = new URLSearchParams(window.location.search);
-      const mapa = sp.get("mapa");
-      if (mapa === "semaforo" || mapa === "delta" || mapa === "compare") {
-        setMapMode(mapa);
+      const parsed = parseMapUrlState(window.location.search);
+      if (parsed.mapMode !== "semaforo") {
+        setMapMode(parsed.mapMode);
       }
-      const d3 = sp.get("3d");
-      if (d3 === "1" || d3 === "true") {
+      if (parsed.extrude3d) {
         setExtrude3d(true);
       }
-      const esc = sp.get("escenario");
-      if (esc === "base" || esc === "intervencion" || esc === "pesimista") {
-        setScenarioState(esc);
+      if (parsed.view3d !== "inclinada") {
+        setView3d(parsed.view3d);
+      }
+      if (parsed.scenario !== "base") {
+        setScenarioState(parsed.scenario);
       }
       setIsUrlInitialized(true);
     }
@@ -102,30 +174,13 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   // Synchronize map & scenario params to URL without reloading
   useEffect(() => {
     if (!isUrlInitialized || typeof window === "undefined") return;
-    const sp = new URLSearchParams(window.location.search);
-
-    if (mapMode !== "semaforo") {
-      sp.set("mapa", mapMode);
-    } else {
-      sp.delete("mapa");
-    }
-
-    if (extrude3d) {
-      sp.set("3d", "1");
-    } else {
-      sp.delete("3d");
-    }
-
-    if (scenario !== "base") {
-      sp.set("escenario", scenario);
-    } else {
-      sp.delete("escenario");
-    }
-
-    const search = sp.toString();
+    const search = serializeMapUrlState(
+      { mapMode, extrude3d, view3d, scenario },
+      window.location.search
+    );
     const newUrl = `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
     window.history.replaceState(null, "", newUrl);
-  }, [mapMode, extrude3d, scenario, isUrlInitialized]);
+  }, [mapMode, extrude3d, view3d, scenario, isUrlInitialized]);
 
   // Subscribe to mock state changes
   useEffect(() => {
@@ -315,6 +370,8 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
         setMapMode,
         extrude3d,
         setExtrude3d,
+        view3d,
+        setView3d,
         comparePos,
         setComparePos,
         selectState,

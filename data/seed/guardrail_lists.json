@@ -1,0 +1,8 @@
+{
+  "_comentario": "Diccionarios personalizables de guardrails para ATALAYA. Se recargan automáticamente al guardar el archivo según su fecha de modificación (mtime). bloqueo_entrada y bloqueo_salida son listas de términos exactos en minúsculas. regex_entrada y regex_salida son listas de objetos {\"patron\": \"...\", \"nombre\": \"...\", \"severidad\": \"alto\"}. permitidos es una lista de términos exentos de bloqueo.",
+  "bloqueo_entrada": [],
+  "bloqueo_salida": [],
+  "regex_entrada": [],
+  "regex_salida": [],
+  "permitidos": []
+}

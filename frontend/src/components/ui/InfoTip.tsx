@@ -1,0 +1,288 @@
+"use client";
+
+import React, { useState, useRef, useEffect, useId, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { glossaryFor, type GlossaryKey } from "@/lib/glossary";
+
+export type DOMRectLike = {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  bottom: number;
+  right: number;
+};
+
+export type Side = "top" | "bottom" | "left" | "right";
+
+export function computeTipPosition(
+  anchor: DOMRectLike,
+  tip: { width: number; height: number },
+  viewport: { width: number; height: number },
+  side: Side = "top",
+  margin = 8
+): { top: number; left: number; side: Side } {
+  let resolvedSide = side;
+
+  if (side === "top") {
+    if (anchor.top < tip.height + margin) {
+      resolvedSide = "bottom";
+    }
+  } else if (side === "bottom") {
+    if (viewport.height - anchor.bottom < tip.height + margin) {
+      resolvedSide = "top";
+    }
+  } else if (side === "left") {
+    if (anchor.left < tip.width + margin) {
+      resolvedSide = "right";
+    }
+  } else if (side === "right") {
+    if (viewport.width - anchor.right < tip.width + margin) {
+      resolvedSide = "left";
+    }
+  }
+
+  let top = 0;
+  let left = 0;
+
+  if (resolvedSide === "top") {
+    top = anchor.top - tip.height - margin;
+    left = anchor.left + (anchor.width - tip.width) / 2;
+  } else if (resolvedSide === "bottom") {
+    top = anchor.bottom + margin;
+    left = anchor.left + (anchor.width - tip.width) / 2;
+  } else if (resolvedSide === "left") {
+    left = anchor.left - tip.width - margin;
+    top = anchor.top + (anchor.height - tip.height) / 2;
+  } else if (resolvedSide === "right") {
+    left = anchor.right + margin;
+    top = anchor.top + (anchor.height - tip.height) / 2;
+  }
+
+  const maxLeft = Math.max(margin, viewport.width - tip.width - margin);
+  const maxTop = Math.max(margin, viewport.height - tip.height - margin);
+
+  left = Math.min(Math.max(margin, left), maxLeft);
+  top = Math.min(Math.max(margin, top), maxTop);
+
+  return { top, left, side: resolvedSide };
+}
+
+export type InfoTipProps = {
+  term?: GlossaryKey;
+  title?: string;
+  text?: string;
+  side?: Side;
+  size?: "xs" | "sm";
+  className?: string;
+};
+
+export function InfoTip({
+  term,
+  title,
+  text,
+  side = "top",
+  size = "sm",
+  className,
+}: InfoTipProps): React.JSX.Element | null {
+  const entry = term ? glossaryFor(term) : undefined;
+  const finalTitle = title ?? entry?.title;
+  const finalBody = text ? (entry?.body ? `${entry.body}\n\n${text}` : text) : entry?.body;
+
+  if (!finalTitle && !finalBody && !entry) {
+    return null;
+  }
+
+  const tooltipId = useId();
+  const [isOpen, setIsOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => {
+      if (openTimerRef.current) clearTimeout(openTimerRef.current);
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current || !popoverRef.current) return;
+    const anchor = buttonRef.current.getBoundingClientRect();
+    const tipRect = popoverRef.current.getBoundingClientRect();
+    const vp = { width: window.innerWidth, height: window.innerHeight };
+    const pos = computeTipPosition(anchor, { width: tipRect.width, height: tipRect.height }, vp, side);
+    setCoords({ top: pos.top, left: pos.left });
+  }, [side]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, updatePosition]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (
+        target &&
+        buttonRef.current &&
+        !buttonRef.current.contains(target) &&
+        popoverRef.current &&
+        !popoverRef.current.contains(target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const cancelTimers = () => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const handleMouseEnter = () => {
+    cancelTimers();
+    openTimerRef.current = setTimeout(() => {
+      setIsOpen(true);
+    }, 120);
+  };
+
+  const handleMouseLeave = () => {
+    cancelTimers();
+    closeTimerRef.current = setTimeout(() => {
+      setIsOpen(false);
+    }, 150);
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelTimers();
+    setIsOpen((prev) => !prev);
+  };
+
+  const handleFocus = () => {
+    cancelTimers();
+    setIsOpen(true);
+  };
+
+  const handleBlur = (e: React.FocusEvent) => {
+    if (popoverRef.current && popoverRef.current.contains(e.relatedTarget as Node)) {
+      return;
+    }
+    cancelTimers();
+    closeTimerRef.current = setTimeout(() => {
+      setIsOpen(false);
+    }, 150);
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={finalTitle ? `¿Qué es ${finalTitle}?` : "¿Qué es esto?"}
+        aria-describedby={isOpen ? tooltipId : undefined}
+        aria-expanded={isOpen}
+        onClick={handleClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        className={`inline-flex items-center justify-center text-slate-400 hover:text-emerald-300 focus:text-emerald-300 focus:outline-none transition-colors cursor-pointer rounded-full ${
+          size === "xs" ? "p-0.5" : "p-1"
+        } ${className ?? ""}`}
+      >
+        <svg
+          className={size === "xs" ? "w-3 h-3" : "w-3.5 h-3.5"}
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            fillRule="evenodd"
+            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </button>
+
+      {mounted &&
+        isOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            id={tooltipId}
+            role="tooltip"
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+            style={{
+              position: "fixed",
+              top: coords.top,
+              left: coords.left,
+              maxWidth: "320px",
+              zIndex: 70,
+            }}
+            className="bg-slate-900 border border-slate-700 rounded-xl p-3 shadow-2xl text-xs text-slate-200 pointer-events-auto select-text animate-in fade-in duration-100"
+          >
+            {finalTitle && (
+              <h4 className="font-bold text-white text-xs mb-1">
+                {finalTitle}
+              </h4>
+            )}
+            {finalBody && (
+              <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-line">
+                {finalBody}
+              </p>
+            )}
+            {entry?.relation && (
+              <div className="mt-2 pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                <span className="font-semibold text-slate-300">Cómo se relaciona: </span>
+                {entry.relation}
+              </div>
+            )}
+            {entry?.example && (
+              <div className="mt-1.5 text-[11px] text-emerald-400 font-mono">
+                <span className="font-semibold text-slate-300 font-sans">Ejemplo: </span>
+                {entry.example}
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}

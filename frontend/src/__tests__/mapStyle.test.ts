@@ -6,7 +6,13 @@ import {
   categoryFillExpression,
   deltaFillExpression,
   fillExpression,
-  extrusionHeight,
+  riskHeight,
+  deltaHeight,
+  mixHex,
+  columnColorExpression,
+  COLUMN_MAX_M,
+  COLUMN_MIN_FRACTION,
+  COLUMN_ZOOM_SPLIT,
   featureStateFor,
   categoryLegend,
   deltaLegend,
@@ -22,11 +28,16 @@ import { CATEGORY_COLORS } from "../lib/format";
 import type { RiskItem } from "../lib/types";
 
 describe("mapStyle Logic & Expressions Tests", () => {
-  it("exports valid map constants and Esri basemap with {z}/{y}/{x}", () => {
+  it("exports valid map constants, layer IDs, column bounds, and basemap", () => {
     expect(LAYER_IDS.statesFill).toBe("states-fill");
     expect(LAYER_IDS.munFill).toBe("mun-fill");
+    expect(LAYER_IDS.stateColumns).toBe("state-columns");
+    expect(LAYER_IDS.munColumns).toBe("mun-columns");
     expect(LAYER_IDS.selectedStates).toBe("states-selected-line");
     expect(SOURCE_IDS.states).toBe("states");
+    expect(SOURCE_IDS.mun).toBe("mun");
+    expect(SOURCE_IDS.stateColumns).toBe("state-columns");
+    expect(SOURCE_IDS.munColumns).toBe("mun-columns");
     expect(SOURCE_IDS.vector).toBe("atalaya");
     expect(SOURCE_LAYERS.states).toBe("states");
     expect(SOURCE_LAYERS.mun).toBe("mun");
@@ -41,6 +52,10 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(BASEMAP.maxzoom).toBe(16);
     expect(BASEMAP.attribution).toContain("Esri");
     expect(BASEMAP.attribution).toContain("INEGI MG 2024");
+    expect(COLUMN_MAX_M.state).toBe(420_000);
+    expect(COLUMN_MAX_M.mun).toBe(90_000);
+    expect(COLUMN_MIN_FRACTION).toBe(0.04);
+    expect(COLUMN_ZOOM_SPLIT).toBe(5.5);
   });
 
   it("resolves deltaColor accurately on every class boundary", () => {
@@ -106,36 +121,90 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(fillExpression("delta")).toEqual(deltaExpr);
   });
 
-  it("calculates extrusionHeight with square-root scaling and caps at maxMeters", () => {
+  it("calculates monotonic riskHeight with 80 > 60 > 40 > 20 > 0 and null/NaN => 0 with COLUMN_MIN_FRACTION minimum", () => {
     const maxMeters = 100_000;
-    const vmax = 10_000;
 
-    // null, undefined, 0, negative -> 0
-    expect(extrusionHeight(null, vmax, maxMeters)).toBe(0);
-    expect(extrusionHeight(undefined, vmax, maxMeters)).toBe(0);
-    expect(extrusionHeight(0, vmax, maxMeters)).toBe(0);
-    expect(extrusionHeight(-100, vmax, maxMeters)).toBe(0);
+    // null, undefined, NaN -> 0
+    expect(riskHeight(null, maxMeters)).toBe(0);
+    expect(riskHeight(undefined, maxMeters)).toBe(0);
+    expect(riskHeight(NaN, maxMeters)).toBe(0);
 
-    // vmax <= 0 -> 0
-    expect(extrusionHeight(5000, 0, maxMeters)).toBe(0);
-    expect(extrusionHeight(5000, -100, maxMeters)).toBe(0);
+    // Score 0 returns minimum fraction height > 0
+    const h0 = riskHeight(0, maxMeters);
+    expect(h0).toBe(maxMeters * COLUMN_MIN_FRACTION);
+    expect(h0).toBeGreaterThan(0);
 
-    // at vmax -> exact maxMeters
-    expect(extrusionHeight(vmax, vmax, maxMeters)).toBe(maxMeters);
+    // Monotonic riskHeight: 80 (rojo) > 60 (naranja) > 40 (amarillo) > 20 (verde) > 0
+    const h20 = riskHeight(20, maxMeters);
+    const h40 = riskHeight(40, maxMeters);
+    const h60 = riskHeight(60, maxMeters);
+    const h80 = riskHeight(80, maxMeters);
 
-    // above vmax -> capped at maxMeters
-    expect(extrusionHeight(vmax * 2, vmax, maxMeters)).toBe(maxMeters);
+    expect(h80).toBeGreaterThan(h60);
+    expect(h60).toBeGreaterThan(h40);
+    expect(h40).toBeGreaterThan(h20);
+    expect(h20).toBeGreaterThan(h0);
 
-    // at vmax / 4 -> sqrt(1/4) * maxMeters = 0.5 * maxMeters
-    expect(extrusionHeight(vmax / 4, vmax, maxMeters)).toBeCloseTo(maxMeters * 0.5);
+    // Capping at 100
+    expect(riskHeight(100, maxMeters)).toBe(maxMeters);
+    expect(riskHeight(150, maxMeters)).toBe(maxMeters);
   });
 
-  it("produces correct featureStateFor edge cases", () => {
-    const vmax = 50_000;
+  it("calculates symmetric deltaHeight with cap at 5 pp", () => {
     const maxMeters = 100_000;
 
+    // null, undefined, NaN -> 0
+    expect(deltaHeight(null, maxMeters)).toBe(0);
+    expect(deltaHeight(undefined, maxMeters)).toBe(0);
+    expect(deltaHeight(NaN, maxMeters)).toBe(0);
+
+    // Zero delta has minimum fraction
+    expect(deltaHeight(0, maxMeters)).toBe(maxMeters * COLUMN_MIN_FRACTION);
+
+    // Symmetry: deltaHeight(-x) === deltaHeight(x)
+    expect(deltaHeight(-3.2, maxMeters)).toBeCloseTo(deltaHeight(3.2, maxMeters));
+    expect(deltaHeight(-1.5, maxMeters)).toBeCloseTo(deltaHeight(1.5, maxMeters));
+    expect(deltaHeight(-0.5, maxMeters)).toBeCloseTo(deltaHeight(0.5, maxMeters));
+
+    // Cap at 5 pp
+    const hAt5 = deltaHeight(5.0, maxMeters);
+    expect(hAt5).toBe(maxMeters);
+    expect(deltaHeight(7.5, maxMeters)).toBe(maxMeters);
+    expect(deltaHeight(-8.0, maxMeters)).toBe(maxMeters);
+  });
+
+  it("interpolates colors with mixHex including boundary values t=0 and t=1", () => {
+    // Exact extremes
+    expect(mixHex("#ff0000", "#0000ff", 0)).toBe("#ff0000");
+    expect(mixHex("#ff0000", "#0000ff", 1)).toBe("#0000ff");
+
+    // Clamping below 0 and above 1
+    expect(mixHex("#ff0000", "#0000ff", -0.5)).toBe("#ff0000");
+    expect(mixHex("#ff0000", "#0000ff", 1.5)).toBe("#0000ff");
+
+    // Midpoint interpolation between black and white -> #808080 (128)
+    expect(mixHex("#000000", "#ffffff", 0.5)).toBe("#808080");
+
+    // Support 3-digit shorthand
+    expect(mixHex("#f00", "#00f", 0)).toBe("#ff0000");
+    expect(mixHex("#f00", "#00f", 1)).toBe("#0000ff");
+  });
+
+  it("constructs valid columnColorExpression with dim and hover branches for both modes", () => {
+    for (const mode of ["category", "delta"] as const) {
+      const expr = columnColorExpression(mode) as unknown[];
+      expect(Array.isArray(expr)).toBe(true);
+      expect(expr[0]).toBe("case");
+      // Check feature-state hover check
+      expect(JSON.stringify(expr)).toContain("hover");
+      // Check feature-state dim check
+      expect(JSON.stringify(expr)).toContain("dim");
+    }
+  });
+
+  it("produces correct featureStateFor edge cases using risk_score in category and |delta| in delta mode", () => {
     // 1. Absent item
-    const absent = featureStateFor(undefined, undefined, vmax, maxMeters);
+    const absent = featureStateFor(undefined, undefined, "category", "state");
     expect(absent).toEqual({
       cat: "sin_dato",
       delta: null,
@@ -143,7 +212,7 @@ describe("mapStyle Logic & Expressions Tests", () => {
       reliable: false,
     });
 
-    // 2. Base without delta (item === base)
+    // 2. Base item without delta (item === base)
     const baseItem: RiskItem = {
       id: "07",
       name: "Chiapas",
@@ -162,41 +231,58 @@ describe("mapStyle Logic & Expressions Tests", () => {
       abstencion_esperada: 25_000,
       reliable: true,
     };
-    const stateSame = featureStateFor(baseItem, baseItem, vmax, maxMeters);
-    expect(stateSame.delta).toBeNull();
-    expect(stateSame.cat).toBe("naranja");
-    expect(stateSame.reliable).toBe(true);
-    expect(stateSame.h).toBeGreaterThan(0);
+
+    // Category mode: uses risk_score (60)
+    const stateCat = featureStateFor(baseItem, baseItem, "category", "state");
+    expect(stateCat.delta).toBeNull();
+    expect(stateCat.cat).toBe("naranja");
+    expect(stateCat.reliable).toBe(true);
+    expect(stateCat.h).toBe(riskHeight(60, COLUMN_MAX_M.state));
+
+    // Delta mode when item === base: delta is null -> h is deltaHeight(null) = 0
+    const stateDeltaBase = featureStateFor(baseItem, baseItem, "delta", "state");
+    expect(stateDeltaBase.delta).toBeNull();
+    expect(stateDeltaBase.h).toBe(0);
 
     // 3. Explicit delta
     const itemExplicitDelta: RiskItem = {
       ...baseItem,
+      level: "mun",
       delta_vs_base_pp: -3.5,
+      risk_score: 82,
     };
-    const stateExplicit = featureStateFor(itemExplicitDelta, baseItem, vmax, maxMeters);
-    expect(stateExplicit.delta).toBe(-3.5);
+
+    // In category mode: height from risk_score (82)
+    const stateMunCat = featureStateFor(itemExplicitDelta, baseItem, "category", "mun");
+    expect(stateMunCat.h).toBe(riskHeight(82, COLUMN_MAX_M.mun));
+
+    // In delta mode: height from |delta| (-3.5)
+    const stateMunDelta = featureStateFor(itemExplicitDelta, baseItem, "delta", "mun");
+    expect(stateMunDelta.delta).toBe(-3.5);
+    expect(stateMunDelta.h).toBe(deltaHeight(-3.5, COLUMN_MAX_M.mun));
 
     // 4. Derived delta (pred_abstention difference * 100)
     const itemDerivedDelta: RiskItem = {
       ...baseItem,
       delta_vs_base_pp: undefined,
-      pred_abstention: 0.42,
+      pred_abstention: 0.42, // (0.42 - 0.50) * 100 = -8.0 pp
     };
-    const stateDerived = featureStateFor(itemDerivedDelta, baseItem, vmax, maxMeters);
+    const stateDerived = featureStateFor(itemDerivedDelta, baseItem, "delta", "state");
     expect(stateDerived.delta).toBeCloseTo(-8.0);
+    expect(stateDerived.h).toBe(deltaHeight(-8.0, COLUMN_MAX_M.state));
 
     // 5. reliable=false when explicit false or category is sin_dato
     const itemUnreliable: RiskItem = {
       ...baseItem,
       reliable: false,
     };
-    expect(featureStateFor(itemUnreliable, baseItem, vmax, maxMeters).reliable).toBe(false);
+    expect(featureStateFor(itemUnreliable, baseItem, "category", "state").reliable).toBe(false);
 
     const itemSinDato: RiskItem = {
       ...baseItem,
       category: "sin_dato",
     };
-    expect(featureStateFor(itemSinDato, baseItem, vmax, maxMeters).reliable).toBe(false);
+    expect(featureStateFor(itemSinDato, baseItem, "category", "state").reliable).toBe(false);
   });
 
   it("generates category and delta legends with counts", () => {

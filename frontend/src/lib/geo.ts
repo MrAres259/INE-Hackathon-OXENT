@@ -1,7 +1,7 @@
 // GeoJSON loader with automatic fallback to synthetic mock geometry
 import type { FeatureCollection, Geometry } from "geojson";
 import type { GeoIndexFile, GeoIndexItem, RiskItem, TileManifest } from "./types";
-import { getMockStatesGeoJson, getMockMunGeoJson, getMockGeoIndex } from "./mocks/geo";
+import { getMockStatesGeoJson, getMockMunGeoJson, getMockGeoIndex as getBaseMockGeoIndex } from "./mocks/geo";
 import { MOCK_STATES } from "./mocks/meta";
 import { CATEGORY_COLORS } from "./format";
 
@@ -20,6 +20,7 @@ export function toIndexItems(raw: GeoIndexFile): GeoIndexItem[] {
   const items: GeoIndexItem[] = [];
   if (raw?.states) {
     for (const [id, s] of Object.entries(raw.states)) {
+      const rawState = s as typeof s & { anchor?: [number, number]; area_km2?: number };
       items.push({
         id,
         name: s.name,
@@ -27,21 +28,37 @@ export function toIndexItems(raw: GeoIndexFile): GeoIndexItem[] {
         ent: id,
         bbox: s.bbox,
         centroid: s.centroid,
+        ...(rawState.anchor !== undefined ? { anchor: rawState.anchor } : {}),
+        ...(rawState.area_km2 !== undefined ? { area_km2: rawState.area_km2 } : {}),
       });
     }
   }
   if (raw?.mun) {
     for (const [id, m] of Object.entries(raw.mun)) {
+      const rawMun = m as typeof m & { anchor?: [number, number]; area_km2?: number };
       items.push({
         id,
         name: m.name,
         level: "mun",
         ent: m.ent,
         centroid: m.centroid,
+        ...(rawMun.anchor !== undefined ? { anchor: rawMun.anchor } : {}),
+        ...(rawMun.area_km2 !== undefined ? { area_km2: rawMun.area_km2 } : {}),
       });
     }
   }
   return items;
+}
+
+export function getMockGeoIndex(): GeoIndexItem[] {
+  const base = getBaseMockGeoIndex();
+  return base.map((item) => ({
+    ...item,
+    anchor: item.anchor ?? item.centroid,
+    area_km2:
+      item.area_km2 ??
+      (item.level === "state" ? 60_000 : 800),
+  }));
 }
 
 export function colorForFeature(

@@ -68,6 +68,38 @@ describe("Geo Adapter and Contract Tests", () => {
     expect(tuxtla?.centroid).toEqual([-93.1, 16.7]);
   });
 
+  it("preserves anchor and area_km2 when converting GeoIndexFile to GeoIndexItem array", () => {
+    const rawFixture: any = {
+      states: {
+        "07": {
+          name: "Chiapas",
+          bbox: [-94.1, 14.5, -90.3, 17.9],
+          centroid: [-92.5, 16.5],
+          anchor: [-92.7, 16.7],
+          area_km2: 73311.0,
+        },
+      },
+      mun: {
+        "07101": {
+          name: "Tuxtla Gutiérrez",
+          ent: "07",
+          centroid: [-93.1, 16.7],
+          anchor: [-93.12, 16.72],
+          area_km2: 334.5,
+        },
+      },
+    };
+
+    const items = toIndexItems(rawFixture);
+    const chiapas = items.find((i) => i.id === "07");
+    expect(chiapas?.anchor).toEqual([-92.7, 16.7]);
+    expect(chiapas?.area_km2).toBe(73311.0);
+
+    const tuxtla = items.find((i) => i.id === "07101");
+    expect(tuxtla?.anchor).toEqual([-93.12, 16.72]);
+    expect(tuxtla?.area_km2).toBe(334.5);
+  });
+
   it("colors pipeline features correctly using colorForFeature pure function", () => {
     // Inline pipeline features conforming strictly to tools/geo/build_geo.mjs output
     const stateFeature = {

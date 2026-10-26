@@ -1,5 +1,5 @@
 import type { ExpressionSpecification } from "maplibre-gl";
-import type { Category, RiskItem } from "./types";
+import type { Category, Level, RiskItem } from "./types";
 import { CATEGORY_COLORS, CATEGORY_LABELS } from "./format";
 
 export type ColorMode = "category" | "delta";
@@ -12,8 +12,8 @@ export const LAYER_IDS = {
   munFill: "mun-fill",
   munLine: "mun-line",
   statesLine: "states-line",
-  statesExtrusion: "states-extrusion",
-  munExtrusion: "mun-extrusion",
+  stateColumns: "state-columns",
+  munColumns: "mun-columns",
   hoverStates: "states-hover",
   hoverMun: "mun-hover",
   selected: "selected-line",
@@ -28,6 +28,8 @@ export const SOURCE_IDS = {
   cartoBase: "carto-base",
   cartoLabels: "carto-labels",
   vector: "atalaya",
+  stateColumns: "state-columns",
+  munColumns: "mun-columns",
 } as const;
 
 export const SOURCE_LAYERS = {
@@ -115,22 +117,166 @@ export function fillExpression(mode: ColorMode): ExpressionSpecification {
   return mode === "delta" ? deltaFillExpression() : categoryFillExpression();
 }
 
-export function extrusionHeight(
-  value: number | null | undefined,
-  vmax: number,
-  maxMeters: number
-): number {
-  if (value === null || value === undefined || isNaN(value) || value <= 0 || vmax <= 0) {
+export const COLUMN_MAX_M = { state: 420_000, mun: 90_000 } as const;
+export const COLUMN_MIN_FRACTION = 0.04;
+export const COLUMN_ZOOM_SPLIT = 5.5;
+
+export function riskHeight(score: number | null | undefined, maxMeters: number): number {
+  if (score === null || score === undefined || Number.isNaN(score)) {
     return 0;
   }
-  const h = (Math.sqrt(value) / Math.sqrt(vmax)) * maxMeters;
-  return Math.min(h, maxMeters);
+  const clamped = Math.max(0, Math.min(100, score));
+  const fraction = Math.pow(clamped / 100, 1.6);
+  return maxMeters * Math.max(COLUMN_MIN_FRACTION, fraction);
 }
 
-export const EXTRUSION_MAX_M = {
-  state: 350_000,
-  mun: 120_000,
-} as const;
+export function deltaHeight(deltaPp: number | null | undefined, maxMeters: number): number {
+  if (deltaPp === null || deltaPp === undefined || Number.isNaN(deltaPp)) {
+    return 0;
+  }
+  const absDelta = Math.abs(deltaPp);
+  const fraction = Math.min(absDelta, 5) / 5;
+  return maxMeters * Math.max(COLUMN_MIN_FRACTION, fraction);
+}
+
+/**
+ * Linearly interpolates between two hex colors by factor t (clamped to [0, 1]).
+ * Returns lowercase #rrggbb format.
+ */
+export function mixHex(a: string, b: string, t: number): string {
+  const parseHex = (hex: string): [number, number, number] => {
+    let clean = hex.replace("#", "").trim();
+    if (clean.length === 3) {
+      clean = clean
+        .split("")
+        .map((c) => c + c)
+        .join("");
+    }
+    const num = parseInt(clean, 16);
+    if (Number.isNaN(num)) return [0, 0, 0];
+    return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+  };
+
+  const factor = Math.max(0, Math.min(1, t));
+  const [r1, g1, b1] = parseHex(a);
+  const [r2, g2, b2] = parseHex(b);
+
+  if (factor === 0) {
+    return `#${r1.toString(16).padStart(2, "0")}${g1.toString(16).padStart(2, "0")}${b1.toString(16).padStart(2, "0")}`;
+  }
+  if (factor === 1) {
+    return `#${r2.toString(16).padStart(2, "0")}${g2.toString(16).padStart(2, "0")}${b2.toString(16).padStart(2, "0")}`;
+  }
+
+  const r = Math.round(r1 + (r2 - r1) * factor);
+  const g = Math.round(g1 + (g2 - g1) * factor);
+  const bVal = Math.round(b1 + (b2 - b1) * factor);
+
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${bVal.toString(16).padStart(2, "0")}`;
+}
+
+const DIM_FACTOR = 0.7;
+const HOVER_FACTOR = 0.35;
+const HOVER_TARGET = "#ffffff";
+
+// Precomputed category variants for column shaders
+const CATEGORY_HOVER_COLORS: Record<Category, string> = {
+  verde: mixHex(CATEGORY_COLORS.verde, HOVER_TARGET, HOVER_FACTOR),
+  amarillo: mixHex(CATEGORY_COLORS.amarillo, HOVER_TARGET, HOVER_FACTOR),
+  naranja: mixHex(CATEGORY_COLORS.naranja, HOVER_TARGET, HOVER_FACTOR),
+  rojo: mixHex(CATEGORY_COLORS.rojo, HOVER_TARGET, HOVER_FACTOR),
+  sin_dato: mixHex(CATEGORY_COLORS.sin_dato, HOVER_TARGET, HOVER_FACTOR),
+};
+
+const CATEGORY_DIM_COLORS: Record<Category, string> = {
+  verde: mixHex(CATEGORY_COLORS.verde, BASEMAP.land, DIM_FACTOR),
+  amarillo: mixHex(CATEGORY_COLORS.amarillo, BASEMAP.land, DIM_FACTOR),
+  naranja: mixHex(CATEGORY_COLORS.naranja, BASEMAP.land, DIM_FACTOR),
+  rojo: mixHex(CATEGORY_COLORS.rojo, BASEMAP.land, DIM_FACTOR),
+  sin_dato: mixHex(CATEGORY_COLORS.sin_dato, BASEMAP.land, DIM_FACTOR),
+};
+
+function categoryColumnVariantExpression(variant: "base" | "hover" | "dim"): ExpressionSpecification {
+  const colors =
+    variant === "hover"
+      ? CATEGORY_HOVER_COLORS
+      : variant === "dim"
+      ? CATEGORY_DIM_COLORS
+      : CATEGORY_COLORS;
+
+  return [
+    "match",
+    ["coalesce", ["feature-state", "cat"], "sin_dato"],
+    "verde", colors.verde,
+    "amarillo", colors.amarillo,
+    "naranja", colors.naranja,
+    "rojo", colors.rojo,
+    "sin_dato", colors.sin_dato,
+    colors.sin_dato,
+  ] as ExpressionSpecification;
+}
+
+// Precomputed delta bin variants for column shaders
+const DELTA_BINS_HOVER = DELTA_BINS.map((b) => mixHex(b.color, HOVER_TARGET, HOVER_FACTOR));
+const DELTA_BINS_DIM = DELTA_BINS.map((b) => mixHex(b.color, BASEMAP.land, DIM_FACTOR));
+const DELTA_NODATA_HOVER = mixHex(DELTA_NODATA, HOVER_TARGET, HOVER_FACTOR);
+const DELTA_NODATA_DIM = mixHex(DELTA_NODATA, BASEMAP.land, DIM_FACTOR);
+
+function deltaColumnVariantExpression(variant: "base" | "hover" | "dim"): ExpressionSpecification {
+  const binColors =
+    variant === "hover"
+      ? DELTA_BINS_HOVER
+      : variant === "dim"
+      ? DELTA_BINS_DIM
+      : DELTA_BINS.map((b) => b.color);
+  const nodataColor =
+    variant === "hover"
+      ? DELTA_NODATA_HOVER
+      : variant === "dim"
+      ? DELTA_NODATA_DIM
+      : DELTA_NODATA;
+
+  return [
+    "case",
+    ["==", ["typeof", ["feature-state", "delta"]], "number"],
+    [
+      "step",
+      ["feature-state", "delta"],
+      binColors[0],
+      -3, binColors[1],
+      -1.5, binColors[2],
+      -0.5, binColors[3],
+      0.5, binColors[4],
+      1.5, binColors[5],
+      3, binColors[6],
+    ],
+    nodataColor,
+  ] as ExpressionSpecification;
+}
+
+export function columnColorExpression(mode: ColorMode): ExpressionSpecification {
+  const hoverExpr =
+    mode === "delta"
+      ? deltaColumnVariantExpression("hover")
+      : categoryColumnVariantExpression("hover");
+  const dimExpr =
+    mode === "delta"
+      ? deltaColumnVariantExpression("dim")
+      : categoryColumnVariantExpression("dim");
+  const baseExpr =
+    mode === "delta"
+      ? deltaColumnVariantExpression("base")
+      : categoryColumnVariantExpression("base");
+
+  return [
+    "case",
+    ["boolean", ["feature-state", "hover"], false],
+    hoverExpr,
+    ["boolean", ["feature-state", "dim"], false],
+    dimExpr,
+    baseExpr,
+  ] as ExpressionSpecification;
+}
 
 export type FeatureStateValues = {
   cat: Category;
@@ -142,8 +288,8 @@ export type FeatureStateValues = {
 export function featureStateFor(
   item: RiskItem | undefined,
   base: RiskItem | undefined,
-  vmax: number,
-  maxMeters: number
+  colorMode: ColorMode,
+  level: Level
 ): FeatureStateValues {
   if (!item) {
     return {
@@ -168,7 +314,12 @@ export function featureStateFor(
     delta = (item.pred_abstention - base.pred_abstention) * 100;
   }
 
-  const h = extrusionHeight(item.abstencion_esperada, vmax, maxMeters);
+  const maxMeters = COLUMN_MAX_M[level];
+  const h =
+    colorMode === "delta"
+      ? deltaHeight(delta, maxMeters)
+      : riskHeight(item.risk_score, maxMeters);
+
   const reliable = item.reliable !== false && item.category !== "sin_dato";
   const cat = item.category ?? "sin_dato";
 

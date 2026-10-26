@@ -10,6 +10,25 @@ import {
   deltaLegend,
   type LegendEntry,
 } from "@/lib/mapStyle";
+import { CATEGORY_COLORS } from "@/lib/format";
+import { InfoTip } from "@/components/ui/InfoTip";
+
+function ColumnMiniDiagram() {
+  return (
+    <svg
+      className="w-7 h-4 shrink-0"
+      viewBox="0 0 28 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <rect x="1" y="11" width="5" height="5" rx="0.75" fill={CATEGORY_COLORS.verde} />
+      <rect x="8" y="8" width="5" height="8" rx="0.75" fill={CATEGORY_COLORS.amarillo} />
+      <rect x="15" y="5" width="5" height="11" rx="0.75" fill={CATEGORY_COLORS.naranja} />
+      <rect x="22" y="1" width="5" height="15" rx="0.75" fill={CATEGORY_COLORS.rojo} />
+    </svg>
+  );
+}
 
 export interface LegendProps {
   data: MapRiskData;
@@ -39,9 +58,12 @@ export function Legend({ data }: LegendProps) {
     return (
       <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-3 shadow-2xl text-white max-w-sm pointer-events-auto">
         <div className="flex items-center justify-between gap-2 mb-1.5">
-          <span className="text-xs font-bold text-slate-200">
-            Cambio en abstención (pp)
-          </span>
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-bold text-slate-200">
+              Cambio en abstención (pp)
+            </span>
+            <InfoTip term="modo.delta" side="right" />
+          </div>
           <button
             type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
@@ -73,9 +95,9 @@ export function Legend({ data }: LegendProps) {
             ))}
 
             {extrude3d && (
-              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                <span>🧊</span>
-                <span>Altura = abstención esperada (personas)</span>
+              <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-400 font-medium flex items-center gap-1.5">
+                <ColumnMiniDiagram />
+                <span>Altura = tamaño del cambio |Δ| (pp)</span>
               </div>
             )}
           </div>
@@ -127,9 +149,12 @@ export function Legend({ data }: LegendProps) {
     <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-3 shadow-2xl text-white max-w-sm pointer-events-auto">
       <div className="flex items-center justify-between gap-2 mb-2">
         <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-200 block">
-            Semáforo de Riesgo 2027
-          </span>
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-200 block">
+              Semáforo de Riesgo 2027
+            </span>
+            <InfoTip term="semaforo" side="right" />
+          </div>
           <span className="text-[10px] text-slate-400">
             Conteo de municipios
           </span>
@@ -151,6 +176,17 @@ export function Legend({ data }: LegendProps) {
 
       {!isCollapsed && (
         <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5 pb-0.5 border-b border-slate-800/60 font-medium">
+            <span>Nivel de riesgo</span>
+            <div className="flex items-center gap-3">
+              <span>Mun.</span>
+              <span className="flex items-center gap-0.5">
+                <span>% LN</span>
+                <InfoTip term="pct_ln" size="xs" side="left" />
+              </span>
+            </div>
+          </div>
+
           {entries.map((entry) => {
             const count = entry.count ?? counts[entry.key as Category] ?? 0;
             const catLn = lnByCategory[entry.key as Category] ?? 0;
@@ -190,9 +226,9 @@ export function Legend({ data }: LegendProps) {
           )}
 
           {extrude3d && (
-            <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-              <span>🧊</span>
-              <span>Altura = abstención esperada (personas)</span>
+            <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-400 font-medium flex items-center gap-1.5">
+              <ColumnMiniDiagram />
+              <span>Altura = índice de riesgo (0–100)</span>
             </div>
           )}
         </div>

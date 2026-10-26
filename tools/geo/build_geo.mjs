@@ -37,11 +37,14 @@ export function parseArgs(rawArgs = process.argv.slice(2)) {
   let out = path.resolve(__dirname, '../../frontend/public/geo');
   let catalogDir = path.resolve(__dirname, '../../data/build');
   let tilesOnly = false;
+  let indexOnly = false;
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
     if (arg === '--tiles-only') {
       tilesOnly = true;
+    } else if (arg === '--index-only') {
+      indexOnly = true;
     } else if (arg === '--ent' && rawArgs[i + 1]) {
       ent = path.resolve(process.cwd(), rawArgs[++i]);
     } else if (arg === '--mun' && rawArgs[i + 1]) {
@@ -53,7 +56,7 @@ export function parseArgs(rawArgs = process.argv.slice(2)) {
     }
   }
 
-  return { ent, mun, out, catalogDir, tilesOnly };
+  return { ent, mun, out, catalogDir, tilesOnly, indexOnly };
 }
 
 function getCoordinates(geometry) {
@@ -141,6 +144,305 @@ export function computeCentroid(geometry) {
   }
   const bbox = computeBBox(geometry);
   return [Number(((bbox[0] + bbox[2]) / 2).toFixed(5)), Number(((bbox[1] + bbox[3]) / 2).toFixed(5))];
+}
+
+// ---------------------------------------------------------
+// Geodesic Area and Polylabel (Pole of Inaccessibility)
+// ---------------------------------------------------------
+
+const R_EARTH_KM = 6371.0088;
+const DEG2RAD = Math.PI / 180;
+
+/**
+ * Spherical excess / ring area on a sphere of radius R = 6,371.0088 km.
+ */
+export function geodesicRingAreaKm2(ring) {
+  if (!ring || ring.length < 3) return 0;
+  let sum = 0;
+  const len = ring.length;
+  for (let i = 0; i < len - 1; i++) {
+    const p1 = ring[i];
+    const p2 = ring[i + 1];
+    let dLon = (p2[0] - p1[0]) * DEG2RAD;
+    if (dLon > Math.PI) dLon -= 2 * Math.PI;
+    if (dLon < -Math.PI) dLon += 2 * Math.PI;
+    sum += dLon * (Math.sin(p1[1] * DEG2RAD) + Math.sin(p2[1] * DEG2RAD)) / 2;
+  }
+  return Math.abs(sum) * R_EARTH_KM * R_EARTH_KM;
+}
+
+function polyGeodesicArea(rings) {
+  if (!rings || rings.length === 0) return 0;
+  let area = geodesicRingAreaKm2(rings[0]);
+  for (let i = 1; i < rings.length; i++) {
+    area -= geodesicRingAreaKm2(rings[i]);
+  }
+  return Math.max(0, area);
+}
+
+/**
+ * Computes spherical geodesic area in km² (R = 6,371.0088 km).
+ * Interior rings subtract; rounded to 1 decimal place.
+ */
+export function geodesicAreaKm2(geometry) {
+  if (!geometry) return 0;
+  let geom = geometry;
+  if (geom.type === 'Feature') geom = geom.geometry;
+
+  let totalArea = 0;
+  if (geom.type === 'Polygon') {
+    totalArea = polyGeodesicArea(geom.coordinates);
+  } else if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates) {
+      totalArea += polyGeodesicArea(poly);
+    }
+  } else if (Array.isArray(geom)) {
+    if (Array.isArray(geom[0]) && Array.isArray(geom[0][0]) && Array.isArray(geom[0][0][0])) {
+      for (const poly of geom) {
+        totalArea += polyGeodesicArea(poly);
+      }
+    } else {
+      totalArea = polyGeodesicArea(geom);
+    }
+  }
+  return Number(totalArea.toFixed(1));
+}
+
+class PriorityQueue {
+  constructor() {
+    this.data = [];
+  }
+  push(item) {
+    this.data.push(item);
+    this._up(this.data.length - 1);
+  }
+  pop() {
+    if (this.data.length === 0) return null;
+    const top = this.data[0];
+    const bottom = this.data.pop();
+    if (this.data.length > 0) {
+      this.data[0] = bottom;
+      this._down(0);
+    }
+    return top;
+  }
+  get size() {
+    return this.data.length;
+  }
+  _up(i) {
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.data[i].max > this.data[p].max) {
+        const tmp = this.data[i];
+        this.data[i] = this.data[p];
+        this.data[p] = tmp;
+        i = p;
+      } else {
+        break;
+      }
+    }
+  }
+  _down(i) {
+    const len = this.data.length;
+    while (true) {
+      const left = (i << 1) + 1;
+      const right = left + 1;
+      let best = i;
+      if (left < len && this.data[left].max > this.data[best].max) best = left;
+      if (right < len && this.data[right].max > this.data[best].max) best = right;
+      if (best !== i) {
+        const tmp = this.data[i];
+        this.data[i] = this.data[best];
+        this.data[best] = tmp;
+        i = best;
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+function getSegDistSq(px, py, a, b) {
+  let x = a[0], y = a[1], dx = b[0] - x, dy = b[1] - y;
+  if (dx !== 0 || dy !== 0) {
+    const t = ((px - x) * dx + (py - y) * dy) / (dx * dx + dy * dy);
+    if (t > 1) {
+      x = b[0];
+      y = b[1];
+    } else if (t > 0) {
+      x += dx * t;
+      y += dy * t;
+    }
+  }
+  dx = px - x;
+  dy = py - y;
+  return dx * dx + dy * dy;
+}
+
+function pointToPolygonDist(x, y, polygon) {
+  let inside = false;
+  let minDistSq = Infinity;
+  for (let k = 0; k < polygon.length; k++) {
+    const ring = polygon[k];
+    const len = ring.length;
+    for (let i = 0, j = len - 1; i < len; j = i++) {
+      const a = ring[i], b = ring[j];
+      if ((a[1] > y !== b[1] > y) &&
+          (x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0])) {
+        inside = !inside;
+      }
+      minDistSq = Math.min(minDistSq, getSegDistSq(x, y, a, b));
+    }
+  }
+  return (inside ? 1 : -1) * Math.sqrt(minDistSq);
+}
+
+function createCell(x, y, h, polygon) {
+  const d = pointToPolygonDist(x, y, polygon);
+  return { x, y, h, d, max: d + h * Math.SQRT2 };
+}
+
+function getCentroidCell(polygon) {
+  let area = 0, x = 0, y = 0;
+  const points = polygon[0];
+  const len = points.length;
+  for (let i = 0, j = len - 1; i < len; j = i++) {
+    const a = points[i], b = points[j];
+    const f = a[0] * b[1] - b[0] * a[1];
+    x += (a[0] + b[0]) * f;
+    y += (a[1] + b[1]) * f;
+    area += f * 3;
+  }
+  if (area === 0) return createCell(points[0][0], points[0][1], 0, polygon);
+  return createCell(x / area, y / area, 0, polygon);
+}
+
+/**
+ * Computes pole of inaccessibility (Mapbox polylabel algorithm) for a Polygon or MultiPolygon.
+ * For MultiPolygon, uses the part with the largest area.
+ * Precision: ≈ 0.005° for municipalities, 0.02° for states.
+ * Returns [lon, lat] with 5 decimals guaranteed inside the polygon.
+ */
+export function polylabel(polygonOrMulti, precision = 0.005) {
+  if (!polygonOrMulti) return [0, 0];
+  let geom = polygonOrMulti;
+  if (geom.type === 'Feature') geom = geom.geometry;
+
+  let polygon;
+  if (geom.type === 'Polygon') {
+    polygon = geom.coordinates;
+  } else if (geom.type === 'MultiPolygon') {
+    let maxArea = -1;
+    let best = geom.coordinates[0];
+    for (const poly of geom.coordinates) {
+      const a = geodesicRingAreaKm2(poly[0]);
+      if (a > maxArea) {
+        maxArea = a;
+        best = poly;
+      }
+    }
+    polygon = best;
+  } else if (Array.isArray(geom)) {
+    if (Array.isArray(geom[0]) && Array.isArray(geom[0][0]) && Array.isArray(geom[0][0][0])) {
+      let maxArea = -1;
+      let best = geom[0];
+      for (const poly of geom) {
+        const a = geodesicRingAreaKm2(poly[0]);
+        if (a > maxArea) {
+          maxArea = a;
+          best = poly;
+        }
+      }
+      polygon = best;
+    } else {
+      polygon = geom;
+    }
+  } else if (geom.coordinates) {
+    polygon = geom.coordinates;
+  } else {
+    return [0, 0];
+  }
+
+  if (!polygon || polygon.length === 0 || polygon[0].length === 0) {
+    return [0, 0];
+  }
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of polygon[0]) {
+    if (p[0] < minX) minX = p[0];
+    if (p[1] < minY) minY = p[1];
+    if (p[0] > maxX) maxX = p[0];
+    if (p[1] > maxY) maxY = p[1];
+  }
+
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const cellSize = Math.min(width, height);
+  let h = cellSize / 2;
+
+  if (cellSize === 0) {
+    return [Number(minX.toFixed(5)), Number(minY.toFixed(5))];
+  }
+
+  const queue = new PriorityQueue();
+  for (let x = minX; x < maxX; x += cellSize) {
+    for (let y = minY; y < maxY; y += cellSize) {
+      queue.push(createCell(x + h, y + h, h, polygon));
+    }
+  }
+
+  let bestCell = getCentroidCell(polygon);
+  const bboxCell = createCell(minX + width / 2, minY + height / 2, 0, polygon);
+  if (bboxCell.d > bestCell.d) bestCell = bboxCell;
+
+  let largestInsideCell = bestCell.d > 0 ? bestCell : null;
+
+  while (queue.size > 0) {
+    const cell = queue.pop();
+    if (cell.d > 0 && (!largestInsideCell || cell.h > largestInsideCell.h)) {
+      largestInsideCell = cell;
+    }
+    if (cell.d > bestCell.d) {
+      bestCell = cell;
+    }
+    if (cell.max - bestCell.d <= precision) continue;
+
+    h = cell.h / 2;
+    queue.push(createCell(cell.x - h, cell.y - h, h, polygon));
+    queue.push(createCell(cell.x + h, cell.y - h, h, polygon));
+    queue.push(createCell(cell.x - h, cell.y + h, h, polygon));
+    queue.push(createCell(cell.x + h, cell.y + h, h, polygon));
+  }
+
+  // 1. Try rounded bestCell
+  let candidate = [Number(bestCell.x.toFixed(5)), Number(bestCell.y.toFixed(5))];
+  if (pointToPolygonDist(candidate[0], candidate[1], polygon) > 0) {
+    return candidate;
+  }
+
+  // 2. Try backup: center of largest valid inside cell
+  if (largestInsideCell) {
+    const backup = [Number(largestInsideCell.x.toFixed(5)), Number(largestInsideCell.y.toFixed(5))];
+    if (pointToPolygonDist(backup[0], backup[1], polygon) > 0) {
+      return backup;
+    }
+  }
+
+  // 3. Offset search around inside cells to guarantee interior point
+  const testCells = [bestCell, largestInsideCell].filter(Boolean);
+  for (const c of testCells) {
+    for (const factor of [0.1, 0.25, 0.5]) {
+      for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]]) {
+        const px = Number((c.x + dx * factor * c.h).toFixed(5));
+        const py = Number((c.y + dy * factor * c.h).toFixed(5));
+        if (pointToPolygonDist(px, py, polygon) > 0) {
+          return [px, py];
+        }
+      }
+    }
+  }
+
+  return candidate;
 }
 
 export function getInputConfig(filePath) {
@@ -264,14 +566,91 @@ export async function generateCatalogs(options = {}) {
   };
 }
 
+export async function buildIndexOnly(options = {}) {
+  const {
+    out = path.resolve(__dirname, '../../frontend/public/geo')
+  } = options;
+
+  const statesPath = path.join(out, 'states.json');
+  const munDir = path.join(out, 'mun');
+  const indexPath = path.join(out, 'index.json');
+
+  if (!fs.existsSync(statesPath) || !fs.existsSync(munDir)) {
+    throw new Error(`GeoJSON files not found in "${out}". Expected states.json and mun/ directory.`);
+  }
+
+  console.log(`[build_geo] Running --index-only mode on "${out}"...`);
+
+  // 1. Process states
+  const statesRaw = JSON.parse(fs.readFileSync(statesPath, 'utf8'));
+  const indexStates = {};
+  for (const feat of statesRaw.features) {
+    const id = String(feat.properties.id || '').padStart(2, '0');
+    indexStates[id] = {
+      name: String(feat.properties.name || '').trim(),
+      bbox: computeBBox(feat.geometry),
+      centroid: computeCentroid(feat.geometry),
+      anchor: polylabel(feat.geometry, 0.02),
+      area_km2: geodesicAreaKm2(feat.geometry)
+    };
+  }
+
+  // 2. Process municipalities
+  const munFiles = fs.readdirSync(munDir).filter(f => f.endsWith('.json')).sort();
+  const indexMun = {};
+  for (const f of munFiles) {
+    const filePath = path.join(munDir, f);
+    const munRaw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    for (const feat of munRaw.features) {
+      const p = feat.properties || {};
+      const ent = String(p.ent || '').padStart(2, '0');
+      let id = String(p.id || '');
+      if (id.length < 5 && ent) id = ent + id.padStart(3, '0');
+      id = id.padStart(5, '0');
+      const name = String(p.name || '').trim();
+
+      indexMun[id] = {
+        name,
+        ent,
+        centroid: computeCentroid(feat.geometry),
+        anchor: polylabel(feat.geometry, 0.005),
+        area_km2: geodesicAreaKm2(feat.geometry)
+      };
+    }
+  }
+
+  const indexData = {
+    states: indexStates,
+    mun: indexMun
+  };
+
+  fs.writeFileSync(indexPath, JSON.stringify(indexData, null, 2), 'utf8');
+  const indexSize = fs.statSync(indexPath).size;
+
+  console.log(`[build_geo] Wrote index.json: ${Object.keys(indexStates).length} states, ${Object.keys(indexMun).length} mun (${(indexSize / 1024).toFixed(1)} KB)`);
+
+  return {
+    status: 'ok',
+    indexOnly: true,
+    statesCount: Object.keys(indexStates).length,
+    munCount: Object.keys(indexMun).length,
+    indexSize
+  };
+}
+
 export async function buildGeo(options = {}) {
   const {
     ent = path.resolve(__dirname, '../../data/raw/geo/00ent.shp'),
     mun = path.resolve(__dirname, '../../data/raw/geo/00mun.shp'),
     out = path.resolve(__dirname, '../../frontend/public/geo'),
     catalogDir = path.resolve(__dirname, '../../data/build'),
-    tilesOnly = false
+    tilesOnly = false,
+    indexOnly = false
   } = options;
+
+  if (indexOnly) {
+    return buildIndexOnly(options);
+  }
 
   let statePercentage = options.statePercentage || '2%';
   let munPercentage = options.munPercentage || '4%';
@@ -422,7 +801,9 @@ export async function buildGeo(options = {}) {
         indexMun[id] = {
           name,
           ent,
-          centroid: computeCentroid(feat.geometry)
+          centroid: computeCentroid(feat.geometry),
+          anchor: polylabel(feat.geometry, 0.005),
+          area_km2: geodesicAreaKm2(feat.geometry)
         };
 
         // Clone feature for mun_all.json with precision=0.0001
@@ -461,7 +842,9 @@ export async function buildGeo(options = {}) {
       indexStates[id] = {
         name: feat.properties.name,
         bbox: computeBBox(feat.geometry),
-        centroid: computeCentroid(feat.geometry)
+        centroid: computeCentroid(feat.geometry),
+        anchor: polylabel(feat.geometry, 0.02),
+        area_km2: geodesicAreaKm2(feat.geometry)
       };
     }
 

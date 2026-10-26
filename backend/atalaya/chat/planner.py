@@ -176,7 +176,7 @@ def _build_llm_system_prompt() -> str:
         "4. Intents permitidos: ranking, lookup, compare, correlation, trend, scenario, explain_unit, "
         "catalog, help, out_of_scope, profile.\n"
         "5. Si la pregunta está fuera de los temas de participación electoral o sociodemografía de ATALAYA, "
-        "asigna intent='out_of_scope'.\n"
+        "intent='out_of_scope'. Si la pregunta pide código, asistencia general o temas ajenos, intent='out_of_scope'.\n"
         "6. La elección por defecto es DIP_FED. Si preguntan por 2027 o el futuro, usa pred_abstention o risk_score."
     )
 
@@ -881,7 +881,7 @@ def plan(
             for turn in history[-4:]:
                 messages.append({"role": turn.get("role", "user"), "content": turn.get("content", "")})
                 
-        user_msg = message
+        user_msg = f"<<<PREGUNTA_USUARIO>>>\n{message}\n<<<FIN_PREGUNTA_USUARIO>>>"
         if region_id:
             user_msg = f"{user_msg}\n[Contexto UI: region_id='{region_id}']"
         messages.append({"role": "user", "content": user_msg})

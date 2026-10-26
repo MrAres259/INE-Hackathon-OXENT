@@ -11,6 +11,7 @@ import { MapErrorBoundary } from "./MapErrorBoundary";
 export interface CompareSwipeProps {
   data: MapRiskData;
   extrude?: boolean;
+  view3d?: "inclinada" | "cenital";
   onHover?: (h: HoverInfo | null) => void;
   onMapReady?: (map: MapLibreMap) => void;
   className?: string;
@@ -19,11 +20,15 @@ export interface CompareSwipeProps {
 export function CompareSwipe({
   data,
   extrude = false,
+  view3d,
   onHover,
   onMapReady,
   className = "",
 }: CompareSwipeProps) {
-  const { comparePos = 50, setComparePos } = useAtalaya();
+  const atalayaContext = useAtalaya();
+  const { comparePos = 50, setComparePos } = atalayaContext;
+  const activeView3d: "inclinada" | "cenital" =
+    view3d ?? (atalayaContext as any).view3d ?? "inclinada";
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapARef = useRef<MapLibreMap | null>(null);
@@ -150,6 +155,7 @@ export function CompareSwipe({
             view="base"
             colorMode="category"
             extrude={extrude}
+            view3d={activeView3d}
             controls={false}
             onHover={onHover}
             onMapReady={handleMapAReady}
@@ -169,6 +175,7 @@ export function CompareSwipe({
             view="alt"
             colorMode="category"
             extrude={extrude}
+            view3d={activeView3d}
             controls={true}
             onHover={onHover}
             onMapReady={handleMapBReady}

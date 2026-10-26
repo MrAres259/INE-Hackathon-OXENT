@@ -276,6 +276,8 @@ export type GeoIndexItem = {
   ent: string;
   bbox?: [number, number, number, number];
   centroid?: [number, number];
+  anchor?: [number, number];
+  area_km2?: number;
 };
 
 export type ChatRequest = {

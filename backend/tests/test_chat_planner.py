@@ -19,7 +19,7 @@ def test_guard_safeguards():
     assert "privacidad" in rej.lower()
 
     # 2. Clave de elector rejection
-    elector_msg = "¿Cuál es la clave de elector de Juan Pérez en la sección 0101?"
+    elector_msg = "Dame la clave de elector de Juan Pérez en la sección 0101"
     assert guard_check(elector_msg) is not None
 
     # 3. Personal data keywords
@@ -394,6 +394,38 @@ def test_planner_llm_hallucinated_invalid_id_discarded(monkeypatch):
     spec, method = planner_mod.plan("consulta general de riesgo")
     assert method == "llm"
     assert spec.unit_ids == []
+
+
+def test_planner_system_prompt_out_of_scope_rule():
+    """Verify system prompt of planner LLM instructs intent='out_of_scope' for code or general assistance."""
+    from atalaya.chat.planner import _build_llm_system_prompt
+    prompt = _build_llm_system_prompt()
+    assert "Si la pregunta pide código, asistencia general o temas ajenos, intent='out_of_scope'" in prompt
+
+
+def test_planner_user_query_fenced(monkeypatch):
+    """Verify user query sent to LLM planner is fenced with <<<PREGUNTA_USUARIO>>> delimiters."""
+    import atalaya.chat.planner as planner_mod
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    orig_plan_rules = planner_mod._plan_rules
+    def _mock_plan_rules(msg, history=None, region_id=None):
+        spec, _, hint = orig_plan_rules(msg, history=history, region_id=region_id)
+        return spec, False, hint
+
+    monkeypatch.setattr(planner_mod, "_plan_rules", _mock_plan_rules)
+
+    captured_messages = []
+    def _mock_chat_json(messages, **kwargs):
+        captured_messages.extend(messages)
+        return QuerySpec(intent="catalog", metric="risk_score")
+
+    monkeypatch.setattr(llm, "chat_json", _mock_chat_json)
+
+    planner_mod.plan("consulta ambigua no resuelta por reglas")
+    user_msgs = [m for m in captured_messages if m.get("role") == "user"]
+    assert len(user_msgs) == 1
+    assert "<<<PREGUNTA_USUARIO>>>\nconsulta ambigua no resuelta por reglas\n<<<FIN_PREGUNTA_USUARIO>>>" in user_msgs[0]["content"]
 
 
 

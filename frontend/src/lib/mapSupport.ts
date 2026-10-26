@@ -59,11 +59,27 @@ export function featureTarget(
 }
 
 /**
+ * Resolves MapLibre feature state target object for 3D column prisms.
+ * Targets the dedicated column sources "state-columns" (state) or "mun-columns" (mun).
+ */
+export function columnTarget(
+  level: Level,
+  id: string
+): { source: string; id: string } {
+  return {
+    source: level === "state" ? "state-columns" : "mun-columns",
+    id,
+  };
+}
+
+/**
  * Determines whether a queried feature belongs to state or mun level.
  * In vector mode, checks sourceLayer first ("states" vs "mun").
+ * Recognizes column layers ("state-columns" vs "mun-columns") and sources.
  * Falls back to layer ID substring and id length (2 digits = state).
  */
 export function levelOfFeature(f: {
+  source?: string;
   sourceLayer?: string;
   layer?: { id?: string };
   id?: unknown;
@@ -75,10 +91,27 @@ export function levelOfFeature(f: {
   }
   const layerId = f.layer?.id;
   if (layerId) {
-    if (layerId.includes("states") || layerId.includes("state")) {
+    if (
+      layerId === "state-columns" ||
+      layerId.includes("states") ||
+      layerId.includes("state")
+    ) {
       return "state";
     }
-    if (layerId.includes("mun")) {
+    if (layerId === "mun-columns" || layerId.includes("mun")) {
+      return "mun";
+    }
+  }
+  const source = f.source;
+  if (source) {
+    if (
+      source === "state-columns" ||
+      source.includes("states") ||
+      source.includes("state")
+    ) {
+      return "state";
+    }
+    if (source === "mun-columns" || source.includes("mun")) {
       return "mun";
     }
   }

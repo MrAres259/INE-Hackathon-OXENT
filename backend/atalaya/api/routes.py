@@ -762,3 +762,17 @@ def post_reload(request: Request) -> dict[str, Any]:
         msg = _clean_error_message(exc)
         logger.error("Error during reload: %s", msg)
         raise HTTPException(status_code=500, detail=f"Error durante reload: {msg}")
+
+
+@router.get("/admin/guardrails")
+def get_admin_guardrails(request: Request) -> dict[str, Any]:
+    from atalaya.api.security import verify_admin_access
+
+    verify_admin_access(request)
+    try:
+        from atalaya.chat import guardrails
+        return guardrails.stats()
+    except Exception as exc:
+        logger.error("Error retrieving guardrail stats: %s", exc)
+        return {"total_checked": 0, "blocked": 0, "categories": {}}
+

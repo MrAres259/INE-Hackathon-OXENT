@@ -11,6 +11,8 @@ import {
   SOURCE_LAYERS,
   BASEMAP,
   fillExpression,
+  columnColorExpression,
+  COLUMN_ZOOM_SPLIT,
   type ColorMode,
 } from "@/lib/mapStyle";
 import type { GeometryMode } from "@/lib/mapSupport";
@@ -26,6 +28,7 @@ export type GeoSourcesData = {
   country?: FeatureCollection<Geometry, CountryProperties> | null;
   states?: FeatureCollection<Geometry, StateProperties> | null;
   mun?: FeatureCollection<Geometry, MunProperties> | null;
+  columns?: { state: FeatureCollection; mun: FeatureCollection } | null;
 };
 
 /**
@@ -81,6 +84,19 @@ export function buildSources(
     features: [],
   };
 
+  const columnSources = {
+    [SOURCE_IDS.stateColumns]: {
+      type: "geojson" as const,
+      data: geo?.columns?.state ?? emptyFC,
+      promoteId: "id",
+    },
+    [SOURCE_IDS.munColumns]: {
+      type: "geojson" as const,
+      data: geo?.columns?.mun ?? emptyFC,
+      promoteId: "id",
+    },
+  };
+
   if (mode === "vector") {
     const tileTemplates =
       manifest?.tiles && manifest.tiles.length > 0
@@ -102,6 +118,7 @@ export function buildSources(
         promoteId: { states: "id", mun: "id" },
         attribution: BASEMAP.attribution,
       },
+      ...columnSources,
     };
   }
 
@@ -120,13 +137,14 @@ export function buildSources(
       data: geo?.mun ?? emptyFC,
       promoteId: "id",
     },
+    ...columnSources,
   };
 }
 
 /**
  * Builds data layer specifications in the exact order:
  * bg -> carto-base -> country-fill -> states-fill -> mun-fill -> mun-line ->
- * states-line -> states-extrusion -> mun-extrusion -> states-hover ->
+ * states-line -> state-columns -> mun-columns -> states-hover ->
  * mun-hover -> selected-line -> states-selected-line -> carto-labels
  */
 export function buildDataLayers(
@@ -252,34 +270,34 @@ export function buildDataLayers(
       },
     },
     {
-      id: LAYER_IDS.statesExtrusion,
+      id: LAYER_IDS.stateColumns,
       type: "fill-extrusion",
-      source: stateSource,
-      ...stateLayerProp,
-      maxzoom: 6.2,
+      source: SOURCE_IDS.stateColumns,
+      maxzoom: COLUMN_ZOOM_SPLIT,
       layout: {
         visibility: "none",
       },
       paint: {
-        "fill-extrusion-color": fillExpression(colorMode),
+        "fill-extrusion-color": columnColorExpression(colorMode),
         "fill-extrusion-height": ["coalesce", ["feature-state", "h"], 0],
-        "fill-extrusion-opacity": 0.92,
+        "fill-extrusion-base": 0,
+        "fill-extrusion-opacity": 0.95,
         "fill-extrusion-vertical-gradient": true,
       },
     },
     {
-      id: LAYER_IDS.munExtrusion,
+      id: LAYER_IDS.munColumns,
       type: "fill-extrusion",
-      source: munSource,
-      ...munLayerProp,
-      minzoom: 5,
+      source: SOURCE_IDS.munColumns,
+      minzoom: COLUMN_ZOOM_SPLIT,
       layout: {
         visibility: "none",
       },
       paint: {
-        "fill-extrusion-color": fillExpression(colorMode),
+        "fill-extrusion-color": columnColorExpression(colorMode),
         "fill-extrusion-height": ["coalesce", ["feature-state", "h"], 0],
-        "fill-extrusion-opacity": 0.92,
+        "fill-extrusion-base": 0,
+        "fill-extrusion-opacity": 0.95,
         "fill-extrusion-vertical-gradient": true,
       },
     },
@@ -357,7 +375,7 @@ export function buildDataLayers(
 }
 
 /**
- * Dynamically switches layer fill and extrusion colors according to color mode.
+ * Dynamically switches layer fill and column colors according to color mode.
  */
 export function setColorMode(map: maplibregl.Map, mode: ColorMode): void {
   const expr = fillExpression(mode);
@@ -367,10 +385,29 @@ export function setColorMode(map: maplibregl.Map, mode: ColorMode): void {
   if (map.getLayer(LAYER_IDS.munFill)) {
     map.setPaintProperty(LAYER_IDS.munFill, "fill-color", expr);
   }
-  if (map.getLayer(LAYER_IDS.statesExtrusion)) {
-    map.setPaintProperty(LAYER_IDS.statesExtrusion, "fill-extrusion-color", expr);
+  const colExpr = columnColorExpression(mode);
+  if (map.getLayer(LAYER_IDS.stateColumns)) {
+    map.setPaintProperty(LAYER_IDS.stateColumns, "fill-extrusion-color", colExpr);
   }
-  if (map.getLayer(LAYER_IDS.munExtrusion)) {
-    map.setPaintProperty(LAYER_IDS.munExtrusion, "fill-extrusion-color", expr);
+  if (map.getLayer(LAYER_IDS.munColumns)) {
+    map.setPaintProperty(LAYER_IDS.munColumns, "fill-extrusion-color", colExpr);
+  }
+}
+
+/**
+ * Dynamically toggles visibility of state and municipal 3D column layers.
+ * Never throws if map or layers are not loaded.
+ */
+export function setColumnsVisible(map: maplibregl.Map, visible: boolean): void {
+  try {
+    const vis = visible ? "visible" : "none";
+    if (map?.getLayer && map.getLayer(LAYER_IDS.stateColumns)) {
+      map.setLayoutProperty(LAYER_IDS.stateColumns, "visibility", vis);
+    }
+    if (map?.getLayer && map.getLayer(LAYER_IDS.munColumns)) {
+      map.setLayoutProperty(LAYER_IDS.munColumns, "visibility", vis);
+    }
+  } catch {
+    // Never throws
   }
 }

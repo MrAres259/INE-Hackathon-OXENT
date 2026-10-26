@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { useAtalaya } from "@/lib/state";
 import type { ScenarioId } from "@/lib/types";
+import { InfoTip } from "@/components/ui/InfoTip";
 
 export function TopBar() {
   const {
@@ -36,6 +37,11 @@ export function TopBar() {
               <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700">
                 Elección Federal 2027
               </span>
+              <InfoTip
+                title="Elección Federal 2027"
+                text="ATALAYA pronostica qué municipios podrían tener más abstención en la elección federal del 6 de junio de 2027 si no se interviene, para priorizar recursos."
+                size="xs"
+              />
             </div>
             <p className="text-xs text-slate-400 hidden sm:block">
               Predicción y escenarios de riesgo de abstención · INE Reto 2
@@ -80,6 +86,7 @@ export function TopBar() {
               Pesimista
             </button>
           </div>
+          <InfoTip term="escenarios" size="sm" />
 
           {/* Adjust intervention button */}
           <button
@@ -112,11 +119,13 @@ export function TopBar() {
             <div className="flex items-center gap-1.5 text-xs bg-amber-950/80 text-amber-300 border border-amber-800/80 px-2.5 py-1 rounded-full">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
               <span className="font-medium">Demostración</span>
+              <InfoTip term="motor" size="xs" />
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-xs bg-emerald-950/80 text-emerald-300 border border-emerald-800/80 px-2.5 py-1 rounded-full">
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
               <span className="font-medium">{storeLabel}</span>
+              <InfoTip term="motor" size="xs" />
             </div>
           )}
 

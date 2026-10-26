@@ -131,7 +131,7 @@ def test_stream_answer_llm_blocked_midway(monkeypatch):
     tokens = list(stream_answer("Consulta", spec, data, meta=meta))
     assert meta.get("degraded") is True
     full_text = "".join(tokens)
-    assert "Primer fragmento emitido. " in full_text
+    assert "Primer fragmento emitido." in full_text
     assert "(Respuesta completada con datos, sin IA)" in full_text
 
 
@@ -172,3 +172,135 @@ def test_writer_prompt_and_max_tokens(monkeypatch):
     table_text = _format_table_text(data, max_rows=10)
     table_lines = [l for l in table_text.splitlines() if "|" in l]
     assert len(table_lines) == 12
+
+
+def test_writer_code_in_stream_blocked(monkeypatch):
+    """When LLM streams code snippet, StreamGuard intercepts it, yielding template and setting degraded=True."""
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    def _mock_stream(*a, **kw):
+        yield "Aquí está el script:\n```python\nimport pandas as pd\nprint('datos')\n```"
+
+    monkeypatch.setattr(llm, "chat_stream", _mock_stream)
+
+    spec = QuerySpec(intent="lookup", metric="participacion")
+    data = DataResult(
+        columns=["Zona", "Participación"],
+        rows=[["Jalisco", "54.2%"]],
+        source="INE 2021",
+        facts=["Participación 54.2%"],
+        empty=False,
+    )
+
+    meta = {}
+    tokens = list(stream_answer("Consulta", spec, data, meta=meta))
+    full_text = "".join(tokens)
+    assert meta.get("degraded") is True
+    assert meta.get("guardrail") is not None
+    assert "```" not in full_text
+    assert "import pandas" not in full_text
+    assert "Participación 54.2%" in full_text
+
+
+def test_writer_unsupported_number_blocked(monkeypatch):
+    """When LLM hallucinates numbers not present in allowed_numbers, StreamGuard blocks and degrades to template."""
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    def _mock_stream(*a, **kw):
+        yield "La cifra estimada alcanzará el 87.2 % en la entidad."
+
+    monkeypatch.setattr(llm, "chat_stream", _mock_stream)
+
+    spec = QuerySpec(intent="lookup", metric="participacion")
+    data = DataResult(
+        columns=["Zona", "Participación"],
+        rows=[["Jalisco", "54.2%"]],
+        source="INE 2021",
+        facts=["Participación 54.2%"],
+        empty=False,
+    )
+
+    meta = {}
+    tokens = list(stream_answer("Consulta", spec, data, meta=meta))
+    full_text = "".join(tokens)
+    assert meta.get("degraded") is True
+    assert meta.get("guardrail") is not None
+    assert "87.2" not in full_text
+    assert "Participación 54.2%" in full_text
+
+
+def test_writer_clean_stream_with_table_numbers(monkeypatch):
+    """When LLM outputs text using only verified numbers, stream completes cleanly without degradation."""
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    def _mock_stream(*a, **kw):
+        yield "La participación en Jalisco fue del 54.2 %."
+
+    monkeypatch.setattr(llm, "chat_stream", _mock_stream)
+
+    spec = QuerySpec(intent="lookup", metric="participacion")
+    data = DataResult(
+        columns=["Zona", "Participación"],
+        rows=[["Jalisco", "54.2%"]],
+        source="INE 2021",
+        facts=["Participación 54.2%"],
+        empty=False,
+    )
+
+    meta = {}
+    tokens = list(stream_answer("Consulta", spec, data, meta=meta))
+    full_text = "".join(tokens)
+    assert meta.get("degraded") is False
+    assert meta.get("guardrail") is None
+    assert "54.2 %" in full_text
+
+
+def test_writer_help_does_not_call_llm(monkeypatch):
+    """Verify that intent='help' returns deterministic help and never calls LLM."""
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    def _should_not_be_called(*a, **kw):
+        raise AssertionError("LLM should not be called for help intent")
+
+    monkeypatch.setattr(llm, "chat_stream", _should_not_be_called)
+
+    spec = QuerySpec(intent="help")
+    data = DataResult(
+        columns=[],
+        rows=[],
+        source="",
+        facts=["Puedo ayudarte a consultar participación, riesgo de abstención y escenarios."],
+        empty=True,
+    )
+
+    meta = {}
+    tokens = list(stream_answer("ayuda", spec, data, meta=meta))
+    assert meta.get("degraded") is False
+    full_text = "".join(tokens)
+    assert "Puedo ayudarte" in full_text
+
+
+def test_writer_out_of_scope_does_not_call_llm(monkeypatch):
+    """Verify that intent='out_of_scope' returns deterministic fallback and never calls LLM."""
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    def _should_not_be_called(*a, **kw):
+        raise AssertionError("LLM should not be called for out_of_scope intent")
+
+    monkeypatch.setattr(llm, "chat_stream", _should_not_be_called)
+
+    spec = QuerySpec(intent="out_of_scope")
+    data = DataResult(
+        columns=[],
+        rows=[],
+        source="",
+        facts=["Solo puedo ayudarte con temas electorales y participación de ATALAYA."],
+        empty=True,
+    )
+
+    meta = {}
+    tokens = list(stream_answer("receta", spec, data, meta=meta))
+    assert meta.get("degraded") is False
+    full_text = "".join(tokens)
+    assert "Solo puedo ayudarte" in full_text
+

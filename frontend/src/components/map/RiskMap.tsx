@@ -59,17 +59,47 @@ const CompareSwipe = dynamic(
 );
 
 export function RiskMap() {
+  const atalayaContext = useAtalaya();
   const {
     mapMode = "semaforo",
     extrude3d = false,
     scenario = "base",
-  } = useAtalaya();
+  } = atalayaContext;
+  const view3d: "inclinada" | "cenital" =
+    (atalayaContext as any).view3d ?? "inclinada";
 
   // Single invocation of useMapRisk per §14.4 / §14.7
   const data = useMapRisk();
 
   const mapInstanceRef = useRef<MapLibreMap | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
+
+  const handleMapReady = React.useCallback((map: MapLibreMap) => {
+    mapInstanceRef.current = map;
+  }, []);
+
+  const handleHover = React.useCallback((nextHover: HoverInfo | null) => {
+    setHover((prev) => {
+      if (!prev && !nextHover) return prev;
+      if (!prev || !nextHover) return nextHover;
+      const rxPrev = Math.round(prev.x);
+      const ryPrev = Math.round(prev.y);
+      const rxNext = Math.round(nextHover.x);
+      const ryNext = Math.round(nextHover.y);
+      if (
+        prev.id === nextHover.id &&
+        prev.level === nextHover.level &&
+        rxPrev === rxNext &&
+        ryPrev === ryNext &&
+        prev.item === nextHover.item &&
+        prev.base === nextHover.base &&
+        prev.alt === nextHover.alt
+      ) {
+        return prev;
+      }
+      return nextHover;
+    });
+  }, []);
 
   const handleExportPng = React.useCallback(() => {
     const map = mapInstanceRef.current;
@@ -125,10 +155,9 @@ export function RiskMap() {
           <CompareSwipe
             data={data}
             extrude={extrude3d}
-            onHover={setHover}
-            onMapReady={(map) => {
-              mapInstanceRef.current = map;
-            }}
+            view3d={view3d}
+            onHover={handleHover}
+            onMapReady={handleMapReady}
           />
         ) : mapMode === "delta" ? (
           <MapErrorBoundary>
@@ -137,10 +166,9 @@ export function RiskMap() {
               view="alt"
               colorMode="delta"
               extrude={extrude3d}
-              onHover={setHover}
-              onMapReady={(map) => {
-                mapInstanceRef.current = map;
-              }}
+              view3d={view3d}
+              onHover={handleHover}
+              onMapReady={handleMapReady}
             />
           </MapErrorBoundary>
         ) : (
@@ -150,10 +178,9 @@ export function RiskMap() {
               view="active"
               colorMode="category"
               extrude={extrude3d}
-              onHover={setHover}
-              onMapReady={(map) => {
-                mapInstanceRef.current = map;
-              }}
+              view3d={view3d}
+              onHover={handleHover}
+              onMapReady={handleMapReady}
             />
           </MapErrorBoundary>
         )}

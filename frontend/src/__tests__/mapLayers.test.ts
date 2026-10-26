@@ -4,6 +4,7 @@ import {
   buildDataLayers,
   buildSources,
   setColorMode,
+  setColumnsVisible,
 } from "@/components/map/mapLayers";
 import {
   LAYER_IDS,
@@ -11,12 +12,15 @@ import {
   SOURCE_LAYERS,
   BASEMAP,
   fillExpression,
-  deltaFillExpression,
+  columnColorExpression,
+  COLUMN_ZOOM_SPLIT,
 } from "@/lib/mapStyle";
 import type {
   LayerSpecification,
   VectorSourceSpecification,
+  GeoJSONSourceSpecification,
   FillLayerSpecification,
+  FillExtrusionLayerSpecification,
 } from "maplibre-gl";
 import type { TileManifest } from "@/lib/types";
 
@@ -73,7 +77,7 @@ describe("mapLayers", () => {
   });
 
   describe("buildSources", () => {
-    it("builds vector sources with promoteId and absolute tile URL", () => {
+    it("builds vector sources with promoteId and absolute tile URL, including column sources", () => {
       const fakeManifest: TileManifest = {
         tilejson: "3.0.0",
         tiles: ["/geo/tiles/{z}/{x}/{y}.pbf"],
@@ -101,6 +105,39 @@ describe("mapLayers", () => {
       expect(vectorSource.tiles).toBeDefined();
       expect(vectorSource.tiles?.[0]).toMatch(/^https?:\/\//);
       expect(vectorSource.tiles?.[0]).toContain("{z}/{x}/{y}.pbf");
+
+      // Column sources must be included in vector mode
+      const stateColSource = sources[
+        SOURCE_IDS.stateColumns
+      ] as GeoJSONSourceSpecification;
+      expect(stateColSource).toBeDefined();
+      expect(stateColSource.type).toBe("geojson");
+      expect((stateColSource as any).promoteId).toBe("id");
+
+      const munColSource = sources[
+        SOURCE_IDS.munColumns
+      ] as GeoJSONSourceSpecification;
+      expect(munColSource).toBeDefined();
+      expect(munColSource.type).toBe("geojson");
+      expect((munColSource as any).promoteId).toBe("id");
+    });
+
+    it("includes both column sources with promoteId 'id' across all modes: vector, geojson, and mock", () => {
+      const modes = ["vector", "geojson", "mock"] as const;
+
+      for (const m of modes) {
+        const sources = buildSources(m, null, null);
+        const stateCol = sources[SOURCE_IDS.stateColumns] as GeoJSONSourceSpecification;
+        const munCol = sources[SOURCE_IDS.munColumns] as GeoJSONSourceSpecification;
+
+        expect(stateCol).toBeDefined();
+        expect(stateCol.type).toBe("geojson");
+        expect((stateCol as any).promoteId).toBe("id");
+
+        expect(munCol).toBeDefined();
+        expect(munCol.type).toBe("geojson");
+        expect((munCol as any).promoteId).toBe("id");
+      }
     });
 
     it("builds GeoJSON sources with promoteId in geojson mode", () => {
@@ -118,7 +155,7 @@ describe("mapLayers", () => {
   });
 
   describe("buildDataLayers", () => {
-    it("returns layers with exact IDs in the expected order including states-selected-line", () => {
+    it("returns layers with exact IDs in the expected order including state-columns and mun-columns", () => {
       const layers = buildDataLayers("category", "geojson");
       const expectedIds = [
         LAYER_IDS.background,
@@ -128,8 +165,8 @@ describe("mapLayers", () => {
         LAYER_IDS.munFill,
         LAYER_IDS.munLine,
         LAYER_IDS.statesLine,
-        LAYER_IDS.statesExtrusion,
-        LAYER_IDS.munExtrusion,
+        LAYER_IDS.stateColumns,
+        LAYER_IDS.munColumns,
         LAYER_IDS.hoverStates,
         LAYER_IDS.hoverMun,
         LAYER_IDS.selected,
@@ -138,6 +175,68 @@ describe("mapLayers", () => {
       ];
 
       expect(layers.map((l) => l.id)).toEqual(expectedIds);
+    });
+
+    it("ensures no fill-extrusion layers exist for polygon sources", () => {
+      for (const mode of ["geojson", "vector"] as const) {
+        const layers = buildDataLayers("category", mode);
+        const extrusions = layers.filter(
+          (l): l is FillExtrusionLayerSpecification => l.type === "fill-extrusion"
+        );
+
+        // The only extrusion layers allowed are the 3D columns
+        expect(extrusions).toHaveLength(2);
+        for (const ext of extrusions) {
+          expect([LAYER_IDS.stateColumns, LAYER_IDS.munColumns]).toContain(ext.id);
+          expect([SOURCE_IDS.stateColumns, SOURCE_IDS.munColumns]).toContain(ext.source);
+          // Must not use vector or polygon sources
+          expect(ext.source).not.toBe(SOURCE_IDS.vector);
+          expect(ext.source).not.toBe(SOURCE_IDS.states);
+          expect(ext.source).not.toBe(SOURCE_IDS.mun);
+        }
+      }
+    });
+
+    it("positions state-columns (maxzoom 5.5) and mun-columns (minzoom 5.5) with visibility none between states-line and states-hover", () => {
+      const layers = buildDataLayers("category", "geojson");
+
+      const statesLineIdx = layers.findIndex((l) => l.id === LAYER_IDS.statesLine);
+      const stateColIdx = layers.findIndex((l) => l.id === LAYER_IDS.stateColumns);
+      const munColIdx = layers.findIndex((l) => l.id === LAYER_IDS.munColumns);
+      const statesHoverIdx = layers.findIndex((l) => l.id === LAYER_IDS.hoverStates);
+
+      expect(statesLineIdx).toBeGreaterThan(-1);
+      expect(stateColIdx).toBe(statesLineIdx + 1);
+      expect(munColIdx).toBe(stateColIdx + 1);
+      expect(statesHoverIdx).toBe(munColIdx + 1);
+
+      const stateCol = layers[stateColIdx] as FillExtrusionLayerSpecification;
+      expect(stateCol.type).toBe("fill-extrusion");
+      expect(stateCol.source).toBe(SOURCE_IDS.stateColumns);
+      expect(stateCol.maxzoom).toBe(COLUMN_ZOOM_SPLIT);
+      expect(stateCol.layout?.visibility).toBe("none");
+      expect(stateCol.paint?.["fill-extrusion-height"]).toEqual([
+        "coalesce",
+        ["feature-state", "h"],
+        0,
+      ]);
+      expect(stateCol.paint?.["fill-extrusion-base"]).toBe(0);
+      expect(stateCol.paint?.["fill-extrusion-opacity"]).toBe(0.95);
+      expect(stateCol.paint?.["fill-extrusion-vertical-gradient"]).toBe(true);
+
+      const munCol = layers[munColIdx] as FillExtrusionLayerSpecification;
+      expect(munCol.type).toBe("fill-extrusion");
+      expect(munCol.source).toBe(SOURCE_IDS.munColumns);
+      expect(munCol.minzoom).toBe(COLUMN_ZOOM_SPLIT);
+      expect(munCol.layout?.visibility).toBe("none");
+      expect(munCol.paint?.["fill-extrusion-height"]).toEqual([
+        "coalesce",
+        ["feature-state", "h"],
+        0,
+      ]);
+      expect(munCol.paint?.["fill-extrusion-base"]).toBe(0);
+      expect(munCol.paint?.["fill-extrusion-opacity"]).toBe(0.95);
+      expect(munCol.paint?.["fill-extrusion-vertical-gradient"]).toBe(true);
     });
 
     it("configures states-selected-line layer right after selected-line with 3px line", () => {
@@ -247,69 +346,25 @@ describe("mapLayers", () => {
       expect(labels.paint?.["raster-opacity"]).toBe(0.85);
     });
 
-    it("configures extrusion layers with height reading feature-state h", () => {
-      const layers = buildDataLayers("category");
-      const statesExt = layers.find(
-        (l) => l.id === LAYER_IDS.statesExtrusion
-      ) as LayerSpecification & {
-        paint?: Record<string, unknown>;
-        maxzoom?: number;
-      };
-      const munExt = layers.find(
-        (l) => l.id === LAYER_IDS.munExtrusion
-      ) as LayerSpecification & {
-        paint?: Record<string, unknown>;
-        minzoom?: number;
-      };
+    it("uses columnColorExpression for column layers", () => {
+      for (const mode of ["category", "delta"] as const) {
+        const layers = buildDataLayers(mode);
+        const stateCol = layers.find(
+          (l) => l.id === LAYER_IDS.stateColumns
+        ) as LayerSpecification & { paint?: Record<string, unknown> };
+        const munCol = layers.find(
+          (l) => l.id === LAYER_IDS.munColumns
+        ) as LayerSpecification & { paint?: Record<string, unknown> };
 
-      expect(statesExt).toBeDefined();
-      expect(statesExt.type).toBe("fill-extrusion");
-      expect(statesExt.maxzoom).toBe(6.2);
-      expect(statesExt.paint?.["fill-extrusion-height"]).toEqual([
-        "coalesce",
-        ["feature-state", "h"],
-        0,
-      ]);
-      expect(statesExt.paint?.["fill-extrusion-opacity"]).toBe(0.92);
-      expect(statesExt.paint?.["fill-extrusion-vertical-gradient"]).toBe(true);
-
-      expect(munExt).toBeDefined();
-      expect(munExt.type).toBe("fill-extrusion");
-      expect(munExt.minzoom).toBe(5);
-      expect(munExt.paint?.["fill-extrusion-height"]).toEqual([
-        "coalesce",
-        ["feature-state", "h"],
-        0,
-      ]);
-      expect(munExt.paint?.["fill-extrusion-opacity"]).toBe(0.92);
-      expect(munExt.paint?.["fill-extrusion-vertical-gradient"]).toBe(true);
-    });
-
-    it("uses deltaFillExpression for fill and extrusion colors in delta mode", () => {
-      const deltaLayers = buildDataLayers("delta");
-      const statesFill = deltaLayers.find(
-        (l) => l.id === LAYER_IDS.statesFill
-      ) as LayerSpecification & { paint?: Record<string, unknown> };
-      const munFill = deltaLayers.find(
-        (l) => l.id === LAYER_IDS.munFill
-      ) as LayerSpecification & { paint?: Record<string, unknown> };
-      const statesExt = deltaLayers.find(
-        (l) => l.id === LAYER_IDS.statesExtrusion
-      ) as LayerSpecification & { paint?: Record<string, unknown> };
-      const munExt = deltaLayers.find(
-        (l) => l.id === LAYER_IDS.munExtrusion
-      ) as LayerSpecification & { paint?: Record<string, unknown> };
-
-      const expectedDelta = deltaFillExpression();
-      expect(statesFill.paint?.["fill-color"]).toEqual(expectedDelta);
-      expect(munFill.paint?.["fill-color"]).toEqual(expectedDelta);
-      expect(statesExt.paint?.["fill-extrusion-color"]).toEqual(expectedDelta);
-      expect(munExt.paint?.["fill-extrusion-color"]).toEqual(expectedDelta);
+        const expectedColor = columnColorExpression(mode);
+        expect(stateCol.paint?.["fill-extrusion-color"]).toEqual(expectedColor);
+        expect(munCol.paint?.["fill-extrusion-color"]).toEqual(expectedColor);
+      }
     });
   });
 
   describe("setColorMode", () => {
-    it("updates paint properties on state and municipality layers", () => {
+    it("updates paint properties on state and municipality fills and column layers", () => {
       const mockSetPaintProperty = vi.fn();
       const mockGetLayer = vi.fn().mockReturnValue({});
       const mockMap = {
@@ -329,15 +384,61 @@ describe("mapLayers", () => {
         fillExpression("delta")
       );
       expect(mockSetPaintProperty).toHaveBeenCalledWith(
-        LAYER_IDS.statesExtrusion,
+        LAYER_IDS.stateColumns,
         "fill-extrusion-color",
-        fillExpression("delta")
+        columnColorExpression("delta")
       );
       expect(mockSetPaintProperty).toHaveBeenCalledWith(
-        LAYER_IDS.munExtrusion,
+        LAYER_IDS.munColumns,
         "fill-extrusion-color",
-        fillExpression("delta")
+        columnColorExpression("delta")
       );
+    });
+  });
+
+  describe("setColumnsVisible", () => {
+    it("toggles visibility layout property on state and municipal column layers", () => {
+      const mockSetLayoutProperty = vi.fn();
+      const mockGetLayer = vi.fn().mockReturnValue({});
+      const mockMap = {
+        getLayer: mockGetLayer,
+        setLayoutProperty: mockSetLayoutProperty,
+      } as unknown as import("maplibre-gl").Map;
+
+      setColumnsVisible(mockMap, true);
+      expect(mockSetLayoutProperty).toHaveBeenCalledWith(
+        LAYER_IDS.stateColumns,
+        "visibility",
+        "visible"
+      );
+      expect(mockSetLayoutProperty).toHaveBeenCalledWith(
+        LAYER_IDS.munColumns,
+        "visibility",
+        "visible"
+      );
+
+      setColumnsVisible(mockMap, false);
+      expect(mockSetLayoutProperty).toHaveBeenCalledWith(
+        LAYER_IDS.stateColumns,
+        "visibility",
+        "none"
+      );
+      expect(mockSetLayoutProperty).toHaveBeenCalledWith(
+        LAYER_IDS.munColumns,
+        "visibility",
+        "none"
+      );
+    });
+
+    it("does not throw when map is null or lacks layers", () => {
+      expect(() => setColumnsVisible(null as any, true)).not.toThrow();
+
+      const mockMapMissingLayers = {
+        getLayer: vi.fn().mockReturnValue(null),
+        setLayoutProperty: vi.fn(),
+      } as unknown as import("maplibre-gl").Map;
+
+      expect(() => setColumnsVisible(mockMapMissingLayers, true)).not.toThrow();
     });
   });
 });

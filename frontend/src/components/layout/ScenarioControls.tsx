@@ -14,6 +14,8 @@ import {
   CATEGORY_LABELS,
 } from "@/lib/format";
 import { ApiError } from "@/lib/api";
+import { InfoTip } from "@/components/ui/InfoTip";
+import { PARAM_TERM, optionTerm, glossaryFor } from "@/lib/glossary";
 
 export function ScenarioControls() {
   const {
@@ -82,10 +84,16 @@ export function ScenarioControls() {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
           <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              {scenarioDef?.label ? `Ajustar: ${scenarioDef.label}` : "Ajustar Escenario de Intervención"}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                {scenarioDef?.label ? `Ajustar: ${scenarioDef.label}` : "Ajustar Escenario de Intervención"}
+              </h2>
+              <InfoTip
+                term={scenarioDef?.id === "pesimista" ? "escenario.pesimista" : "escenario.intervencion"}
+                size="sm"
+              />
+            </div>
             <p className="text-xs text-slate-400 mt-0.5">
               {scenarioDef?.description ??
                 "Parametriza palancas operativas y simula el impacto en el riesgo electoral 2027."}
@@ -122,9 +130,12 @@ export function ScenarioControls() {
               if (p.type === "select") {
                 return (
                   <div key={p.key}>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                      {p.label}
-                    </label>
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-300">
+                        {p.label}
+                      </label>
+                      {PARAM_TERM[p.key] && <InfoTip term={PARAM_TERM[p.key]} size="xs" />}
+                    </div>
                     <select
                       value={String(currentVal)}
                       onChange={(e) => {
@@ -142,6 +153,16 @@ export function ScenarioControls() {
                         </option>
                       ))}
                     </select>
+                    {(() => {
+                      const optKey = optionTerm(p.key, String(currentVal));
+                      const optEntry = optKey ? glossaryFor(optKey) : undefined;
+                      if (!optEntry) return null;
+                      return (
+                        <p className="text-[11px] text-slate-400 mt-1 truncate" title={optEntry.body}>
+                          {optEntry.body}
+                        </p>
+                      );
+                    })()}
                     {hasError && (
                       <p className="text-xs text-rose-400 mt-1 font-medium">{paramErrors[p.key]}</p>
                     )}
@@ -158,9 +179,12 @@ export function ScenarioControls() {
                 return (
                   <div key={p.key}>
                     <div className="flex justify-between items-center mb-1.5">
-                      <label className="text-xs font-semibold text-slate-300">
-                        {p.label}
-                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-xs font-semibold text-slate-300">
+                          {p.label}
+                        </label>
+                        {PARAM_TERM[p.key] && <InfoTip term={PARAM_TERM[p.key]} size="xs" />}
+                      </div>
                       <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
                         {p.unit === "%"
                           ? `${Math.round(numVal <= 1.0 ? numVal * 100 : numVal)}%`
@@ -214,6 +238,61 @@ export function ScenarioControls() {
           )}
         </div>
 
+        {/* Live Formula Box */}
+        {scenarioDef?.id === "intervencion" && (() => {
+          const effect = Number(localParams.effect_pp ?? 3.0);
+          const rawCoverage = Number(localParams.coverage ?? 100);
+          const covPct = rawCoverage <= 1.0 ? rawCoverage * 100 : rawCoverage;
+          const resultado = effect * (covPct / 100);
+          const maxResultado = 1.5 * resultado;
+
+          const lever = String(localParams.lever ?? "promocion_jovenes");
+          let variableLabel = "";
+          if (lever === "promocion_jovenes") {
+            variableLabel = "población de 18 a 24 años";
+          } else if (lever === "casillas_rurales") {
+            variableLabel = "población rural";
+          } else if (lever === "materiales_lengua_indigena") {
+            variableLabel = "población hablante de lengua indígena";
+          }
+
+          return (
+            <div className="mt-4 p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 text-xs text-slate-300">
+              <p className="leading-relaxed">
+                Efecto real en un municipio con peso 1×:{" "}
+                <strong className="text-emerald-400 font-mono">
+                  {effect.toFixed(2)} pp × {Math.round(covPct)} % = {resultado.toFixed(2)} pp
+                </strong>
+                .
+                {variableLabel && lever !== "campana_general" ? (
+                  <span>
+                    {" "}Los municipios con más {variableLabel} reciben hasta 1.5× (máx.{" "}
+                    <span className="font-mono text-emerald-400 font-semibold">{maxResultado.toFixed(2)} pp</span>).
+                  </span>
+                ) : null}
+              </p>
+            </div>
+          );
+        })()}
+
+        {scenarioDef?.id === "pesimista" && (() => {
+          const shock = Number(localParams.shock_pp ?? 2.0);
+          const rawTrend = Number(localParams.trend_amplifier ?? 50);
+          const trendPct = rawTrend <= 1.0 ? rawTrend * 100 : rawTrend;
+
+          return (
+            <div className="mt-4 p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 text-xs text-slate-300">
+              <p className="leading-relaxed">
+                Todos los municipios bajan{" "}
+                <strong className="text-amber-400 font-mono">{shock.toFixed(2)} pp</strong>
+                ; los que vienen cayendo, además,{" "}
+                <strong className="text-amber-400 font-mono">{Math.round(trendPct)} %</strong>{" "}
+                de su caída histórica.
+              </p>
+            </div>
+          );
+        })()}
+
         {/* Simulation Summary: counts by category vs base, additional votes, mean delta pp */}
         {simulationResult && (
           <div className="mt-5 p-4 bg-slate-800/90 rounded-xl border border-slate-700/80 space-y-3 text-xs">
@@ -226,9 +305,12 @@ export function ScenarioControls() {
 
             <div className="grid grid-cols-2 gap-2.5">
               <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                  {getVotesLabel(simulationResult.summary.votos_adicionales)}
-                </span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
+                    {getVotesLabel(simulationResult.summary.votos_adicionales)}
+                  </span>
+                  <InfoTip term="simulacion.votos" size="xs" />
+                </div>
                 <span
                   className={`text-base font-bold font-mono ${getVotesColorClass(
                     simulationResult.summary.votos_adicionales
