@@ -162,6 +162,12 @@ describe("Glossary (Single Source of Truth)", () => {
     }
   });
 
+  it("matches scenario titles with UI buttons (Base (Inercial), Intervención, Pesimista)", () => {
+    expect(glossaryFor("escenario.base")?.title).toBe("Base (Inercial)");
+    expect(glossaryFor("escenario.intervencion")?.title).toBe("Intervención");
+    expect(glossaryFor("escenario.pesimista")?.title).toBe("Pesimista");
+  });
+
   it("contains all 10 new keys from CONTEXT.md §8.1 with valid length constraints", () => {
     const NEW_KEYS_W2_F = [
       "ranking.orden",

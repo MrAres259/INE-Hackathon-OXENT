@@ -11,15 +11,15 @@ export const GLOSSARY = {
     body: "Tres formas de proyectar la participación en la elección de 2027: base inercial sin cambios, intervención con acciones del INE o pesimista ante una caída general. Todo el mapa, el ranking y el diagnóstico se recalculan con el escenario elegido.",
   },
   "escenario.base": {
-    title: "Escenario Base (Inercial)",
+    title: "Base (Inercial)",
     body: "Pronóstico para 2027 si las tendencias actuales continúan sin intervención. La participación de cada municipio mantiene su nivel histórico relativo, calibrado a una participación nacional supuesta de 51.84 % (última intermedia, 2021).",
   },
   "escenario.intervencion": {
-    title: "Escenario de Intervención",
+    title: "Intervención",
     body: "Simula el impacto de acciones focalizadas de promoción del voto. Solo modifica la abstención en los municipios seleccionados; el resto permanece igual. Es un supuesto de trabajo para comparar opciones operativas, no una evaluación de impacto real.",
   },
   "escenario.pesimista": {
-    title: "Escenario Pesimista",
+    title: "Pesimista",
     body: "Simula una caída general de la participación y que se acentúen las tendencias históricas a la baja. Permite identificar qué zonas pasarían a semáforo rojo ante un escenario adverso.",
   },
   "param.lever": {

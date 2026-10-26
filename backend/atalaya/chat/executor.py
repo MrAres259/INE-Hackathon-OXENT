@@ -631,8 +631,22 @@ def _execute_compare(spec: QuerySpec, store: Any) -> DataResult:
             f"{u1['name']} ({u1['ent']}) registra {u1['val_str']} frente a {u2['val_str']} en {u2['name']} ({u2['ent']})."
         )
         if isinstance(v1, (int, float, np.number)) and isinstance(v2, (int, float, np.number)) and pd.notna(v1) and pd.notna(v2):
-            diff = abs(float(v1) - float(v2))
-            diff_str = format_value("trend_pp", diff)
+            is_rate = (
+                spec.metric in ("participacion", "abstencion", "pred_abstention", "pred_participation", "pred_low", "pred_high")
+                or spec.metric.startswith("pct_")
+                or spec.metric.startswith("part_")
+                or spec.metric.startswith("abst_")
+                or meta.get("unit") in ("proporción", "proporcion", "tasa")
+            )
+            if is_rate:
+                diff = abs(float(v1) - float(v2)) * 100.0
+                diff_str = format_value("volatility_pp", diff)
+            elif spec.metric in ("trend_pp", "delta_vs_base_pp", "gap_youth_pp", "gap_sexo_pp", "volatility_pp", "vulnerability_pp"):
+                diff = abs(float(v1) - float(v2))
+                diff_str = format_value("volatility_pp", diff)
+            else:
+                diff = abs(float(v1) - float(v2))
+                diff_str = format_value(spec.metric, diff)
             facts.append(f"La diferencia absoluta es de {diff_str}.")
     elif len(units_data) == 1:
         facts.append(f"Se localizó solo una unidad ({units_data[0]['name']}) para comparación.")

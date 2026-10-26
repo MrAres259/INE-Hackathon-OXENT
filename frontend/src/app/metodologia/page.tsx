@@ -312,7 +312,7 @@ export default function MetodologiaPage() {
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-              Glosario Canónico de Términos
+              Glosario
             </h2>
             <p className="text-xs text-slate-400 mt-1">
               Definiciones oficiales de todos los indicadores, escenarios y controles de la plataforma. Todo proviene del glosario central.
@@ -367,7 +367,7 @@ export default function MetodologiaPage() {
                     <div
                       key={key}
                       id={anchorId}
-                      className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-2 hover:border-slate-700 transition-colors scroll-mt-24"
+                      className="group p-3.5 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-2 hover:border-slate-700 transition-colors scroll-mt-24"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <h4 className="font-bold text-white text-xs leading-snug">
@@ -375,10 +375,18 @@ export default function MetodologiaPage() {
                         </h4>
                         <a
                           href={`#${anchorId}`}
-                          className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 transition-colors shrink-0"
-                          title="Enlace a este término"
+                          onClick={() => {
+                            if (typeof navigator !== "undefined" && navigator.clipboard) {
+                              navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}#${anchorId}`).catch(() => {});
+                            }
+                          }}
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-slate-500 hover:text-emerald-400 transition-opacity shrink-0 p-1 -m-1 rounded hover:bg-slate-800/60"
+                          title="Copiar enlace a este término"
+                          aria-label={`Enlace a ${item.title}`}
                         >
-                          #{anchorId}
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                          </svg>
                         </a>
                       </div>
 

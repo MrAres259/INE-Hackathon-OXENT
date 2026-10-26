@@ -254,7 +254,7 @@ def test_executor_lookup(mock_store):
 
 
 def test_executor_compare(mock_store):
-    """Verify compare intent between CDMX and Edomex computes absolute difference."""
+    """Verify compare intent between CDMX and Edomex computes absolute difference in pp."""
     spec = QuerySpec(
         intent="compare",
         level="state",
@@ -264,9 +264,89 @@ def test_executor_compare(mock_store):
     result = execute(spec)
     assert not result.empty
     assert len(result.rows) == 2
-    # Verify difference fact present
-    diff_fact = [f for f in result.facts if "diferencia" in f.lower()]
-    assert len(diff_fact) > 0
+    # Verify difference fact present in pp without sign
+    diff_fact = [f for f in result.facts if "diferencia absoluta" in f.lower()]
+    assert len(diff_fact) == 1
+    assert "0.0 pp" in diff_fact[0]
+
+
+def test_executor_compare_tijuana_mexicali_rates(monkeypatch):
+    """Verify compare with Tijuana (46.6%) vs Mexicali (47.5%) produces '0.9 pp' difference."""
+    class SyntheticTijuanaMexicaliStore:
+        def unit(self, uid: str):
+            if uid == "02004":
+                return {
+                    "id": "02004",
+                    "name": "Tijuana",
+                    "cve_ent": "02",
+                    "level": "mun",
+                    "participacion": 0.466,
+                    "lista_nominal": 1500000,
+                }
+            elif uid == "02002":
+                return {
+                    "id": "02002",
+                    "name": "Mexicali",
+                    "cve_ent": "02",
+                    "level": "mun",
+                    "participacion": 0.475,
+                    "lista_nominal": 800000,
+                }
+            return None
+
+    store = SyntheticTijuanaMexicaliStore()
+    monkeypatch.setattr("atalaya.chat.executor.get_store", lambda: store)
+
+    spec = QuerySpec(
+        intent="compare",
+        level="mun",
+        unit_ids=["02004", "02002"],
+        metric="participacion",
+    )
+    result = execute(spec)
+    assert not result.empty
+    assert len(result.rows) == 2
+    diff_facts = [f for f in result.facts if "diferencia absoluta" in f.lower()]
+    assert len(diff_facts) == 1
+    assert "La diferencia absoluta es de 0.9 pp." in diff_facts[0]
+
+
+def test_executor_compare_count_metric(monkeypatch):
+    """Verify compare with count metric (lista_nominal) uses count format (comma separated, no pp)."""
+    class SyntheticCountStore:
+        def unit(self, uid: str):
+            if uid == "02004":
+                return {
+                    "id": "02004",
+                    "name": "Tijuana",
+                    "cve_ent": "02",
+                    "level": "mun",
+                    "lista_nominal": 1500000,
+                }
+            elif uid == "02002":
+                return {
+                    "id": "02002",
+                    "name": "Mexicali",
+                    "cve_ent": "02",
+                    "level": "mun",
+                    "lista_nominal": 800000,
+                }
+            return None
+
+    store = SyntheticCountStore()
+    monkeypatch.setattr("atalaya.chat.executor.get_store", lambda: store)
+
+    spec = QuerySpec(
+        intent="compare",
+        level="mun",
+        unit_ids=["02004", "02002"],
+        metric="lista_nominal",
+    )
+    result = execute(spec)
+    assert not result.empty
+    diff_facts = [f for f in result.facts if "diferencia absoluta" in f.lower()]
+    assert len(diff_facts) == 1
+    assert "La diferencia absoluta es de 700,000." in diff_facts[0]
 
 
 def test_executor_trend(mock_store):

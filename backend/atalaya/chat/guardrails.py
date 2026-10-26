@@ -18,6 +18,8 @@ import threading
 import unicodedata
 import uuid
 
+import numpy as np
+
 from atalaya.config import BUILD_DIR, CACHE_DIR, SEED_DIR
 
 logger = logging.getLogger("atalaya.guardrails")
@@ -1073,25 +1075,89 @@ def numbers_in(text: str) -> set[float]:
     return nums
 
 
-def _is_number_backed(num: float, allowed_numbers: set[float]) -> bool:
-    # Integer 0-10
-    if num.is_integer() and 0 <= int(num) <= 10:
-        return True
-    # Year 2000-2030
-    if num.is_integer() and 2000 <= int(num) <= 2030:
-        return True
+class GroundedNumbers(set):
+    """Container of allowed numbers that precomputes derived numbers (|a-b|, a+b, pp diffs) once."""
 
-    for a in allowed_numbers:
-        tol = max(0.051, 0.0005 * abs(a))
-        if abs(num - a) <= tol:
+    def __init__(self, allowed: set[float] | None = None) -> None:
+        super().__init__(allowed or ())
+        self._init_derived()
+
+    def _init_derived(self) -> None:
+        clean = [float(x) for x in self if not (np.isnan(x) or np.isinf(x))]
+        base_arr = np.array(clean, dtype=np.float64)
+        if len(clean) > 400:
+            pair_cands = sorted(clean, key=abs, reverse=True)[:400]
+        else:
+            pair_cands = clean
+
+        cands_arr = np.array(pair_cands, dtype=np.float64)
+        if len(cands_arr) >= 2:
+            i_upper = np.triu_indices(len(cands_arr), k=1)
+            diffs = np.abs(cands_arr[i_upper[0]] - cands_arr[i_upper[1]])
+            sums = cands_arr[i_upper[0]] + cands_arr[i_upper[1]]
+            pp_diffs = diffs * 100.0
+            all_vals = np.concatenate([base_arr, diffs, sums, pp_diffs])
+        elif len(base_arr) > 0:
+            all_vals = base_arr
+        else:
+            all_vals = np.array([], dtype=np.float64)
+
+        if len(all_vals) > 0:
+            self._search_array = np.unique(all_vals)
+            self._search_array.sort()
+        else:
+            self._search_array = np.array([], dtype=np.float64)
+
+    def is_backed(self, num: float) -> bool:
+        # Integer 0-10
+        if num.is_integer() and 0 <= int(num) <= 10:
             return True
-        # a * 100 (fraction -> percent)
-        if abs(num - a * 100.0) <= max(0.051, 0.0005 * abs(a * 100.0)):
+        # Year 2000-2030
+        if num.is_integer() and 2000 <= int(num) <= 2030:
             return True
-        # a / 100 (percent -> fraction)
-        if abs(num - a / 100.0) <= max(0.051, 0.0005 * abs(a / 100.0)):
-            return True
-    return False
+
+        if len(self._search_array) == 0:
+            return False
+
+        # Direct match (scale 1.0)
+        idx = np.searchsorted(self._search_array, num)
+        for i in range(max(0, idx - 2), min(len(self._search_array), idx + 3)):
+            w = self._search_array[i]
+            tol = max(0.051, 0.0005 * abs(w))
+            if abs(num - w) <= tol:
+                return True
+
+        # fraction -> percent: w is fraction (abs(w) <= 1.05), num is percent (abs(num) <= 100.0)
+        if abs(num) <= 100.0:
+            target = num / 100.0
+            idx = np.searchsorted(self._search_array, target)
+            for i in range(max(0, idx - 2), min(len(self._search_array), idx + 3)):
+                w = self._search_array[i]
+                if abs(w) <= 1.05:
+                    val = w * 100.0
+                    tol = max(0.051, 0.0005 * abs(val))
+                    if abs(num - val) <= tol:
+                        return True
+
+        # percent -> fraction: w is percent (abs(w) <= 105.0), num is fraction (abs(num) <= 1.0)
+        if abs(num) <= 1.0:
+            target = num * 100.0
+            idx = np.searchsorted(self._search_array, target)
+            for i in range(max(0, idx - 2), min(len(self._search_array), idx + 3)):
+                w = self._search_array[i]
+                if abs(w) <= 105.0:
+                    val = w / 100.0
+                    tol = max(0.051, 0.0005 * abs(val))
+                    if abs(num - val) <= tol:
+                        return True
+
+        return False
+
+
+def _is_number_backed(num: float, allowed_numbers: set[float]) -> bool:
+    if isinstance(allowed_numbers, GroundedNumbers):
+        return allowed_numbers.is_backed(num)
+    return GroundedNumbers(allowed_numbers).is_backed(num)
 
 
 _CODE_INDICATORS = (
@@ -1209,7 +1275,8 @@ def screen_output(
     if allowed_numbers is not None:
         extracted = numbers_in(body)
         grounding_mode = os.environ.get("ATALAYA_GUARD_GROUNDING", "block").strip().lower()
-        unsupported = [n for n in extracted if not _is_number_backed(n, allowed_numbers)]
+        grounded = allowed_numbers if isinstance(allowed_numbers, GroundedNumbers) else GroundedNumbers(allowed_numbers)
+        unsupported = [n for n in extracted if not grounded.is_backed(n)]
         if unsupported:
             for un in unsupported:
                 if grounding_mode == "flag":
@@ -1251,7 +1318,12 @@ class StreamGuard:
         allowed_numbers: set[float] | None = None,
         max_hold: int = 400,
     ) -> None:
-        self.allowed_numbers = allowed_numbers
+        if allowed_numbers is not None:
+            self.allowed_numbers = (
+                allowed_numbers if isinstance(allowed_numbers, GroundedNumbers) else GroundedNumbers(allowed_numbers)
+            )
+        else:
+            self.allowed_numbers = None
         self.max_hold = max_hold
         self._buffer = ""
         self._released = ""

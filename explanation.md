@@ -18,11 +18,11 @@ ATALAYA es un tablero y un conjunto de entregables que:
 2. **Clasifica** cada zona en un **semáforo** 🟢 verde · 🟡 amarillo · 🟠 naranja · 🔴 rojo que combina tendencia histórica y vulnerabilidad sociodemográfica, visible en un **mapa navegable** (país → estado → municipio).
 3. **Simula escenarios**: *base* (sin intervención), *intervención* hipotética parametrizable y *pesimista*.
 4. **Prioriza recursos** por **abstención esperada** (personas que se espera no voten) y propone **recomendaciones preventivas** por zona.
-5. **Responde preguntas** con un asistente conversacional (GLM-5.2 en Huawei MaaS) que consulta los datos (motor de búsqueda **OpenSearch** en Huawei CSS, o memoria) y nunca inventa cifras.
+5. **Responde preguntas** con un asistente conversacional (GLM-5.2 en Huawei MaaS) que consulta los datos (motor de búsqueda **OpenSearch** en Huawei CSS, o memoria), nunca inventa cifras y está **acotado por guardrails**: solo responde sobre participación y abstención (rechaza código, asistencia general, jailbreaks, datos personales, temas partidistas y contenido dañino; ante autolesión ofrece la Línea de la Vida).
 6. **Genera los entregables del reto**: reporte metodológico (PDF), presentación ejecutiva (PDF) con mapas renderizados por el mismo motor cartográfico de la app, mapa de escenarios (GeoJSON y visor HTML autónomo), figuras PNG y base de datos anonimizada (XLSX/CSV), empaquetados y verificados contra la convocatoria.
 7. **Se publica en internet** como tablero dinámico (`http://46.250.172.193:8080`) detrás de un borde Caddy, con supervisor que reinicia cualquier componente caído.
 
-**Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; el clúster de búsqueda es **desechable** (se puede borrar y recrear: la app degrada a memoria en ~2 s y vuelve sola cuando el clúster nuevo está cargado); el mapa usa un motor WebGL dedicado (MapLibre GL) con teselas vectoriales de la geometría oficial INEGI, sin polígonos dibujados a mano.
+**Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; el clúster de búsqueda es **desechable** (se puede borrar y recrear: la app degrada a memoria en ~2 s y vuelve sola cuando el clúster nuevo está cargado); el mapa usa un motor WebGL dedicado (MapLibre GL) con teselas vectoriales de la geometría oficial INEGI, sin polígonos dibujados a mano; **la app se explica sola**: cada concepto de la interfaz lleva una ayuda ⓘ tomada de un único glosario, para que alguien del INE que nunca la ha visto entienda cada control y cómo se relaciona con los demás.
 
 ---
 
@@ -54,7 +54,7 @@ flowchart LR
   ST --> API[FastAPI :8001]
   SC[model/scenarios] --> API
   RC[model/recommend] --> API
-  CHAT[chat: guard → planner → executor → writer] --> API
+  CHAT[chat: guardrails → planner → executor → writer] --> API
   LLM[(GLM-5.2<br/>MaaS)] -.-> CHAT
   API -->|/api/*| WEB[Next.js :3000]
   MB --> EX[export] --> DEL[deliverables/]
@@ -197,12 +197,33 @@ Resumen: zonas por color vs base, LN por color, votos adicionales/perdidos (`Δp
 
 | Paso | Qué hace | Dónde |
 |---|---|---|
-| Guardia | Rechaza sin LLM peticiones de datos personales y de preferencias partidistas | `chat/guard.py` |
+| Guardrails de entrada | Revisión determinista, sin red (~14 ms), antes de cualquier LLM; ver tabla siguiente | `chat/guardrails.py` → `screen_input`, `sanitize_history` |
+| Compuerta de tema | Solo si el mensaje no trae vocabulario del dominio, no es saludo y no es un seguimiento corto de una conversación en tema: LLM con respuesta VALID/REJECT; ante error deja pasar (sin LLM el redactor usa plantilla) | `chat/guardrails.py` → `topic_gate`, `has_domain_signal` |
+| Saludos y ayuda | Saludos, agradecimientos y preguntas sobre la app o la privacidad van directo a la ayuda determinista (qué responde y qué no, privacidad, fuentes), sin LLM | `api/chat.py`, `chat/planner.py` (`_plan_rules`), `chat/executor.py` (`_execute_help`) |
 | Plan | Reglas primero (años, estados, intent, métrica del catálogo; perfil por edad, juvenil, género, judicial, priorización). Las preguntas compuestas "X y Y" solo se dividen si no son de correlación o comparación. Los **municipios se resuelven con `store.search_units`** (búsqueda difusa sin acentos, priorizando el estado mencionado; p. ej. "Juárez, Chihuahua" → 08037). LLM (`chat_json`) solo si hace falta, y **todo `unit_id` que proponga se valida** contra el store y el texto (si no corresponde, se reemplaza o se descarta); respaldo a reglas | `chat/planner.py`, `chat/spec.py` |
 | Ejecución | Sobre el store, sin LLM: ranking, lookup, compare, trend, correlation (r, n, quintiles), profile, scenario, explain_unit, catalog; aplica privacidad; los datos censales siempre se fechan en 2020 | `chat/executor.py` |
-| Redacción | LLM en streaming (≤ 120 palabras, solo cifras de la tabla, fuente y año); si falla o lo bloquea el auditor de contenido, plantilla determinista (`degraded`) | `chat/writer.py` |
+| Redacción | LLM en streaming (≤ 120 palabras, solo cifras de la tabla, fuente y año; alcance estricto; pregunta y datos cercados como contenido, nunca instrucciones). `help`/`out_of_scope` nunca llaman al LLM. La salida pasa por `StreamGuard`; si falla, lo bloquea el auditor de MaaS o el guardrail de salida, plantilla determinista (`degraded`) | `chat/writer.py` |
 
-Eventos: `plan` → `data` → `token`… → `done {sources, degraded}`. Cliente LLM: `llm.py` (reintentos, razonamiento desactivado ≈ 4 s, detección del auditor de MaaS).
+**Guardrails** (`chat/guardrails.py`, adaptados del módulo de guardrails de NOLI al dominio electoral):
+
+| Capa | Qué detecta | Resultado |
+|---|---|---|
+| Normalización | Caracteres invisibles/bidi, homoglifos, *leet*, letras repetidas; decodifica base64/hex/rot13 y re-evalúa | Las reglas leen el texto "limpio" |
+| Prompt shields | Anular instrucciones (ES/EN), revelar el prompt, modo desarrollador/DAN, "sin filtros", andamiaje de chat, cambio de rol; señales suaves solo cuentan de 2 en 2 y el encuadre hipotético ("imagina que el INE…") no cuenta en preguntas del dominio | `jailbreak` |
+| Fuera de alcance | Pedir código/scripts/SQL (ES/EN, con faltas) aunque mencione el dominio; escritura creativa, traducción, recetas, chistes, tareas, deportes, clima | `codigo` / `fuera_de_alcance` |
+| Privacidad y neutralidad | CURP, clave de elector, "quién votó", domicilio/teléfono de personas; partidos (siglas sensibles a mayúsculas), candidaturas, "quién ganará", intención de voto. No bloquea "dirección de la tendencia" ni "¿cuánta participación se ganará?" | `datos_personales` / `partidista` |
+| Contenido dañino | Odio, sexual, violencia con objeto humano y **autolesión** (prioritaria; el rechazo siempre incluye la Línea de la Vida 800 911 2000 y el 911) | `danino:*` |
+| Multimodal / longitud | Data URIs, etiquetas de medios, blobs codificados, > 30 líneas | `multimodal` / `longitud` |
+| Vocabulario del dominio | Señales fuertes (participación, abstención, INE, casilla, municipio, semáforo, escenario, estados…) bastan con 1; débiles (estado, índice, edad, riesgo, nombres de municipio de una palabra…) requieren 2 | Decide si se consulta la compuerta de tema |
+| Salida (`StreamGuard`) | Libera una oración completa a la vez (nunca corta en un punto decimal) y revisa código, fuga del prompt, contenido dañino, credenciales y **cifras no respaldadas**: cada número debe estar en los hechos/tabla/pregunta (tolerancia de redondeo, fracción ↔ %), o ser suma/diferencia de dos de ellos, un entero 0–10 o un año 2000–2030 (`ATALAYA_GUARD_GROUNDING=block|flag`) | Corta y completa con la plantilla de datos verificados |
+| Listas personalizables | `data/seed/guardrail_lists.json` (bloqueo/regex de entrada y salida, permitidos), recarga en caliente | `blocklist` / `filtro_personalizado` |
+| Auditoría | Una línea JSONL por decisión bloqueada o marcada en `data/cache/logs/guardrails.jsonl` (referencia `gr-xxxxxxxx`, etapa, categoría, regla, severidad, hash y longitud del mensaje; **nunca el texto**); contadores en `GET /api/admin/guardrails` | — |
+
+Cada rechazo es un texto en español que explica el motivo sin revelar la regla y termina con su referencia `gr-…`. `chat/guard.py` queda como envoltura compatible (`check`).
+
+Eventos: `plan` → `data` → `token`… → `done {sources, degraded, guardrail}`; ante un rechazo de entrada o de tema solo `token` + `done` (`guardrail = {stage, category, ref}`). Cliente LLM: `llm.py` (reintentos, razonamiento desactivado ≈ 4 s, detección del auditor de MaaS).
+
+Verificación en vivo (`temp/optfix/tools/chat_guard_probe.py`, 56 casos con variantes en inglés, mayúsculas, faltas, emojis, leet, base64, inyección dentro de preguntas válidas y seguimientos con historial): **56/56** — 36/36 bloqueos correctos (≈ 14 ms, sin LLM salvo la compuerta de tema) y 20/20 preguntas legítimas respondidas sin intervención del guardrail.
 
 ### 4.9 API REST
 
@@ -218,7 +239,8 @@ Eventos: `plan` → `data` → `token`… → `done {sources, degraded}`. Client
 | GET | `/api/ranking?level&ent&scenario&limit&sort=risk\|abstencion_esperada\|prioridad` | ranking |
 | GET | `/api/metrics` | candidatos, modelo elegido, backtests, supuesto nacional, calibración, R² estructurales, confiabilidad |
 | POST | `/api/admin/reload` | relee `backend/.env`, reconstruye cliente y store y recarga datos; responde `store`, `store_degraded`, `search_engine`, `stats` (para cambiar de clúster sin reiniciar) |
-| POST | `/api/chat` | SSE del asistente |
+| GET | `/api/admin/guardrails` | contadores de guardrails por etapa y categoría, últimas 25 decisiones (sin texto) y política activa |
+| POST | `/api/chat` | SSE del asistente (historial ≤ 20 turnos, cada uno ≤ 4,000 caracteres; `region_id` validado) |
 
 **Seguridad para internet** (`api/security.py`):
 - `/api/admin/*` exige **siempre** `X-Admin-Token` (comparación en tiempo constante); el token es `ATALAYA_ADMIN_TOKEN` o uno aleatorio que el backend genera al arrancar en `data/cache/admin_token` (nunca se imprime; lo leen `bootstrap_cluster.py` y los scripts locales). Además el borde Caddy responde 404 a cualquier ruta admin.
@@ -236,29 +258,37 @@ Tablero oscuro de una sola pantalla en escritorio (el mapa llena su columna; el 
 | **Semáforo** | Categoría de riesgo del escenario activo |
 | **Cambio Δ** | Intervención − base en pp de abstención (escala divergente: azul = menos abstención) |
 | **Comparar** | Dos mapas sincronizados con cortina arrastrable: izquierda sin intervención, derecha con intervención; resumen "Rojo: 297 → 232 · N mejoran de categoría" |
-| **3D** (conmutador) | Extrusión = abstención esperada (personas), escala √ fija entre escenarios; cámara inclinada |
+| **3D** (conmutador) | El mapa coroplético queda **plano** (colores y límites municipales siempre visibles) y sobre el punto interior de cada zona se levanta una **columna** (prisma de 12 lados): estados en zoom < 5.5, municipios en ≥ 5.5. **Altura = índice de riesgo (0–100) del escenario activo** con curva `(índice/100)^1.6` (mínimo 4 %), así que rojo > naranja > amarillo > verde; en Cambio Δ la altura = \|Δ\| en pp (tope 5). La altura se reduce al acercarse (×1 en zoom 3 → ×0.15 en zoom 12) y el radio depende del área de la zona (municipios 0.8–4.5 km, estados 12–35 km), para que las columnas no tapen a los vecinos. No es topografía. Vistas **Inclinada** (50°) y **Cenital** (0°); en 3D se inclina/rota con clic derecho + arrastre (máx. 65°) |
 
-El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&escenario=base|intervencion|pesimista`. El botón **PNG** descarga la vista actual (`atalaya-mapa-<modo>-<escenario>.png`).
+El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&vista=cenital&escenario=base|intervencion|pesimista`. El botón **PNG** descarga la vista actual (`atalaya-mapa-<modo>-<escenario>.png`).
+
+**Rendimiento.** Las columnas son ~2,510 prismas ligeros (antes se extruían los polígonos completos de estados y municipios, con miles de muros y ambos niveles a la vez entre zoom 5 y 6.2). El hover se procesa como máximo una vez por cuadro (`requestAnimationFrame`), ignora movimientos < 3 px y no consulta nada mientras el mapa se mueve; en 3D consulta primero las columnas, así que se resalta y selecciona lo que está bajo el cursor. `pixelRatio` con tope 2 (1.5 en 3D), `AtalayaMap` memoizado con callbacks estables y pintado incremental que no pinta columnas mientras 3D está apagado. Con `?perf=1` el mapa expone contadores en `window.__atalayaPerf` (`temp/optfix/tools/perf_probe.py`).
+
+**Ayuda contextual (la app se explica sola).** Cada concepto lleva un ícono ⓘ (`components/ui/InfoTip.tsx`) que al pasar el mouse, enfocar con teclado o tocar muestra título, explicación en lenguaje llano, "cómo se relaciona" y ejemplo; se dibuja en un portal con posición que se voltea para no salirse de la pantalla. Todos los textos salen de **un solo glosario** (`lib/glossary.ts`, 61 términos: escenarios y parámetros, semáforo e indicadores, mapa, asistente), cuyos títulos coinciden con las etiquetas de la UI. Hay ⓘ en la barra superior (escenarios, motor de datos), el modal **Ajustar** (cada parámetro, explicación de la opción elegida y **fórmula viva** del efecto real: efecto × cobertura × peso de la palanca), la barra y leyenda del mapa, el buscador, el breadcrumb, el panel de diagnóstico (cada métrica, componente del índice, indicador CCPC, factores y recomendaciones, más una línea de lectura: "Riesgo alto (69.2 de 100): se espera que no vote el 52.1 % …"), el ranking y el asistente. Una **guía de primera visita** ("¿Cómo leer este mapa?", 4 pasos, se recuerda en `localStorage`) se reabre con el botón "?" de la barra. La página **Metodología** es además el manual: "Cómo usar ATALAYA", glosario completo con buscador, el mapa 3D y los límites del asistente.
 
 **Robustez del motor.** Geometría en tres modos (`data-geometry`): `vector` (default, `tiles.json` válido), `geojson` (respaldo con `mun_all.json`/`states.json` si falta o es inválido el manifiesto) y `mock` (`NEXT_PUBLIC_MOCK`). Antes de crear el mapa se detecta WebGL; sin él, un aviso deja disponibles ranking y panel. Carga con límite de 20 s y error visible con **Reintentar**; pérdida de contexto WebGL → aviso "Recuperando mapa…", recuperación propia de MapLibre y, si no ocurre en 5 s, remontaje limpio (una sola ruta de destrucción); cada mapa está envuelto en un *error boundary* para que un fallo del mapa nunca tumbe la página; en el comparador, la sincronía de cámaras se re-suscribe al mapa nuevo. El mapa base solo se oculta tras ≥ 6 errores de teselas en 20 s sin ninguna carga exitosa. El contenedor expone `data-map-state="loading|ready|error|unsupported|context-lost"` para pruebas automatizadas.
 
 | Funcionalidad | Dónde |
 |---|---|
-| Estado global (escenario, parámetros, nivel, selección, simulación, salud, `mapMode`, `extrude3d`, `comparePos`, sincronía con la URL) | `src/lib/state.tsx` |
+| Estado global (escenario, parámetros, nivel, selección, simulación, salud, `mapMode`, `extrude3d`, `view3d`, `comparePos`, sincronía con la URL vía `parseMapUrlState`/`serializeMapUrlState`) | `src/lib/state.tsx` |
+| Columnas 3D: radio por área, prisma de 12 lados, colecciones de estados y municipios desde `index.json` (`anchor` ?? centroide) | `src/lib/columns.ts` |
+| Limitador de hover (un procesamiento por cuadro, umbral de 3 px) | `src/lib/hoverThrottle.ts` |
+| Glosario único de la UI (`GLOSSARY`, `glossaryFor`, `PARAM_TERM`, `optionTerm`) y componente ⓘ (`InfoTip`, `computeTipPosition`) | `src/lib/glossary.ts`, `src/components/ui/InfoTip.tsx` |
+| Guía de primera visita (`shouldShowGuide`, `dismissGuide`) | `src/components/map/MapGuide.tsx` |
 | Parámetros de escenario desde `Meta` (defaults, filtrado por escenario, descripción legible) | `src/lib/scenarioParams.ts` |
 | Cliente API + SSE; mocks fieles al contrato real solo ante fallo de red | `src/lib/api.ts`, `src/lib/mocks/*` |
 | Manifiesto de teselas (`fetchTileManifest`, validación, `absoluteTileUrl`) y GeoJSON de respaldo: estados, municipios por estado y nacional, contorno, índice de bbox | `src/lib/geo.ts` |
 | Soporte del motor (puro): `detectWebGL`, `featureTarget` (fuente/`sourceLayer` por modo), `levelOfFeature`, `createTileErrorTracker` | `src/lib/mapSupport.ts` |
 | Datos del mapa: índices nacionales base y alterno, conteos por categoría, transiciones, escala 3D | `src/lib/mapRisk.ts`, `src/lib/useMapRisk.ts` |
-| Estilo del mapa: ids de capas y fuentes (`SOURCE_IDS.vector`, `SOURCE_LAYERS`), mapa base, expresiones de color (categoría y Δ), alturas 3D, leyendas | `src/lib/mapStyle.ts` |
-| Motor: fuentes (`buildSources` vectorial o GeoJSON), capas (fondo, mapa base, contorno, rellenos, bordes, extrusiones, hover, selección de estado y municipio, etiquetas), feature-state incremental, hover, clic, cámara, 3D, ciclo de vida y recuperación | `src/components/map/AtalayaMap.tsx`, `mapLayers.ts` |
+| Estilo del mapa: ids de capas y fuentes (`SOURCE_IDS.vector`, columnas, `SOURCE_LAYERS`), mapa base, expresiones de color (categoría y Δ; columnas con variantes atenuada y hover), alturas de columna (`riskHeight`, `deltaHeight`, `columnHeightExpression` por zoom), `featureStateFor`, leyendas | `src/lib/mapStyle.ts` |
+| Motor: fuentes (`buildSources` vectorial o GeoJSON + dos fuentes de columnas), capas (fondo, mapa base, contorno, rellenos, bordes, columnas, hover, selección de estado y municipio, etiquetas), feature-state incremental en polígonos y columnas, hover limitado, clic, cámara Inclinada/Cenital, 3D, ciclo de vida y recuperación | `src/components/map/AtalayaMap.tsx`, `mapLayers.ts` (`setColumnsVisible`) |
 | Avisos y contención de fallos del mapa | `src/components/map/MapFallback.tsx`, `MapErrorBoundary.tsx` |
 | Cáscara del mapa: modos, comparador con cortina y cámara sincronizada, tooltip, leyenda (categorías o Δ), breadcrumb, buscador, exportación PNG | `src/components/map/RiskMap.tsx`, `CompareSwipe.tsx`, `compareSync.ts`, `MapToolbar.tsx`, `MapTooltip.tsx`, `Legend.tsx`, `Breadcrumb.tsx`, `RegionSearch.tsx` |
 | Selector de escenario, controles generados desde `Meta` e indicador del motor (`OpenSearch` / `memoria`) | `src/components/layout/TopBar.tsx`, `ScenarioControls.tsx` |
 | Detalle: semáforo, intervalo, serie (cortes por datos no confiables, judicial aparte), componentes del índice, perfil edad × sexo (celdas protegidas), indicadores CCPC, factores, recomendaciones, prioridad | `src/components/panel/RegionDetailPanel.tsx`, `src/components/viz/Sparkline.tsx` |
 | Ranking ordenable (riesgo, abstención esperada, prioridad) y exportación CSV | `src/components/panel/RankingTable.tsx` |
-| Asistente con streaming, tabla y fuente | `src/components/panel/ChatPanel.tsx` |
-| Metodología: candidatos y backtests, supuesto nacional, R², confiabilidad, privacidad, fuentes | `src/app/metodologia/page.tsx` |
+| Asistente con streaming, tabla y fuente; rechazos de guardrails como aviso con título por categoría (estilo neutro y "Estamos contigo" para autolesión), referencia `gr-…` y 2 sugerencias; nota cuando la salida se completó con datos verificados; contador de 1,000 caracteres | `src/components/panel/ChatPanel.tsx`, `src/lib/api.ts` (`ChatDone.guardrail`) |
+| Metodología y manual: cómo usar ATALAYA, glosario con buscador, mapa 3D, límites del asistente, candidatos y backtests, supuesto nacional, R², confiabilidad, privacidad, fuentes | `src/app/metodologia/page.tsx` |
 
 ### 4.11 Entregables (`deliverables/`, generados)
 
@@ -283,7 +313,7 @@ Gráficas no cartográficas en SVG generado en Python (`report/charts.py`: líne
 
 ### 4.12 Pipeline geográfico
 
-`tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe en `frontend/public/geo/` (versionado): `states.json`, `mun/<cve_ent>.json` (los usa `export.py`), `mun_all.json` (respaldo GeoJSON nacional del mapa, ≈ 3.8 MB), `country.json` (contorno de México), `index.json` (bbox y centroides), y los catálogos geo de `data/build/`. Al final invoca las teselas (`--tiles-only` genera solo estas).
+`tools/geo/build_geo.mjs` (mapshaper): reproyecta a WGS84, simplifica (estados 2 %, municipios 4 %), escribe en `frontend/public/geo/` (versionado): `states.json`, `mun/<cve_ent>.json` (los usa `export.py`), `mun_all.json` (respaldo GeoJSON nacional del mapa, ≈ 3.8 MB), `country.json` (contorno de México), `index.json` (bbox, centroide, **`anchor`** = polo de inaccesibilidad garantizado dentro del polígono —`polylabel` propio— y **`area_km2`** geodésica; los usan las columnas 3D), y los catálogos geo de `data/build/`. Al final invoca las teselas (`--tiles-only` genera solo estas; `--index-only` reescribe solo `index.json` a partir de los GeoJSON ya generados, sin shapefiles).
 
 **Teselas vectoriales** (`tools/geo/build_tiles.mjs` → `buildTiles`, `validateTileset`, `tileRangeForBounds`, `tilesetVersion`): shapefiles MG 2024 → mapshaper (municipios 25 %, estados 20 %) → `geojson-vt` (`maxZoom 9`, tolerancia 3, extent 4096, buffer 64) → `vt-pbf`. Escribe `frontend/public/geo/tiles/{z}/{x}/{y}.pbf` (MVT v2 sin comprimir, z 3–9, capa `states` desde z3 y `mun` desde z5, propiedades `id`/`ent`/`name`, id numérico de feature) —todas las teselas dentro de los límites, vacías de 0 bytes para que no haya 404— y el manifiesto TileJSON `tiles.json` (versión = hash de insumos, `bounds`, `vector_layers`, `feature_counts`). La validación decodifica todas las teselas de z9 y falla si falta alguno de los 32 estados o 2,478 municipios. Estado actual: 1,899 teselas, 5.8 MB. `.gitattributes` marca `*.pbf` como binario.
 
@@ -341,11 +371,13 @@ cd backend; python scripts\bootstrap_cluster.py [--reset] [--skip-parity] [--api
 # Solo teselas del mapa (tras cambiar la geometría)
 cd tools/geo; node --max-old-space-size=6144 build_geo.mjs --tiles-only
 # Pruebas (sin red; una guardia impide que escriban en datos reales)
-cd backend;  python -m pytest -q          # 370 pruebas
-cd frontend; npm run typecheck; npm test; npm run build   # 118 pruebas
-cd tools/geo; npm test                    # 8 pruebas
-# Verificación visual del mapa en Chrome headless (demo en marcha; herramienta del arquitecto, no versionada)
+cd backend;  python -m pytest -q          # 473 pruebas
+cd frontend; npm run typecheck; npm test; npm run build   # 195 pruebas
+cd tools/geo; npm test                    # 14 pruebas
+# Sondas del arquitecto en Chrome headless / SSE (app en marcha; no versionadas)
 python temp/osmap/tools/map_probe.py --shots <dir>
+python temp/optfix/tools/perf_probe.py --base http://127.0.0.1:3000 --3d [--perf] [--compare URL2]   # fps de paneo y latencia de hover
+python temp/optfix/tools/chat_guard_probe.py --base http://127.0.0.1:8001   # batería de guardrails (8 s entre casos por el límite del chat)
 ```
 
 `build_all.ps1` termina con un resumen de validación (falla si la participación nacional 2024 no está en 59.6–59.7 %) y, salvo `-SkipReports`, genera reporte y presentación. Con `-Load` ejecuta `bootstrap_cluster.py --skip-parity` y propaga su código de salida.
@@ -363,14 +395,14 @@ backend/atalaya/
   ingest/   common · ccpc · ccpc_features · inegi_iter · conapo · features · crosswalk · ine_results (heredado)
   model/    panel · forecast · build · risk · scenarios · recommend
   api/      main · routes · deps · chat · security
-  chat/     spec · guard · planner · executor · writer
+  chat/     spec · guardrails · guard (envoltura) · planner · executor · writer
   report/   facts · charts · map_capture · build_report · build_slides · map_print/ · templates/ · slides_templates/
 backend/scripts/   bootstrap_cluster.py · check_cluster.py · os_parity.py · smoke_llm.py · validate_build.py
-backend/tests/     370 pruebas offline
-frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapSupport,mapRisk,useMapRisk,mocks}
+backend/tests/     473 pruebas offline (aisladas del log real de guardrails)
+frontend/src/      app/ · components/{map,panel,layout,viz,ui} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapSupport,mapRisk,useMapRisk,columns,hoverThrottle,glossary,mocks}
 frontend/public/geo/   tiles/{z}/{x}/{y}.pbf + tiles.json (teselas MVT) y capas GeoJSON de respaldo (versionadas)
 tools/geo/         build_geo.mjs · build_tiles.mjs + pruebas
-data/seed/         catálogos y reglas curadas
+data/seed/         catálogos y reglas curadas (incluye guardrail_lists.json, listas personalizables del asistente)
 deploy.cmd         despliegue público tolerante a fallos (servicio + vigilante)
 scripts/           build_all · start_demo · stop_demo · serve_public · get_caddy · Caddyfile.template · run-safe
 tools/caddy/       caddy.exe (descargado y verificado por get_caddy.ps1; no versionado)
@@ -384,7 +416,8 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 
 - Solo información **agregada y disociada**; supresión de celdas con menos de 10 personas; sexo no binario solo a nivel estatal/nacional; el asistente rechaza solicitudes de datos personales.
 - Sin análisis de preferencias políticas, partidos ni candidaturas.
-- Toda cifra del asistente y de los entregables se calcula de los artefactos; el LLM solo planea y redacta.
+- Toda cifra del asistente y de los entregables se calcula de los artefactos; el LLM solo planea y redacta, y el guardrail de salida descarta cualquier cifra que no esté respaldada por los datos.
+- El registro de guardrails no guarda el texto de las preguntas (solo hash, longitud, categoría y referencia).
 - Los escenarios se presentan como **supuestos hipotéticos**; el nivel nacional 2027 es un **supuesto explícito**; el pronóstico lleva intervalo.
 
 ---
@@ -399,6 +432,8 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 - `percentiles` de OpenSearch es aproximada: la mediana por estado difiere de la exacta de memoria hasta ~0.007 pp.
 - Los mapas del PDF requieren Chrome/Edge y `frontend/node_modules`; sin ellos el reporte usa los mapas SVG de respaldo.
 - El mapa base ráster (Esri) requiere internet; sin él se ve el contorno propio de México.
+- Guardrails: las peticiones ajenas al dominio sin un patrón determinista (p. ej., "¿cuál es la capital de Francia?") dependen de la compuerta de tema por LLM; si el LLM no responde, pasan, pero solo reciben la ayuda o datos del dominio (sin LLM no hay redacción libre). El respaldo de cifras acepta números de los datos y sumas/diferencias de dos de ellos: una cifra correcta derivada de más operaciones hace que la respuesta se complete con la plantilla de datos.
+- El 3D se midió con WebGL por software (sin GPU en la VM); en esas condiciones el paneo estatal en 3D pasó de 7.6 a ~10 fps y la latencia de hover p95 de 148 a ~106–130 ms; en un equipo con GPU la ganancia de quitar la extrusión de polígonos es mayor.
 
 ---
 
@@ -414,7 +449,9 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 
 **Entregables del Reto 2:** reporte 14 pp (cuartilla), presentación 10 diapositivas, GeoJSON, visor autónomo, base anonimizada y figuras; `atalaya.submission` los valida todos.
 
+**Optimización y correcciones** (rama `Optimization-n-fixes`, 2026-10-26): modo 3D rehecho como columnas de riesgo sobre mapa plano (altura = índice de riesgo, ya no población; vistas Inclinada/Cenital), rendimiento del mapa (hover limitado por cuadro, sin extrusión de polígonos, `pixelRatio` acotado), guardrails del asistente (batería en vivo 56/56), ayuda ⓘ en toda la interfaz con glosario único, guía de primera visita y Metodología como manual. Corregido además un error previo del asistente: la comparación entre dos zonas reportaba "diferencia absoluta +0.0 pp" porque restaba fracciones; ahora da los pp correctos (p. ej., Tijuana 46.6 % vs Mexicali 47.5 % ⇒ 0.9 pp). Verificado: 473 pruebas backend, 195 frontend, 14 geo, build de producción, sondas de rendimiento y capturas de la UI en Chrome headless a 1280 y 1500 px.
+
 **Pendiente (acciones del equipo, fuera del código):**
 1. Firmar las cartas de cesión de derechos y de decir verdad y colocarlas en `deliverables/entrega/cartas/`; regenerar el zip con `python -m atalaya.submission`.
-2. Desplegar en la ECS con `deploy.cmd` (CMD como administrador) y abrir TCP 8080 en el *security group*.
+2. Desplegar en la ECS con `deploy.cmd` (CMD como administrador) y abrir TCP 8080 en el *security group*; tras actualizar el código, `deploy.cmd rebuild` (o `restart` si ya se compiló) para que el servicio público sirva la versión nueva.
 3. Hacer público el repositorio (o compartir el código) y enviar el zip antes del 31/10/2026 23:59.

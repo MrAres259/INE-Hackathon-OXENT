@@ -31,7 +31,8 @@ _BASE_SYSTEM_PROMPT = (
     "7. No incluyas enlaces externos ni URLs no proporcionadas en los datos.\n"
     "8. Cita siempre la fuente oficial y los años correspondientes indicados en los datos.\n"
     "9. Si se menciona una proyección para 2027, recalca que es una estimación estadística.\n"
-    "10. Si se presenta una correlación, recuerda que correlación no implica causalidad."
+    "10. Si se presenta una correlación, recuerda que correlación no implica causalidad.\n"
+    "11. No uses umbrales, promedios ni cifras de referencia que no estén en los datos (p. ej., 'por debajo del 50 %'). Si calculas una diferencia, usa solo dos cifras de los datos."
 )
 
 

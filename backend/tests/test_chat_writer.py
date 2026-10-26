@@ -141,6 +141,7 @@ def test_writer_prompt_and_max_tokens(monkeypatch):
 
     assert "120 palabras" in SYSTEM_PROMPT
     assert "3 hallazgos principales" in SYSTEM_PROMPT
+    assert "No uses umbrales, promedios ni cifras de referencia" in SYSTEM_PROMPT
 
     monkeypatch.setattr(llm, "is_enabled", lambda: True)
 

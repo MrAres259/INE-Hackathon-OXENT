@@ -584,3 +584,64 @@ def test_single_audit_and_single_tally(tmp_path: Path, monkeypatch):
     lines = audit_file.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
 
+
+# ── Ola 2 Fix: Derived Figures & Grounding ──────────────────────────────────
+
+def test_derived_figures_difference_counts():
+    """Verify that derived difference |a - b| (42 = 297 - 255) is backed, while 50 is blocked."""
+    # 42 with {297, 255} is backed
+    v1 = screen_output("Simulación: 42 zonas saldrían del nivel rojo.", allowed_numbers={297.0, 255.0})
+    assert v1.allowed, f"42 should be allowed as derived difference, got flags: {v1.flags}"
+
+    # 50 without backing is blocked
+    v2 = screen_output("Simulación: 50 zonas saldrían del nivel rojo.", allowed_numbers={297.0, 255.0})
+    assert not v2.allowed
+    assert v2.category == "salida:cifra_no_respaldada"
+
+
+def test_derived_figures_difference_pp_fractions():
+    """Verify that difference in pp between fractions |a - b|*100 (0.9 from 0.466 and 0.475) is backed, while 50 is blocked."""
+    # 0.9 with {0.466, 0.475} is backed
+    v1 = screen_output("La diferencia es de 0.9 pp entre ambas ciudades.", allowed_numbers={0.466, 0.475})
+    assert v1.allowed, f"0.9 pp should be allowed as derived fraction difference, got flags: {v1.flags}"
+
+    # 50 without backing is blocked
+    v2 = screen_output("Ambas ciudades están por debajo del 50 % de participación.", allowed_numbers={0.466, 0.475})
+    assert not v2.allowed
+    assert v2.category == "salida:cifra_no_respaldada"
+
+
+def test_derived_figures_addition():
+    """Verify that derived sum a + b is backed."""
+    v = screen_output("El total acumulado es de 552 zonas.", allowed_numbers={297.0, 255.0})
+    assert v.allowed, f"552 should be allowed as derived sum, got flags: {v.flags}"
+
+
+def test_derived_figures_performance_and_precomputation():
+    """Verify precomputation once per StreamGuard and sentence execution < 20 ms with 400 numbers."""
+    import numpy as np
+    from atalaya.chat.guardrails import GroundedNumbers
+
+    np.random.seed(42)
+    # 400 distinct large numbers (typical electoral census counts) where 50 has no backing
+    nums = set(float(x) for x in np.random.uniform(10000.0, 500000.0, 400))
+
+    # Precomputation occurs once in StreamGuard init
+    guard = StreamGuard(allowed_numbers=nums)
+    assert isinstance(guard.allowed_numbers, GroundedNumbers)
+
+    # Feed a realistic sentence with multiple numbers
+    sentence = "El municipio registró 120.5 frente a 230.8 en la cabecera municipal.\n"
+    start = time.perf_counter()
+    chunk, verdict = guard.feed(sentence)
+    elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+    print(f"\n[Perf] StreamGuard.feed for 400 numbers took {elapsed_ms:.3f} ms")
+    assert elapsed_ms < 20.0, f"Expected < 20 ms per sentence, took {elapsed_ms:.3f} ms"
+
+    # Verify unbacked 50 remains blocked
+    v_50 = screen_output("Se estima un 50 % de abstención.", allowed_numbers=guard.allowed_numbers)
+    assert not v_50.allowed
+    assert v_50.category == "salida:cifra_no_respaldada"
+
+

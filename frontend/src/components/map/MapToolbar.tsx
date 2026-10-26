@@ -6,7 +6,6 @@ import type { MapRiskData } from "@/lib/mapRisk";
 import type { MapMode } from "@/lib/types";
 
 import { InfoTip } from "@/components/ui/InfoTip";
-import type { GlossaryKey } from "@/lib/glossary";
 import { MapGuide, shouldShowGuide } from "./MapGuide";
 
 export interface MapToolbarProps {
@@ -40,10 +39,10 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
 
   return (
     <div className="flex flex-col gap-2 pointer-events-none">
-      <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1.5 shadow-xl text-white flex flex-col gap-1.5 w-fit max-w-2xl pointer-events-auto">
-        {/* Top row: Mode segment control + 3D toggle + perspective segment + InfoTips */}
-        <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto">
-          {/* Mode group */}
+      <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1.5 shadow-xl text-white flex flex-col gap-1.5 w-fit max-w-[calc(100vw-340px)] lg:max-w-[calc(65vw-390px)] pointer-events-auto">
+        {/* Top row / wrap container: Mode segment + 3D / Tools */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Group 1: Modes segment + Modes InfoTip */}
           <div className="flex items-center gap-1 shrink-0">
             <div
               role="group"
@@ -128,6 +127,7 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
               </button>
             </div>
 
+            {/* InfoTip 1: Modes of visualization */}
             <InfoTip
               term="modo.semaforo"
               title="Modos de visualización"
@@ -136,85 +136,116 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
             />
           </div>
 
-          {/* 3D toggle button */}
-          <button
-            type="button"
-            role="button"
-            aria-pressed={extrude3d}
-            onClick={() => setExtrude3d(!extrude3d)}
-            title="Columnas 3D: altura = índice de riesgo (rojo más alto)"
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all border whitespace-nowrap shrink-0 ${
-              extrude3d
-                ? "bg-emerald-600/30 text-emerald-300 border-emerald-500/60 shadow-xs font-semibold"
-                : "bg-slate-950/70 text-slate-300 hover:text-white border-slate-800 hover:bg-slate-800/60"
-            }`}
-          >
-            <svg
-              className="w-3.5 h-3.5 shrink-0"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 1.5l5.5 3.2v6.6L8 14.5l-5.5-3.2V4.7L8 1.5z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 1.5v13M2.5 4.7l5.5 3.5 5.5-3.5" />
-            </svg>
-            <span className="whitespace-nowrap">3D</span>
-          </button>
-
-          {/* 3D view toggle when 3D is active */}
-          {extrude3d && (
-            <div
-              role="group"
-              aria-label="Perspectiva 3D"
-              className="flex items-center bg-slate-950/70 p-0.5 rounded-lg border border-slate-800 shrink-0"
-            >
-              <button
-                type="button"
-                role="button"
-                aria-pressed={view3d === "inclinada"}
-                onClick={() => setView3d("inclinada")}
-                title="Vista inclinada: perspectiva para apreciar la altura de las columnas"
-                className={`px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
-                  view3d === "inclinada"
-                    ? "bg-slate-700 text-white shadow-xs font-semibold"
-                    : "text-slate-300 hover:text-white hover:bg-slate-800/60"
-                }`}
-              >
-                <span className="whitespace-nowrap">Inclinada</span>
-              </button>
-              <button
-                type="button"
-                role="button"
-                aria-pressed={view3d === "cenital"}
-                onClick={() => setView3d("cenital")}
-                title="Vista cenital: vista desde arriba manteniendo las columnas"
-                className={`px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
-                  view3d === "cenital"
-                    ? "bg-slate-700 text-white shadow-xs font-semibold"
-                    : "text-slate-300 hover:text-white hover:bg-slate-800/60"
-                }`}
-              >
-                <span className="whitespace-nowrap">Cenital</span>
-              </button>
-            </div>
-          )}
-
-          {/* 3D InfoTip */}
-          <div className="shrink-0">
-            <InfoTip term="modo.3d" side="bottom" />
-          </div>
-
-          {/* Guía button to reopen MapGuide */}
-          <div className="flex items-center gap-0.5 shrink-0">
+          {/* Group 2: 3D toggle + Perspective segment + 3D InfoTip + Guía (?) + PNG */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* 3D toggle button */}
             <button
               type="button"
               role="button"
-              aria-label="¿Cómo leer este mapa? (Guía)"
+              aria-pressed={extrude3d}
+              onClick={() => setExtrude3d(!extrude3d)}
+              title="Columnas 3D: altura = índice de riesgo (rojo más alto)"
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all border whitespace-nowrap shrink-0 ${
+                extrude3d
+                  ? "bg-emerald-600/30 text-emerald-300 border-emerald-500/60 shadow-xs font-semibold"
+                  : "bg-slate-950/70 text-slate-300 hover:text-white border-slate-800 hover:bg-slate-800/60"
+              }`}
+            >
+              <svg
+                className="w-3.5 h-3.5 shrink-0"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 1.5l5.5 3.2v6.6L8 14.5l-5.5-3.2V4.7L8 1.5z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 1.5v13M2.5 4.7l5.5 3.5 5.5-3.5" />
+              </svg>
+              <span className="whitespace-nowrap">3D</span>
+            </button>
+
+            {/* 3D view toggle when 3D is active: compact icons with title */}
+            {extrude3d && (
+              <div
+                role="group"
+                aria-label="Perspectiva 3D"
+                className="flex items-center bg-slate-950/70 p-0.5 rounded-lg border border-slate-800 shrink-0"
+              >
+                <button
+                  type="button"
+                  role="button"
+                  aria-pressed={view3d === "inclinada"}
+                  onClick={() => setView3d("inclinada")}
+                  title="Vista inclinada: perspectiva para apreciar la altura de las columnas"
+                  aria-label="Vista inclinada"
+                  className={`flex items-center justify-center p-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
+                    view3d === "inclinada"
+                      ? "bg-slate-700 text-white shadow-xs font-semibold"
+                      : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                  }`}
+                >
+                  <svg
+                    className="w-3.5 h-3.5 shrink-0"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.5 12l4-2.5h7l-4 2.5h-7z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 9.5V3.5l3 1.8v4.2" />
+                  </svg>
+                  <span className="sr-only">Inclinada</span>
+                </button>
+                <button
+                  type="button"
+                  role="button"
+                  aria-pressed={view3d === "cenital"}
+                  onClick={() => setView3d("cenital")}
+                  title="Vista cenital: vista desde arriba manteniendo las columnas"
+                  aria-label="Vista cenital"
+                  className={`flex items-center justify-center p-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
+                    view3d === "cenital"
+                      ? "bg-slate-700 text-white shadow-xs font-semibold"
+                      : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+                  }`}
+                >
+                  <svg
+                    className="w-3.5 h-3.5 shrink-0"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    aria-hidden="true"
+                  >
+                    <circle cx="8" cy="8" r="5.5" />
+                    <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+                    <path strokeLinecap="round" d="M8 1v2M8 13v2M1 8h2M13 8h2" />
+                  </svg>
+                  <span className="sr-only">Cenital</span>
+                </button>
+              </div>
+            )}
+
+            {/* InfoTip 2: 3D columns & perspective */}
+            <div className="shrink-0">
+              <InfoTip
+                term="modo.3d"
+                title="Vista 3D (Columnas)"
+                text="Columnas sobre cada zona: altura = índice de riesgo (rojo más alto) o magnitud de cambio |Δ|. Usa Inclinada para ver alturas o Cenital para vista desde arriba."
+                side="bottom"
+              />
+            </div>
+
+            {/* Guía button to toggle MapGuide: icon-only question mark in circle */}
+            <button
+              type="button"
+              role="button"
+              aria-label="Cómo leer este mapa"
               aria-pressed={guideOpen}
               onClick={() => setGuideOpen((prev) => !prev)}
-              title="Guía: ¿Cómo leer este mapa?"
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all border whitespace-nowrap ${
+              title="Cómo leer este mapa"
+              className={`flex items-center justify-center p-1.5 rounded-lg text-xs font-medium transition-all border shrink-0 ${
                 guideOpen
                   ? "bg-emerald-600/30 text-emerald-300 border-emerald-500/60 shadow-xs font-semibold"
                   : "bg-slate-950/70 text-slate-300 hover:text-white border-slate-800 hover:bg-slate-800/60"
@@ -228,36 +259,34 @@ export function MapToolbar({ data, onExportPng }: MapToolbarProps) {
               >
                 <path
                   fillRule="evenodd"
-                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z"
                   clipRule="evenodd"
                 />
               </svg>
-              <span className="whitespace-nowrap">Guía</span>
             </button>
-            <InfoTip term={"guia" as unknown as GlossaryKey} side="bottom" />
-          </div>
 
-          {/* PNG export button */}
-          {onExportPng && (
-            <button
-              type="button"
-              role="button"
-              onClick={onExportPng}
-              title="Exportar imagen PNG del mapa"
-              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all border bg-slate-950/70 text-slate-300 hover:text-white border-slate-800 hover:bg-slate-800/60 whitespace-nowrap shrink-0"
-            >
-              <svg
-                className="w-3.5 h-3.5 shrink-0"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
+            {/* PNG export button */}
+            {onExportPng && (
+              <button
+                type="button"
+                role="button"
+                onClick={onExportPng}
+                title="Exportar imagen PNG del mapa"
+                className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-all border bg-slate-950/70 text-slate-300 hover:text-white border-slate-800 hover:bg-slate-800/60 whitespace-nowrap shrink-0"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.5 11.5v2h11v-2M8 2.5v7m0 0l-2.5-2.5M8 9.5l2.5-2.5" />
-              </svg>
-              <span className="whitespace-nowrap">PNG</span>
-            </button>
-          )}
+                <svg
+                  className="w-3.5 h-3.5 shrink-0"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.5 11.5v2h11v-2M8 2.5v7m0 0l-2.5-2.5M8 9.5l2.5-2.5" />
+                </svg>
+                <span className="whitespace-nowrap">PNG</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Bottom row: Alternate scenario label from data.altLabel + Adjust button */}
