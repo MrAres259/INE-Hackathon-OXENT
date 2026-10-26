@@ -313,6 +313,7 @@ internet :8080 ─► Caddy (0.0.0.0:8080) ─┬─ /api/*            ─► Fa
 - **Supervisor** (`python -m atalaya.ops.supervisor run|status|stop`): lanza backend (uvicorn, 1 worker), frontend (`next start` local) y borde (Caddy, con `Caddyfile` renderizado y validado desde `scripts/Caddyfile.template`); revisa la salud cada 10 s; reinicia ante caída del proceso o 3 fallos de salud seguidos, con *backoff* 2 → 60 s y detección de *crash-loop* (sigue reintentando cada 5 min); mata árboles de procesos; nunca toca procesos ajenos que ocupen sus puertos; logs rotativos y estado atómico en `data/cache/` (`supervisor_state.json`, `logs/`).
 - **`scripts/serve_public.ps1 [-Port 8080] [-Rebuild] [-Install|-Uninstall|-Status|-Stop|-Foreground]`**: build de producción si hace falta, regla de firewall de Windows para el puerto público, descarga verificada de Caddy (`scripts/get_caddy.ps1`, SHA-512), y con `-Install` una **tarea programada "ATALAYA"** (SYSTEM, al iniciar la máquina, reinicio cada minuto si falla). Rechaza el puerto 80 (en esta ECS lo usa otra aplicación).
 - Verificado en vivo: backend, frontend y borde reviven solos en 18–22 s tras matarlos; variantes de ruta admin (codificadas, mayúsculas, `//`, `./`) ⇒ 404; Next y FastAPI no son alcanzables por la red; el límite del chat no se evade falsificando `X-Forwarded-For`.
+- **Despliegue en un comando: `deploy.cmd`** (raíz del repo, CMD de Windows; se auto-eleva a administrador). Acciones `install` (default) · `start` · `stop` · `restart` · `status` · `rebuild` · `uninstall` · `logs`, puerto opcional (default 8080, se recuerda en `data/cache/deploy_port.txt`). `install` verifica requisitos (Python, Node, npm, curl; instala dependencias de Python y `npm ci` si faltan; exige `data/build/units.parquet` y `tiles.json`; avisa si no hay `backend/.env`), detiene cualquier instancia previa, llama a `serve_public.ps1 -Install` y registra la tarea **"ATALAYA-Watchdog"** (SYSTEM, cada 5 min). Tres capas de tolerancia a fallos: (1) el supervisor reinicia cada servicio; (2) la tarea "ATALAYA" arranca con Windows y relanza el supervisor si termina con error; (3) el vigilante, si `/api/health` falla 3 veces seguidas, reinicia supervisor y servicios (cubre un supervisor colgado), con gracia de 5 min tras un arranque y respetando el modo mantenimiento (`stop` crea `data/cache/maintenance.flag`). Registro del vigilante en `data/cache/logs/watchdog.log`. Verificado: con toda la pila muerta, el vigilante la recupera en ~76 s.
 - Fuera de la máquina: el *security group* de la ECS (Huawei Cloud) debe permitir TCP 8080 entrante.
 
 ---
@@ -327,7 +328,9 @@ cd backend; python -m atalaya.report.build_report; python -m atalaya.report.buil
 # Demo (API :8001 + web :3000; PIDs en data/cache/*.pid)
 powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1      # -Mock: solo frontend con datos de demostración
 powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
-# Publicación en internet supervisada (borde Caddy en :8080); -Install la deja como tarea programada al arrancar Windows
+# Despliegue público tolerante a fallos en un comando (CMD como administrador; instala servicio + vigilante)
+deploy.cmd [install|start|stop|restart|status|rebuild|uninstall|logs] [puerto]
+# Equivalente PowerShell (sin vigilante): borde Caddy en :8080; -Install la deja como tarea programada al arrancar Windows
 powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 [-Install | -Status | -Stop | -Rebuild]
 # Visor autónomo y paquete de entrega del Reto 2
 cd backend; python -m atalaya.viewer; python -m atalaya.submission
@@ -368,6 +371,7 @@ frontend/src/      app/ · components/{map,panel,layout,viz} · lib/{api,state,g
 frontend/public/geo/   tiles/{z}/{x}/{y}.pbf + tiles.json (teselas MVT) y capas GeoJSON de respaldo (versionadas)
 tools/geo/         build_geo.mjs · build_tiles.mjs + pruebas
 data/seed/         catálogos y reglas curadas
+deploy.cmd         despliegue público tolerante a fallos (servicio + vigilante)
 scripts/           build_all · start_demo · stop_demo · serve_public · get_caddy · Caddyfile.template · run-safe
 tools/caddy/       caddy.exe (descargado y verificado por get_caddy.ps1; no versionado)
 AGENTS.md · .agent-guard.json   reglas para agentes automatizados
@@ -412,5 +416,5 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 
 **Pendiente (acciones del equipo, fuera del código):**
 1. Firmar las cartas de cesión de derechos y de decir verdad y colocarlas en `deliverables/entrega/cartas/`; regenerar el zip con `python -m atalaya.submission`.
-2. Instalar el arranque automático en la ECS (`serve_public.ps1 -Install`, consola de administrador) y abrir TCP 8080 en el *security group*.
+2. Desplegar en la ECS con `deploy.cmd` (CMD como administrador) y abrir TCP 8080 en el *security group*.
 3. Hacer público el repositorio (o compartir el código) y enviar el zip antes del 31/10/2026 23:59.

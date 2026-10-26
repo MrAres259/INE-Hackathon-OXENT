@@ -176,6 +176,17 @@ powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
 
 ### 7.1 Publicación en internet
 
+**Despliegue en un comando (recomendado):** abre CMD como administrador en la raíz del repo y ejecuta
+
+```cmd
+deploy.cmd
+```
+
+Instala la app como servicio de Windows (tarea "ATALAYA", arranca con la máquina) con un vigilante cada 5 minutos
+("ATALAYA-Watchdog") y la publica en `http://<IP pública>:8080`. Otras acciones: `deploy.cmd status`, `stop`,
+`restart`, `rebuild` (tras actualizar el código), `uninstall`, `logs`; puerto opcional como segundo argumento.
+Recuerda abrir TCP 8080 de entrada en el security group de la nube.
+
 ATALAYA incluye un supervisor de procesos tolerante a fallos (`atalaya.ops.supervisor`) con borde inverso **Caddy v2.11.7** (`tools/caddy/caddy.exe`) diseñado para la operación continua y segura en producción.
 
 #### Topología de servicios
