@@ -300,6 +300,7 @@ export type ChatData = {
 export type ChatDone = {
   sources: string[];
   degraded: boolean;
+  guardrail?: { stage: "entrada" | "tema" | "salida"; category: string; ref: string } | null;
 };
 
 export type ChatStreamHandlers = {

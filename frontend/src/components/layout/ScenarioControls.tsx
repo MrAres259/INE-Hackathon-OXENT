@@ -158,7 +158,7 @@ export function ScenarioControls() {
                       const optEntry = optKey ? glossaryFor(optKey) : undefined;
                       if (!optEntry) return null;
                       return (
-                        <p className="text-[11px] text-slate-400 mt-1 truncate" title={optEntry.body}>
+                        <p className="text-[11px] text-slate-400 mt-1 line-clamp-2" title={optEntry.body}>
                           {optEntry.body}
                         </p>
                       );
@@ -187,7 +187,7 @@ export function ScenarioControls() {
                       </div>
                       <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
                         {p.unit === "%"
-                          ? `${Math.round(numVal <= 1.0 ? numVal * 100 : numVal)}%`
+                          ? `${Math.round(numVal)}%`
                           : p.unit === "pp"
                           ? `+${numVal.toFixed(1)} pp`
                           : `${numVal} ${p.unit ?? ""}`}
@@ -242,7 +242,7 @@ export function ScenarioControls() {
         {scenarioDef?.id === "intervencion" && (() => {
           const effect = Number(localParams.effect_pp ?? 3.0);
           const rawCoverage = Number(localParams.coverage ?? 100);
-          const covPct = rawCoverage <= 1.0 ? rawCoverage * 100 : rawCoverage;
+          const covPct = rawCoverage;
           const resultado = effect * (covPct / 100);
           const maxResultado = 1.5 * resultado;
 
@@ -278,7 +278,7 @@ export function ScenarioControls() {
         {scenarioDef?.id === "pesimista" && (() => {
           const shock = Number(localParams.shock_pp ?? 2.0);
           const rawTrend = Number(localParams.trend_amplifier ?? 50);
-          const trendPct = rawTrend <= 1.0 ? rawTrend * 100 : rawTrend;
+          const trendPct = rawTrend;
 
           return (
             <div className="mt-4 p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 text-xs text-slate-300">

@@ -13,6 +13,7 @@ import {
   BASEMAP,
   fillExpression,
   columnColorExpression,
+  columnHeightExpression,
   COLUMN_ZOOM_SPLIT,
 } from "@/lib/mapStyle";
 import type {
@@ -215,11 +216,9 @@ describe("mapLayers", () => {
       expect(stateCol.source).toBe(SOURCE_IDS.stateColumns);
       expect(stateCol.maxzoom).toBe(COLUMN_ZOOM_SPLIT);
       expect(stateCol.layout?.visibility).toBe("none");
-      expect(stateCol.paint?.["fill-extrusion-height"]).toEqual([
-        "coalesce",
-        ["feature-state", "h"],
-        0,
-      ]);
+      expect(stateCol.paint?.["fill-extrusion-height"]).toEqual(
+        columnHeightExpression()
+      );
       expect(stateCol.paint?.["fill-extrusion-base"]).toBe(0);
       expect(stateCol.paint?.["fill-extrusion-opacity"]).toBe(0.95);
       expect(stateCol.paint?.["fill-extrusion-vertical-gradient"]).toBe(true);
@@ -229,11 +228,9 @@ describe("mapLayers", () => {
       expect(munCol.source).toBe(SOURCE_IDS.munColumns);
       expect(munCol.minzoom).toBe(COLUMN_ZOOM_SPLIT);
       expect(munCol.layout?.visibility).toBe("none");
-      expect(munCol.paint?.["fill-extrusion-height"]).toEqual([
-        "coalesce",
-        ["feature-state", "h"],
-        0,
-      ]);
+      expect(munCol.paint?.["fill-extrusion-height"]).toEqual(
+        columnHeightExpression()
+      );
       expect(munCol.paint?.["fill-extrusion-base"]).toBe(0);
       expect(munCol.paint?.["fill-extrusion-opacity"]).toBe(0.95);
       expect(munCol.paint?.["fill-extrusion-vertical-gradient"]).toBe(true);

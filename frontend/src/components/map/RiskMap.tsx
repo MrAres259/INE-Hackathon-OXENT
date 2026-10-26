@@ -64,9 +64,8 @@ export function RiskMap() {
     mapMode = "semaforo",
     extrude3d = false,
     scenario = "base",
+    view3d = "inclinada",
   } = atalayaContext;
-  const view3d: "inclinada" | "cenital" =
-    (atalayaContext as any).view3d ?? "inclinada";
 
   // Single invocation of useMapRisk per §14.4 / §14.7
   const data = useMapRisk();

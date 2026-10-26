@@ -1,15 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { getMetrics, getMeta } from "@/lib/api";
 import type { ModelMetrics, Meta, MetaDataSource } from "@/lib/types";
-import { formatInt, formatPp, CATEGORY_COLORS, CATEGORY_LABELS } from "@/lib/format";
+import { CATEGORY_COLORS, CATEGORY_LABELS } from "@/lib/format";
+import { GLOSSARY, type GlossaryEntry } from "@/lib/glossary";
 
 export default function MetodologiaPage() {
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
+  const [glossarySearch, setGlossarySearch] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -104,8 +106,102 @@ export default function MetodologiaPage() {
     ridge: "Regresión Ridge Regularizada (con rezagos, gobernaturas y sociodemográficas)",
   };
 
+  const normalizeSearch = (text: string): string =>
+    text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+
+  const glossaryEntries = useMemo(() => {
+    return Object.entries(GLOSSARY) as [string, GlossaryEntry][];
+  }, []);
+
+  const filteredGlossary = useMemo(() => {
+    const term = normalizeSearch(glossarySearch.trim());
+    if (!term) return glossaryEntries;
+    return glossaryEntries.filter(([key, entry]) => {
+      const matchTitle = normalizeSearch(entry.title).includes(term);
+      const matchBody = normalizeSearch(entry.body).includes(term);
+      const matchRel = entry.relation ? normalizeSearch(entry.relation).includes(term) : false;
+      const matchEx = entry.example ? normalizeSearch(entry.example).includes(term) : false;
+      const matchKey = normalizeSearch(key).includes(term);
+      return matchTitle || matchBody || matchRel || matchEx || matchKey;
+    });
+  }, [glossaryEntries, glossarySearch]);
+
+  const groupedGlossary = useMemo(() => {
+    const groups: {
+      category: string;
+      description: string;
+      items: [string, GlossaryEntry][];
+    }[] = [
+      {
+        category: "Escenarios y parámetros",
+        description: "Variables de simulación 2027, palancas de intervención, cobertura y focalización territorial.",
+        items: [],
+      },
+      {
+        category: "Semáforo e indicadores",
+        description: "Índice de riesgo, componentes estadísticos, ranking de atención e indicadores del CCPC.",
+        items: [],
+      },
+      {
+        category: "Mapa",
+        description: "Modos de visualización cartográfica, columnas 3D, navegación y comparador con cortina.",
+        items: [],
+      },
+      {
+        category: "Asistente",
+        description: "Capacidades de consulta en lenguaje natural, salvaguardas y fuentes de respuesta.",
+        items: [],
+      },
+    ];
+
+    for (const item of filteredGlossary) {
+      const [key] = item;
+      if (
+        key.startsWith("escenario") ||
+        key.startsWith("param.") ||
+        key.startsWith("lever.") ||
+        key.startsWith("targeting.") ||
+        key === "simulacion.votos"
+      ) {
+        groups[0].items.push(item);
+      } else if (
+        key.startsWith("modo.") ||
+        key === "motor" ||
+        key === "comparar.resumen" ||
+        key === "buscador" ||
+        key === "navegacion" ||
+        key === "guia"
+      ) {
+        groups[2].items.push(item);
+      } else if (key.startsWith("asistente")) {
+        groups[3].items.push(item);
+      } else {
+        groups[1].items.push(item);
+      }
+    }
+
+    return groups;
+  }, [filteredGlossary]);
+
+  const navSections = [
+    { href: "#como-usar", label: "Cómo usar ATALAYA" },
+    { href: "#glosario", label: "Glosario" },
+    { href: "#mapa-3d", label: "El mapa 3D" },
+    { href: "#guardrails", label: "Límites del asistente" },
+    { href: "#privacidad", label: "Privacidad y Anonimato" },
+    { href: "#supuesto-nacional", label: "Supuesto Nacional 2027" },
+    { href: "#modelos-predictivos", label: "1. Modelos Predictivos" },
+    { href: "#perfil-estructural", label: "2. Perfil Estructural" },
+    { href: "#confiabilidad", label: "3. Confiabilidad de Datos" },
+    { href: "#semaforo", label: "4. Semáforo de Riesgo" },
+    { href: "#fuentes", label: "5. Fuentes Oficiales" },
+  ];
+
   return (
-    <div className="max-w-4xl mx-auto py-6 px-4 space-y-8 text-slate-200">
+    <div className="max-w-5xl mx-auto py-8 px-4 space-y-10 text-slate-200">
       {/* Back link & Title */}
       <div>
         <Link
@@ -118,15 +214,364 @@ export default function MetodologiaPage() {
           <span>Regresar al Tablero Principal</span>
         </Link>
         <h1 className="text-3xl font-extrabold text-white mt-3">
-          Metodología del Modelo ATALAYA
+          Metodología y Manual de Uso de ATALAYA
         </h1>
-        <p className="text-sm text-slate-400 mt-1">
-          Arquitectura analítica honesta, fuentes oficiales CCPC/INE/INEGI, reglas de confiabilidad y salvaguardas de privacidad.
+        <p className="text-sm text-slate-400 mt-1 max-w-3xl leading-relaxed">
+          Guía integral del sistema: pasos de navegación, glosario canónico interactivo, motor cartográfico 3D por columnas, salvaguardas éticas del asistente, modelos predictivos y fuentes oficiales CCPC/INE/INEGI.
         </p>
       </div>
 
+      {/* Índice de navegación rápida */}
+      <section className="p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+          Índice de la página
+        </span>
+        <div className="flex flex-wrap gap-1.5 text-xs">
+          {navSections.map((s) => (
+            <a
+              key={s.href}
+              href={s.href}
+              className="px-2.5 py-1 rounded-md bg-slate-800/80 hover:bg-emerald-950/70 hover:text-emerald-300 text-slate-300 border border-slate-700/60 hover:border-emerald-700/60 transition-colors"
+            >
+              {s.label}
+            </a>
+          ))}
+        </div>
+      </section>
+
+      {/* 1. Cómo usar ATALAYA */}
+      <section id="como-usar" className="space-y-4 scroll-mt-20">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            Cómo usar ATALAYA
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Flujo de trabajo sugerido para explorar el tablero y aprovechar el análisis territorial en 4 pasos:
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 flex flex-col justify-between">
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-700 font-bold text-xs">
+                1
+              </span>
+              <h3 className="font-bold text-white text-sm">Explora el mapa y semáforo</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                El color de cada entidad o municipio refleja su riesgo de abstención 2027: 🔴 Crítico, 🟠 Alto, 🟡 Moderado y 🟢 Bajo, ordenados frente a la media nacional.
+              </p>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">Modo Semáforo / Cambio Δ</span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 flex flex-col justify-between">
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-700 font-bold text-xs">
+                2
+              </span>
+              <h3 className="font-bold text-white text-sm">Navega a municipios críticos</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Haz clic en cualquier estado para descender al nivel municipal. Usa el buscador rápido o haz clic en «← México» en la barra superior para volver al país.
+              </p>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">Zoom automático y migas de pan</span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 flex flex-col justify-between">
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-700 font-bold text-xs">
+                3
+              </span>
+              <h3 className="font-bold text-white text-sm">Consulta el diagnóstico</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Revisa en el panel derecho los factores sociodemográficos que impulsan la abstención (educación, ruralidad, conectividad), la serie histórica CCPC y recomendaciones preventivas.
+              </p>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">Ficha técnica por zona</span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 flex flex-col justify-between">
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-700 font-bold text-xs">
+                4
+              </span>
+              <h3 className="font-bold text-white text-sm">Simula intervenciones</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Cambia el escenario en la barra superior (Base, Intervención o Pesimista). En «Ajustar» calibra palancas (jóvenes, casillas rurales), cobertura y focalización para proyectar votos recuperables.
+              </p>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">Simulación de impacto</span>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. Glosario */}
+      <section id="glosario" className="space-y-4 scroll-mt-20">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              Glosario Canónico de Términos
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Definiciones oficiales de todos los indicadores, escenarios y controles de la plataforma. Todo proviene del glosario central.
+            </p>
+          </div>
+
+          {/* Buscador */}
+          <div className="w-full sm:w-80">
+            <div className="relative">
+              <input
+                type="text"
+                value={glossarySearch}
+                onChange={(e) => setGlossarySearch(e.target.value)}
+                placeholder="Buscar término o clave..."
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              />
+              {glossarySearch && (
+                <button
+                  type="button"
+                  onClick={() => setGlossarySearch("")}
+                  className="absolute right-2.5 top-1.5 text-xs text-slate-400 hover:text-white"
+                  title="Limpiar búsqueda"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <span className="text-[10px] text-slate-500 mt-1 block">
+              Mostrando {filteredGlossary.length} de {glossaryEntries.length} términos
+            </span>
+          </div>
+        </div>
+
+        {groupedGlossary.map((group) => {
+          if (group.items.length === 0) return null;
+          return (
+            <div key={group.category} className="space-y-3 pt-2">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                  <span>{group.category}</span>
+                  <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.2 rounded-full font-mono">
+                    {group.items.length}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400">{group.description}</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {group.items.map(([key, item]) => {
+                  const anchorId = `g-${key.replace(/\./g, "-")}`;
+                  return (
+                    <div
+                      key={key}
+                      id={anchorId}
+                      className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-2 hover:border-slate-700 transition-colors scroll-mt-24"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="font-bold text-white text-xs leading-snug">
+                          {item.title}
+                        </h4>
+                        <a
+                          href={`#${anchorId}`}
+                          className="text-[10px] font-mono text-slate-500 hover:text-emerald-400 transition-colors shrink-0"
+                          title="Enlace a este término"
+                        >
+                          #{anchorId}
+                        </a>
+                      </div>
+
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        {item.body}
+                      </p>
+
+                      {item.relation && (
+                        <div className="text-[11px] bg-slate-950/80 p-2 rounded-lg border border-slate-800/80 text-sky-300 leading-normal">
+                          <strong className="text-sky-400 font-semibold block mb-0.5">Cómo se relaciona:</strong>
+                          {item.relation}
+                        </div>
+                      )}
+
+                      {item.example && (
+                        <div className="text-[11px] bg-emerald-950/30 p-2 rounded-lg border border-emerald-900/50 text-emerald-300 font-mono leading-normal">
+                          <strong className="text-emerald-400 font-semibold font-sans block mb-0.5">Ejemplo:</strong>
+                          {item.example}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </section>
+
+      {/* 3. El mapa 3D */}
+      <section id="mapa-3d" className="space-y-3 scroll-mt-20">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            El Mapa 3D: Visualización por Columnas de Riesgo
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Diseño cartográfico orientado al rendimiento y la legibilidad inmediata de zonas críticas:
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+              Columnas sobre mapa plano
+            </h3>
+            <p className="text-slate-300 leading-relaxed">
+              En lugar de extruir los polígonos municipales completos (lo que generaba miles de muros y degradaba la fluidez gráfica), ATALAYA renderiza prismas de 12 lados ubicados sobre el punto interior garantizado (<span className="font-mono text-emerald-300">anchor</span>) de cada zona.
+            </p>
+            <p className="text-slate-400 leading-relaxed">
+              En zoom menor a 5.5 se presentan columnas a nivel estatal; a partir de zoom 5.5 emergen las columnas municipales. El mapa coroplético se mantiene plano debajo con sus colores y límites siempre visibles.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              Altura = Índice de Riesgo (Curva que acentúa lo grave)
+            </h3>
+            <p className="text-slate-300 leading-relaxed">
+              En modo Categoría / Semáforo, la altura de la columna representa directamente el <strong className="text-white">Índice de Riesgo (0 a 100)</strong> mediante una curva potencial exponencial (<span className="font-mono text-amber-300">(score/100)^1.6</span>) que amplifica visualmente las zonas críticas: el color rojo siempre se alza por encima del naranja, amarillo y verde.
+            </p>
+            <p className="text-slate-400 leading-relaxed">
+              En modo <strong className="text-white">Cambio Δ</strong>, la altura representa el tamaño del cambio absoluto <span className="font-mono text-sky-300">|Δ|</span> en puntos porcentuales (hasta 5 pp). Las zonas sin información suficiente (<span className="font-mono">sin_dato</span>) tienen altura 0.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-sky-400"></span>
+              Dos vistas de cámara: Inclinada y Cenital
+            </h3>
+            <p className="text-slate-300 leading-relaxed">
+              <strong className="text-white">Inclinada:</strong> Cámara a 50° de inclinación (pitch) y rotación de −12° para apreciar el relieve comparativo de alturas entre territorios colindantes. El usuario puede además inclinar y rotar libremente con clic derecho + arrastre (o Ctrl + arrastre) hasta 65°.
+            </p>
+            <p className="text-slate-400 leading-relaxed">
+              <strong className="text-white">Cenital:</strong> Inclinación a 0° (vista superior vertical). Permite examinar el mapa sin que los prismas altos tapen a municipios vecinos más bajos.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+              Por qué no es topografía ni relieve físico
+            </h3>
+            <p className="text-slate-300 leading-relaxed">
+              La altura no mide montañas, orografía física ni volumen poblacional. Una ciudad densa con alta participación ciudadana se verá como una columna baja (verde), mientras que un municipio con riesgo crítico de abstención se erguirá como una torre prominente (roja).
+            </p>
+            <p className="text-slate-400 leading-relaxed">
+              Esto garantiza que la atención visual se dirija inmediatamente a los focos de vulnerabilidad electoral y no al tamaño geográfico o demográfico del territorio.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* 4. Límites del asistente (guardrails) */}
+      <section id="guardrails" className="space-y-4 scroll-mt-20">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            Límites del Asistente Virtual y Salvaguardas Éticas (Guardrails)
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Arquitectura de protección multinivel para garantizar respuestas fácticas, imparciales y verificadas:
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+              Qué responde el asistente
+            </span>
+            <ul className="list-disc list-inside space-y-1 text-slate-300 leading-relaxed">
+              <li>Pronóstico de participación y abstención federal 2027 por entidad o municipio.</li>
+              <li>Explicación del semáforo de riesgo y sus 4 componentes estadísticos.</li>
+              <li>Simulación y comparación de escenarios (Base, Intervención y Pesimista).</li>
+              <li>Factores explicativos sociodemográficos del perfil local (educación, marginación, conectividad).</li>
+              <li>Indicadores oficiales del CCPC (participación de jóvenes 18–34, ruralidad, brechas de género).</li>
+              <li>Recomendaciones operativas preventivas sugeridas para la zona.</li>
+            </ul>
+          </div>
+
+          <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400 block">
+              Qué NO responde (límites estrictos)
+            </span>
+            <ul className="list-disc list-inside space-y-1 text-slate-300 leading-relaxed">
+              <li><strong className="text-white">Sin código ni scripts:</strong> no genera funciones en Python, JS, SQL ni herramientas de programación.</li>
+              <li><strong className="text-white">Sin temas ajenos:</strong> no atiende tareas escolares, recetas, traducciones ni escritura creativa.</li>
+              <li><strong className="text-white">Sin análisis partidista:</strong> no opina sobre partidos, candidaturas, encuestas de preferencia ni pronósticos electorales partidistas.</li>
+              <li><strong className="text-white">Sin datos personales:</strong> no procesa CURP, claves de elector, domicilios ni quién votó.</li>
+              <li><strong className="text-white">Sin evasión de reglas:</strong> rechaza intentos de modificar instrucciones (jailbreak, cambios de rol o petición de prompts).</li>
+            </ul>
+          </div>
+        </div>
+
+        {/* Las 5 capas en lenguaje llano */}
+        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+          <span className="text-xs font-bold text-white uppercase tracking-wider block">
+            Las 5 Capas de Protección en Lenguaje Llano
+          </span>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 text-xs">
+            <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-1">
+              <span className="font-bold text-emerald-400 text-[11px] block">1. Entrada (sin red)</span>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Filtra deterministamente longitud excesiva, código, jailbreaks, contenido dañino o datos personales antes de consultar al modelo.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-1">
+              <span className="font-bold text-emerald-400 text-[11px] block">2. Compuerta de tema</span>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Verifica que la consulta pertenezca al dominio electoral y de abstención. Saludos y peticiones de ayuda reciben respuesta directa sin llamar al redactor.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-1">
+              <span className="font-bold text-emerald-400 text-[11px] block">3. Planificador</span>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Rechazos de alcance y orientación general se responden con plantillas oficiales predefinidas, sin consumo innecesario de modelos de lenguaje.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-1">
+              <span className="font-bold text-emerald-400 text-[11px] block">4. Salida por oración</span>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Cada frase se valida antes de mostrarse. Si se detecta código o <strong className="text-white">cifras no respaldadas por los datos oficiales</strong>, se detiene y se completa con datos verificados.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-950/70 border border-slate-800/80 space-y-1">
+              <span className="font-bold text-emerald-400 text-[11px] block">5. Auditoría ética</span>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Genera un registro con código de referencia, regla activada y severidad, <strong className="text-white">sin almacenar jamás el texto de las preguntas</strong> de la ciudadanía.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-lg bg-slate-950/80 border border-emerald-900/60 text-xs text-slate-300 flex items-start gap-2.5">
+            <svg className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <strong className="text-white">Código de referencia para reportes:</strong> Cuando una consulta es bloqueada o ajustada por los guardrails, el sistema entrega un identificador del tipo <span className="font-mono text-emerald-300">Referencia: gr-1a2b3c4d</span>. Este código permite al personal técnico auditar qué filtro intervino sin comprometer la privacidad ciudadana.
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Regla de Privacidad y Anonimato */}
-      <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/80 space-y-2">
+      <section id="privacidad" className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/80 space-y-2 scroll-mt-20">
         <div className="flex items-center gap-2">
           <svg className="w-5 h-5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -147,10 +592,10 @@ export default function MetodologiaPage() {
             <strong className="text-white">Desagregación no binaria (sexo X):</strong> Los registros correspondientes a sexo no binario se publican únicamente agregados a nivel nacional y estatal, nunca a nivel municipal, eliminando cualquier vector de re-identificación.
           </li>
         </ul>
-      </div>
+      </section>
 
       {/* Recuadro: Supuesto Nacional 2027 */}
-      <section className="p-4 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-2">
+      <section id="supuesto-nacional" className="p-4 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-2 scroll-mt-20">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
@@ -173,7 +618,7 @@ export default function MetodologiaPage() {
       </section>
 
       {/* 1. Selección Honesta de Candidatos */}
-      <section className="space-y-3">
+      <section id="modelos-predictivos" className="space-y-3 scroll-mt-20">
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <span className="text-emerald-500">1.</span> Selección Honesta de Modelos Predictivos (Backtest)
@@ -254,7 +699,7 @@ export default function MetodologiaPage() {
       </section>
 
       {/* 2. R² Estructural y Drivers Explicativos */}
-      <section className="space-y-3">
+      <section id="perfil-estructural" className="space-y-3 scroll-mt-20">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <span className="text-emerald-500">2.</span> Perfil Estructural y Factores Explicativos
         </h2>
@@ -336,7 +781,7 @@ export default function MetodologiaPage() {
       </section>
 
       {/* 3. Regla de Confiabilidad y Exclusiones */}
-      <section className="space-y-3">
+      <section id="confiabilidad" className="space-y-3 scroll-mt-20">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <span className="text-emerald-500">3.</span> Regla de Confiabilidad de Datos y Filtrado Técnico
         </h2>
@@ -371,7 +816,7 @@ export default function MetodologiaPage() {
       </section>
 
       {/* 4. Construcción del Semáforo de Riesgo (4 componentes) */}
-      <section className="space-y-3">
+      <section id="semaforo" className="space-y-3 scroll-mt-20">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <span className="text-emerald-500">4.</span> Construcción del Semáforo de Riesgo 2027
         </h2>
@@ -397,7 +842,7 @@ export default function MetodologiaPage() {
       </section>
 
       {/* 5. Fuentes de Información Oficial */}
-      <section className="space-y-3">
+      <section id="fuentes" className="space-y-3 scroll-mt-20">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <span className="text-emerald-500">5.</span> Fuentes de Información Oficial Abierta
         </h2>

@@ -2,6 +2,8 @@
 
 import React from "react";
 import { useAtalaya } from "@/lib/state";
+import { InfoTip } from "@/components/ui/InfoTip";
+import type { GlossaryKey } from "@/lib/glossary";
 
 export function Breadcrumb() {
   const {
@@ -63,6 +65,8 @@ export function Breadcrumb() {
           ← México
         </button>
       )}
+
+      <InfoTip term={"navegacion" as unknown as GlossaryKey} side="bottom" />
     </nav>
   );
 }

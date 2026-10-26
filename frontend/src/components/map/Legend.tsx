@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useAtalaya } from "@/lib/state";
 import type { Category, RiskItem } from "@/lib/types";
 import type { MapRiskData } from "@/lib/mapRisk";
-import { categoryCounts } from "@/lib/mapRisk";
+import { categoryCounts, transitionSummary } from "@/lib/mapRisk";
 import {
   categoryLegend,
   deltaLegend,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/mapStyle";
 import { CATEGORY_COLORS } from "@/lib/format";
 import { InfoTip } from "@/components/ui/InfoTip";
+import type { GlossaryKey } from "@/lib/glossary";
 
 function ColumnMiniDiagram() {
   return (
@@ -50,6 +51,12 @@ export function Legend({ data }: LegendProps) {
       munIndex = data.active?.mun ?? data.base?.mun ?? null;
     }
   }
+
+  // Transitions for compare mode
+  const transitions =
+    mapMode === "compare" && data?.base?.mun && data?.alt?.mun
+      ? transitionSummary(data.base.mun, data.alt.mun)
+      : null;
 
   // Delta mode
   if (mapMode === "delta") {
@@ -219,9 +226,23 @@ export function Legend({ data }: LegendProps) {
           })}
 
           {mapMode === "compare" && (
-            <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
-              <span>Con intervención</span>
-              <span className="text-slate-400 italic font-medium">Lado izquierdo: base</span>
+            <div className="mt-2 pt-1.5 border-t border-slate-800 text-[10px] space-y-1.5">
+              <div className="text-slate-400 flex items-center justify-between">
+                <span>Con intervención</span>
+                <span className="text-slate-400 italic font-medium">Lado izquierdo: base</span>
+              </div>
+              {transitions && (
+                <div className="flex items-center justify-between bg-slate-950/60 px-2 py-1.5 rounded-lg border border-slate-800 text-slate-300">
+                  <span className="font-mono text-[10px]">
+                    Rojo: {transitions.rojoBase} → {transitions.rojoAlt} · {transitions.improved} mejoran
+                  </span>
+                  <InfoTip
+                    term={"comparar.resumen" as unknown as GlossaryKey}
+                    size="xs"
+                    side="left"
+                  />
+                </div>
+              )}
             </div>
           )}
 

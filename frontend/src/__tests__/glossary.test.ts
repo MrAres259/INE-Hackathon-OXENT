@@ -20,6 +20,9 @@ describe("Glossary (Single Source of Truth)", () => {
     "lever.materiales_lengua_indigena",
     "lever.campana_general",
     "param.targeting",
+    "targeting.rojo",
+    "targeting.rojo_naranja",
+    "targeting.todos",
     "param.effect_pp",
     "param.coverage",
     "param.shock_pp",
@@ -60,6 +63,17 @@ describe("Glossary (Single Source of Truth)", () => {
     "modo.3d",
     "motor",
     "asistente",
+    // Claves nuevas §8.1
+    "ranking.orden",
+    "ranking.csv",
+    "detalle.serie",
+    "detalle.componentes",
+    "detalle.escenarios",
+    "comparar.resumen",
+    "buscador",
+    "navegacion",
+    "asistente.alcance",
+    "guia",
   ];
 
   it("contains all canonical keys from CONTEXT.md §5", () => {
@@ -98,7 +112,7 @@ describe("Glossary (Single Source of Truth)", () => {
     }
   });
 
-  it("optionTerm covers all four levers", () => {
+  it("optionTerm covers all four levers and three targeting options", () => {
     const levers = [
       "promocion_jovenes",
       "casillas_rurales",
@@ -112,6 +126,62 @@ describe("Glossary (Single Source of Truth)", () => {
         `lever.${lever}` as GlossaryKey
       );
       expect(term && term in GLOSSARY).toBe(true);
+    }
+
+    const targetings = ["rojo", "rojo_naranja", "todos"];
+    for (const targeting of targetings) {
+      const term = optionTerm("targeting", targeting);
+      expect(term, `optionTerm('targeting', '${targeting}') returned undefined`).toBe(
+        `targeting.${targeting}` as GlossaryKey
+      );
+      expect(term && term in GLOSSARY).toBe(true);
+    }
+  });
+
+  it("matches labels from scenarios.py for all params, levers, and targetings", () => {
+    const SCENARIOS_PY_LABELS: Record<string, string> = {
+      "param.lever": "Palanca de intervención",
+      "lever.promocion_jovenes": "Promoción del voto joven",
+      "lever.casillas_rurales": "Casillas y traslado en zonas rurales",
+      "lever.materiales_lengua_indigena": "Materiales y capacitación en lenguas indígenas",
+      "lever.campana_general": "Campaña general de promoción del voto",
+      "param.targeting": "Focalización",
+      "targeting.rojo": "Solo zonas rojas",
+      "targeting.rojo_naranja": "Zonas rojas y naranjas",
+      "targeting.todos": "Todo el país",
+      "param.effect_pp": "Efecto máximo esperado",
+      "param.coverage": "Cobertura de la intervención",
+      "param.shock_pp": "Caída general de participación",
+      "param.trend_amplifier": "Acentuación de tendencias negativas",
+    };
+
+    for (const [key, expectedTitle] of Object.entries(SCENARIOS_PY_LABELS)) {
+      expect(key in GLOSSARY, `Key ${key} missing from GLOSSARY`).toBe(true);
+      const entry = glossaryFor(key);
+      expect(entry?.title, `Title mismatch for ${key}`).toBe(expectedTitle);
+    }
+  });
+
+  it("contains all 10 new keys from CONTEXT.md §8.1 with valid length constraints", () => {
+    const NEW_KEYS_W2_F = [
+      "ranking.orden",
+      "ranking.csv",
+      "detalle.serie",
+      "detalle.componentes",
+      "detalle.escenarios",
+      "comparar.resumen",
+      "buscador",
+      "navegacion",
+      "asistente.alcance",
+      "guia",
+    ];
+
+    for (const key of NEW_KEYS_W2_F) {
+      expect(key in GLOSSARY, `Missing key ${key}`).toBe(true);
+      const entry = glossaryFor(key);
+      expect(entry?.title).toBeTruthy();
+      expect(entry?.body.length).toBeGreaterThan(0);
+      expect(entry?.body.length).toBeLessThanOrEqual(420);
     }
   });
 

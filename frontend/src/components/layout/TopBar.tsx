@@ -25,7 +25,7 @@ export function TopBar() {
     <header className="bg-slate-900 text-white border-b border-slate-800 shadow-sm sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* Logo & Title */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-emerald-600 text-white font-bold text-lg shadow-inner">
             A
           </div>
@@ -50,7 +50,7 @@ export function TopBar() {
         </div>
 
         {/* Center: Scenario Switcher */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <div className="inline-flex rounded-lg p-1 bg-slate-800 border border-slate-700 text-xs">
             <button
               type="button"
@@ -113,7 +113,7 @@ export function TopBar() {
         </div>
 
         {/* Right: Data indicator & Metodología */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {/* Mock banner indicator */}
           {isMock ? (
             <div className="flex items-center gap-1.5 text-xs bg-amber-950/80 text-amber-300 border border-amber-800/80 px-2.5 py-1 rounded-full">

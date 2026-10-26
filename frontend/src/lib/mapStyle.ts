@@ -117,9 +117,37 @@ export function fillExpression(mode: ColorMode): ExpressionSpecification {
   return mode === "delta" ? deltaFillExpression() : categoryFillExpression();
 }
 
-export const COLUMN_MAX_M = { state: 420_000, mun: 90_000 } as const;
+export const COLUMN_MAX_M = { state: 380_000, mun: 70_000 } as const;
 export const COLUMN_MIN_FRACTION = 0.04;
 export const COLUMN_ZOOM_SPLIT = 5.5;
+
+/**
+ * Dynamic height expression for 3D columns: height in meters scales down as zoom increases
+ * to prevent columns from obstructing neighbor areas at state-level zoom.
+ * In MapLibre ["zoom"] must only be used as the input of a top-level interpolate/step expression.
+ */
+export function columnHeightExpression(): ExpressionSpecification {
+  const h: ExpressionSpecification = [
+    "coalesce",
+    ["feature-state", "h"],
+    0,
+  ] as ExpressionSpecification;
+  return [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    3,
+    ["*", h, 1],
+    5.5,
+    ["*", h, 0.85],
+    7,
+    ["*", h, 0.5],
+    9,
+    ["*", h, 0.28],
+    12,
+    ["*", h, 0.15],
+  ] as unknown as ExpressionSpecification;
+}
 
 export function riskHeight(score: number | null | undefined, maxMeters: number): number {
   if (score === null || score === undefined || Number.isNaN(score)) {

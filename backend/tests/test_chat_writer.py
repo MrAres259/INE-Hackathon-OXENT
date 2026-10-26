@@ -304,3 +304,11 @@ def test_writer_out_of_scope_does_not_call_llm(monkeypatch):
     full_text = "".join(tokens)
     assert "Solo puedo ayudarte" in full_text
 
+
+def test_writer_guardrails_is_real_module():
+    """Verify writer imports the real guardrails module without any stub."""
+    import atalaya.chat.writer as writer_mod
+    import atalaya.chat.guardrails as gr_mod
+    assert writer_mod.guardrails is gr_mod
+
+

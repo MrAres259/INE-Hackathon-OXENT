@@ -15,6 +15,7 @@ export function SidePanelTabs() {
         <button
           type="button"
           onClick={() => setActiveTab("detail")}
+          title="Diagnóstico: detalle de la zona seleccionada"
           className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
             activeTab === "detail"
               ? "bg-slate-800 text-white shadow-sm"
@@ -30,6 +31,7 @@ export function SidePanelTabs() {
         <button
           type="button"
           onClick={() => setActiveTab("ranking")}
+          title="Ranking: zonas ordenadas para priorizar"
           className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
             activeTab === "ranking"
               ? "bg-slate-800 text-white shadow-sm"
@@ -45,6 +47,7 @@ export function SidePanelTabs() {
         <button
           type="button"
           onClick={() => setActiveTab("chat")}
+          title="Asistente: preguntas en lenguaje natural sobre los datos"
           className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
             activeTab === "chat"
               ? "bg-slate-800 text-emerald-400 shadow-sm"

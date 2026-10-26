@@ -104,12 +104,29 @@ export function Sparkline({
     projPathD = `M ${getX(lastValidDip.year)} ${getY(lastValidDip.participation)} L ${getX(targetYear)} ${getY(predParticipation)}`;
   }
 
+  // Descriptive summary for aria-label and SVG <title> (Task 4)
+  const summaryPoints = allPoints.map((p) => {
+    const valStr =
+      p.participation !== null && p.participation !== undefined
+        ? formatPct(p.participation)
+        : "sin dato confiable";
+    const label = p.election === "PJF" || p.year === 2025 ? `${p.year} (Judicial)` : `${p.year}`;
+    return `${label}: ${valStr}`;
+  });
+  if (predParticipation !== undefined && predParticipation !== null) {
+    summaryPoints.push(`${targetYear} (pronóstico): ${formatPct(predParticipation)}`);
+  }
+  const descriptiveLabel = `Serie histórica de participación: ${summaryPoints.join(", ")}`;
+
   return (
     <div className="relative w-full overflow-hidden space-y-2">
       <svg
+        role="img"
+        aria-label={descriptiveLabel}
         viewBox={`0 0 ${width} ${height}`}
         className="w-full h-auto overflow-visible select-none font-sans"
       >
+        <title>{descriptiveLabel}</title>
         {/* Horizontal grid lines & Y labels */}
         {[minVal, (minVal + maxVal) / 2, maxVal].map((val, idx) => {
           const y = getY(val);
@@ -183,16 +200,29 @@ export function Sparkline({
               onMouseLeave={() => setHoveredPoint(null)}
             >
               {isNull ? (
-                // Hollow marker for null participation (unreliable data)
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r="4.5"
-                  fill="#0f172a"
-                  stroke="#ef4444"
-                  strokeWidth="2"
-                  strokeDasharray="2,2"
-                />
+                // Hollow marker and visual label for null participation (unreliable data)
+                <g>
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r="4.5"
+                    fill="#0f172a"
+                    stroke="#ef4444"
+                    strokeWidth="2"
+                    strokeDasharray="2,2"
+                  />
+                  <text
+                    x={cx}
+                    y={cy - 7}
+                    fill="#f87171"
+                    fontSize="7"
+                    fontWeight="600"
+                    textAnchor="middle"
+                    className="select-none pointer-events-none"
+                  >
+                    sin dato
+                  </text>
+                </g>
               ) : (
                 // Valid participation point (solid circle, dotted border if low_confidence)
                 <circle
@@ -258,16 +288,29 @@ export function Sparkline({
               onMouseLeave={() => setHoveredPoint(null)}
             >
               {isNull ? (
-                <rect
-                  x={cx - s}
-                  y={cy - s}
-                  width={s * 2}
-                  height={s * 2}
-                  fill="#0f172a"
-                  stroke="#f59e0b"
-                  strokeWidth="1.5"
-                  strokeDasharray="2,2"
-                />
+                <g>
+                  <rect
+                    x={cx - s}
+                    y={cy - s}
+                    width={s * 2}
+                    height={s * 2}
+                    fill="#0f172a"
+                    stroke="#f59e0b"
+                    strokeWidth="1.5"
+                    strokeDasharray="2,2"
+                  />
+                  <text
+                    x={cx}
+                    y={cy - 7}
+                    fill="#f59e0b"
+                    fontSize="7"
+                    fontWeight="600"
+                    textAnchor="middle"
+                    className="select-none pointer-events-none"
+                  >
+                    sin dato
+                  </text>
+                </g>
               ) : (
                 <rect
                   x={cx - s}
@@ -393,6 +436,12 @@ export function Sparkline({
           <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
           <span>2027*</span>
         </div>
+        {allPoints.some((p) => p.participation === null || p.participation === undefined) && (
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full border border-dashed border-rose-500 bg-slate-900 inline-block"></span>
+            <span className="text-rose-400">Sin dato confiable</span>
+          </div>
+        )}
       </div>
     </div>
   );

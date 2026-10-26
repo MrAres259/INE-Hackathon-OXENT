@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { fetchGeoIndex } from "@/lib/geo";
 import type { GeoIndexItem } from "@/lib/types";
 import { useAtalaya } from "@/lib/state";
+import { InfoTip } from "@/components/ui/InfoTip";
+import type { GlossaryKey } from "@/lib/glossary";
 
 export function RegionSearch() {
   const { selectRegion, meta } = useAtalaya();
@@ -41,8 +43,8 @@ export function RegionSearch() {
   };
 
   return (
-    <div ref={containerRef} className="relative w-64 md:w-72 pointer-events-auto">
-      <div className="relative">
+    <div ref={containerRef} className="relative flex items-center gap-1.5 w-72 md:w-80 pointer-events-auto">
+      <div className="relative flex-1">
         <input
           type="text"
           value={query}
@@ -51,8 +53,8 @@ export function RegionSearch() {
             setIsOpen(true);
           }}
           onFocus={() => setIsOpen(true)}
-          placeholder="Buscar estado o municipio..."
-          className="w-full bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xl"
+          placeholder="Busca un estado o municipio (p. ej., Tijuana)"
+          className="w-full bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-xl pl-9 pr-7 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-xl"
         />
         <svg
           className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none"
@@ -79,36 +81,38 @@ export function RegionSearch() {
             ✕
           </button>
         )}
+
+        {/* Autocomplete Dropdown */}
+        {isOpen && matches.length > 0 && (
+          <div className="absolute top-full mt-1.5 left-0 right-0 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl z-50 overflow-hidden divide-y divide-slate-800/80 max-h-64 overflow-y-auto">
+            {matches.map((item) => {
+              const stateName =
+                meta?.states.find((s) => s.id === item.ent)?.name ?? `Estado ${item.ent}`;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSelect(item)}
+                  className="w-full text-left px-3.5 py-2.5 hover:bg-slate-800/90 transition-colors flex items-center justify-between text-xs"
+                >
+                  <div>
+                    <div className="font-semibold text-white">{item.name}</div>
+                    <div className="text-[10px] text-slate-400">
+                      {item.level === "state" ? "Entidad Federativa" : stateName}
+                    </div>
+                  </div>
+                  <span className="text-[10px] bg-slate-850 text-slate-300 px-1.5 py-0.5 rounded border border-slate-750">
+                    {item.level === "state" ? "Estado" : "Municipio"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Autocomplete Dropdown */}
-      {isOpen && matches.length > 0 && (
-        <div className="absolute top-full mt-1.5 left-0 right-0 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl z-50 overflow-hidden divide-y divide-slate-800/80 max-h-64 overflow-y-auto">
-          {matches.map((item) => {
-            const stateName =
-              meta?.states.find((s) => s.id === item.ent)?.name ?? `Estado ${item.ent}`;
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleSelect(item)}
-                className="w-full text-left px-3.5 py-2.5 hover:bg-slate-800/90 transition-colors flex items-center justify-between text-xs"
-              >
-                <div>
-                  <div className="font-semibold text-white">{item.name}</div>
-                  <div className="text-[10px] text-slate-400">
-                    {item.level === "state" ? "Entidad Federativa" : stateName}
-                  </div>
-                </div>
-                <span className="text-[10px] bg-slate-850 text-slate-300 px-1.5 py-0.5 rounded border border-slate-750">
-                  {item.level === "state" ? "Estado" : "Municipio"}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <InfoTip term={"buscador" as unknown as GlossaryKey} side="bottom" />
     </div>
   );
 }

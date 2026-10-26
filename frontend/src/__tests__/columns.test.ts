@@ -26,39 +26,39 @@ describe("columns geometry tests", () => {
     it("keeps radius strictly within bounds for areas 1, 50, 5000, 250000 km² and without area", () => {
       const testAreas = [1, 50, 5000, 250000];
 
-      // Municipality radius: [1.0, 8.0] km, default 3.0 km
-      expect(columnRadiusKm("mun", undefined)).toBe(3.0);
-      expect(columnRadiusKm("mun", 0)).toBe(3.0);
-      expect(columnRadiusKm("mun", -10)).toBe(3.0);
+      // Municipality radius: [0.8, 4.5] km, default 2.0 km
+      expect(columnRadiusKm("mun", undefined)).toBe(2.0);
+      expect(columnRadiusKm("mun", 0)).toBe(2.0);
+      expect(columnRadiusKm("mun", -10)).toBe(2.0);
 
       for (const area of testAreas) {
         const rMun = columnRadiusKm("mun", area);
-        expect(rMun).toBeGreaterThanOrEqual(1.0);
-        expect(rMun).toBeLessThanOrEqual(8.0);
+        expect(rMun).toBeGreaterThanOrEqual(0.8);
+        expect(rMun).toBeLessThanOrEqual(4.5);
       }
 
       // Exact clamp checks for mun
-      expect(columnRadiusKm("mun", 1)).toBe(1.0); // 0.35 * sqrt(1/pi) ≈ 0.197 -> clamped to 1.0
-      expect(columnRadiusKm("mun", 50)).toBeCloseTo(1.396, 2);
-      expect(columnRadiusKm("mun", 5000)).toBe(8.0); // 0.35 * sqrt(5000/pi) ≈ 13.96 -> clamped to 8.0
-      expect(columnRadiusKm("mun", 250000)).toBe(8.0);
+      expect(columnRadiusKm("mun", 1)).toBe(0.8); // 0.22 * sqrt(1/pi) ≈ 0.124 -> clamped to 0.8
+      expect(columnRadiusKm("mun", 50)).toBeCloseTo(0.878, 2);
+      expect(columnRadiusKm("mun", 5000)).toBe(4.5); // 0.22 * sqrt(5000/pi) ≈ 8.78 -> clamped to 4.5
+      expect(columnRadiusKm("mun", 250000)).toBe(4.5);
 
-      // State radius: [15.0, 45.0] km, default 25.0 km
-      expect(columnRadiusKm("state", undefined)).toBe(25.0);
-      expect(columnRadiusKm("state", 0)).toBe(25.0);
-      expect(columnRadiusKm("state", -100)).toBe(25.0);
+      // State radius: [12.0, 35.0] km, default 20.0 km
+      expect(columnRadiusKm("state", undefined)).toBe(20.0);
+      expect(columnRadiusKm("state", 0)).toBe(20.0);
+      expect(columnRadiusKm("state", -100)).toBe(20.0);
 
       for (const area of testAreas) {
         const rState = columnRadiusKm("state", area);
-        expect(rState).toBeGreaterThanOrEqual(15.0);
-        expect(rState).toBeLessThanOrEqual(45.0);
+        expect(rState).toBeGreaterThanOrEqual(12.0);
+        expect(rState).toBeLessThanOrEqual(35.0);
       }
 
       // Exact clamp checks for state
-      expect(columnRadiusKm("state", 1)).toBe(15.0); // 0.22 * sqrt(1/pi) ≈ 0.124 -> clamped to 15.0
-      expect(columnRadiusKm("state", 50)).toBe(15.0);
-      expect(columnRadiusKm("state", 5000)).toBe(15.0);
-      expect(columnRadiusKm("state", 250000)).toBe(45.0); // 0.22 * sqrt(250000/pi) ≈ 62.06 -> clamped to 45.0
+      expect(columnRadiusKm("state", 1)).toBe(12.0); // 0.18 * sqrt(1/pi) ≈ 0.101 -> clamped to 12.0
+      expect(columnRadiusKm("state", 50)).toBe(12.0);
+      expect(columnRadiusKm("state", 5000)).toBe(12.0);
+      expect(columnRadiusKm("state", 250000)).toBe(35.0); // 0.18 * sqrt(250000/pi) ≈ 50.78 -> clamped to 35.0
     });
   });
 

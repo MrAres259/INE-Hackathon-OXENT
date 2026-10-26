@@ -18,6 +18,8 @@ import {
   getAbstencionEsperada,
 } from "@/lib/format";
 import { Sparkline } from "@/components/viz/Sparkline";
+import { InfoTip } from "@/components/ui/InfoTip";
+import type { GlossaryKey } from "@/lib/glossary";
 
 export function RegionDetailPanel() {
   const {
@@ -77,20 +79,33 @@ export function RegionDetailPanel() {
         {/* Global summary stats */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
-            <span className="text-[11px] text-slate-400">Total Zonas Evaluadas</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">Total Zonas Evaluadas</span>
+              <InfoTip
+                title="Total de Zonas Evaluadas"
+                text="Número total de entidades federativas (32) o municipios (2,478) evaluados y modelados según el nivel territorial activo."
+                size="xs"
+              />
+            </div>
             <div className="text-xl font-bold text-white mt-0.5">{riskItems.length}</div>
           </div>
           <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
-            <span className="text-[11px] text-slate-400">Escenario Activo</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">Escenario Activo</span>
+              <InfoTip term="escenarios" size="xs" />
+            </div>
             <div className="text-base font-bold text-emerald-400 capitalize mt-0.5">{scenario}</div>
           </div>
         </div>
 
         {/* Categories Distribution */}
         <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-800">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-3">
-            Distribución por Semáforo de Riesgo
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Distribución por Semáforo de Riesgo
+            </h3>
+            <InfoTip term="semaforo" size="xs" />
+          </div>
           <div className="space-y-2">
             {(["rojo", "naranja", "amarillo", "verde"] as const).map((cat) => {
               const count = counts[cat];
@@ -120,39 +135,52 @@ export function RegionDetailPanel() {
 
         {/* Top 5 Critical Risk Regions */}
         <div>
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-            Zonas de Mayor Vulnerabilidad
-          </h3>
+          <div className="flex items-center justify-between mb-2.5">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Zonas de Mayor Riesgo
+            </h3>
+            <InfoTip term="risk_score" size="xs" />
+          </div>
           <div className="space-y-1.5">
             {top5Risk.map((item, idx) => (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                onClick={() => selectRegion(item.id)}
-                className="w-full text-left p-2.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-slate-600 transition-colors flex items-center justify-between group"
+                className="w-full p-2.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 hover:border-slate-600 transition-colors flex items-center justify-between group"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className="text-xs font-mono font-bold text-slate-400 group-hover:text-white">
+                <button
+                  type="button"
+                  onClick={() => selectRegion(item.id)}
+                  className="flex items-center gap-2.5 flex-1 min-w-0 text-left cursor-pointer"
+                >
+                  <span className="text-xs font-mono font-bold text-slate-400 group-hover:text-white shrink-0">
                     #{idx + 1}
                   </span>
-                  <div>
-                    <div className="text-xs font-semibold text-white group-hover:text-emerald-400 transition-colors">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-white group-hover:text-emerald-400 transition-colors truncate">
                       {item.name}
                     </div>
                     <div className="text-[10px] text-slate-400">
                       Abstención pronosticada: {formatPct(item.pred_abstention)}
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="text-[11px] font-bold font-mono px-2 py-0.5 rounded text-white"
+                </button>
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <button
+                    type="button"
+                    onClick={() => selectRegion(item.id)}
+                    className="text-[11px] font-bold font-mono px-2 py-0.5 rounded text-white cursor-pointer hover:opacity-90"
                     style={{ backgroundColor: getCategoryColor(item.category) }}
+                    title="Ver detalle de la zona"
                   >
                     {item.risk_score} pts
-                  </span>
+                  </button>
+                  <InfoTip
+                    title="Puntos de Riesgo (pts)"
+                    text="Puntaje en la escala de 0 a 100 del índice de riesgo. A mayor puntaje, mayor riesgo relativo de abstención."
+                    size="xs"
+                  />
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </div>
@@ -165,6 +193,47 @@ export function RegionDetailPanel() {
   const catLabel = getCategoryLabel(selectedDetail.category);
   const isTrendNegative = (selectedDetail.trend_pp ?? 0) < 0;
   const abstEsperada = getAbstencionEsperada(selectedDetail);
+
+  // 1-line plain language diagnostic summary (Task 3)
+  const summaryLine = (() => {
+    const catWord =
+      selectedDetail.category && selectedDetail.category !== "sin_dato"
+        ? getCategoryLabel(selectedDetail.category).replace(/^Riesgo\s+/i, "").toLowerCase()
+        : null;
+    const scoreVal = selectedDetail.risk_score;
+    const scorePart = scoreVal !== undefined && scoreVal !== null ? `(${scoreVal} de 100)` : null;
+
+    let riskPrefix = "";
+    if (catWord && scorePart) {
+      riskPrefix = `Riesgo ${catWord} ${scorePart}`;
+    } else if (catWord) {
+      riskPrefix = `Riesgo ${catWord}`;
+    } else if (scorePart) {
+      riskPrefix = `Índice de riesgo ${scorePart}`;
+    }
+
+    const hasAbst =
+      selectedDetail.pred_abstention !== null &&
+      selectedDetail.pred_abstention !== undefined &&
+      !isNaN(selectedDetail.pred_abstention);
+    const abstPct = hasAbst ? (selectedDetail.pred_abstention! * 100).toFixed(1) : null;
+    const hasPeople = abstEsperada > 0;
+    const peopleStr = hasPeople ? ` (≈ ${formatInt(abstEsperada)} personas)` : "";
+
+    let abstSentence = "";
+    if (abstPct) {
+      abstSentence = `se espera que no vote el ${abstPct} % de su lista nominal en 2027${peopleStr}`;
+    }
+
+    if (riskPrefix && abstSentence) {
+      return `${riskPrefix}: ${abstSentence}.`;
+    } else if (riskPrefix) {
+      return `${riskPrefix}.`;
+    } else if (abstSentence) {
+      return `${abstSentence.charAt(0).toUpperCase() + abstSentence.slice(1)}.`;
+    }
+    return null;
+  })();
 
   // Profile data for CCPC Age & Sex
   const profileYears = selectedDetail.profile
@@ -185,6 +254,16 @@ export function RegionDetailPanel() {
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
               {selectedDetail.level === "state" ? "Entidad Federativa" : "Municipio"} · Clave {selectedDetail.id}
             </span>
+            {selectedDetail.reliable === false && (
+              <span
+                className="text-[10px] font-semibold bg-rose-950/80 text-rose-300 border border-rose-800/80 px-2 py-0.5 rounded-full flex items-center gap-1"
+                title="Información con alta tasa de registros no especificados (> 50 %)"
+              >
+                <span>⚠️</span>
+                <span>Sin información confiable</span>
+                <InfoTip term="confiabilidad" size="xs" />
+              </span>
+            )}
             {selectedDetail.imputed_census && (
               <span
                 className="text-[10px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-800/80 px-2 py-0.5 rounded-full flex items-center gap-1"
@@ -221,15 +300,24 @@ export function RegionDetailPanel() {
         </div>
         <h2 className="text-xl font-extrabold text-white mt-1.5">{selectedDetail.name}</h2>
         <div className="text-xs text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span>
-            Lista nominal: <strong className="text-white">{formatInt(selectedDetail.lista_nominal)}</strong> electores
+          <span className="inline-flex items-center gap-1">
+            <span>
+              Lista nominal: <strong className="text-white">{formatInt(selectedDetail.lista_nominal)}</strong> electores
+            </span>
+            <InfoTip term="lista_nominal" size="xs" />
           </span>
           {selectedDetail.prioridad !== undefined && selectedDetail.prioridad !== null && (
-            <span className="text-emerald-400 font-semibold">
-              · Prioridad #{selectedDetail.prioridad}
+            <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+              <span>· Prioridad #{selectedDetail.prioridad}</span>
+              <InfoTip term="prioridad" size="xs" />
             </span>
           )}
         </div>
+        {summaryLine && (
+          <p className="text-xs text-slate-200 mt-2 bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/60 leading-relaxed">
+            {summaryLine}
+          </p>
+        )}
       </div>
 
       {/* Main KPI Badges */}
@@ -243,14 +331,19 @@ export function RegionDetailPanel() {
           }}
         >
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: catColor }}>
-              Semáforo de Riesgo
-            </span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] uppercase font-bold tracking-wider" style={{ color: catColor }}>
+                Semáforo de Riesgo
+              </span>
+              <InfoTip term="semaforo" size="xs" />
+            </div>
             <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: catColor }}></span>
           </div>
           <div className="mt-2">
-            <div className="text-2xl font-black text-white">
-              {selectedDetail.risk_score ?? "—"} <span className="text-xs font-normal text-slate-400">/ 100</span>
+            <div className="text-2xl font-black text-white flex items-center gap-1.5">
+              <span>{selectedDetail.risk_score ?? "—"}</span>
+              <span className="text-xs font-normal text-slate-400">/ 100</span>
+              <InfoTip term="risk_score" size="xs" />
             </div>
             <div className="text-xs font-bold mt-0.5" style={{ color: catColor }}>
               {catLabel}
@@ -260,9 +353,12 @@ export function RegionDetailPanel() {
 
         {/* Predicted Abstention 2027 */}
         <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700/80 flex flex-col justify-between">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
-            Abstención Estimada 2027
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+              Abstención Estimada 2027
+            </span>
+            <InfoTip term="pred_abstention" size="xs" />
+          </div>
           <div className="mt-2">
             <div className="text-2xl font-black text-white">
               {formatPct(selectedDetail.pred_abstention)}
@@ -281,8 +377,9 @@ export function RegionDetailPanel() {
                 </span>
               </div>
             )}
-            <div className="text-[10px] text-slate-400 mt-0.5">
-              Intervalo: [{formatPct(selectedDetail.pred_low)} – {formatPct(selectedDetail.pred_high)}]
+            <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
+              <span>Intervalo: [{formatPct(selectedDetail.pred_low)} – {formatPct(selectedDetail.pred_high)}]</span>
+              <InfoTip term="intervalo" size="xs" />
             </div>
           </div>
         </div>
@@ -291,7 +388,10 @@ export function RegionDetailPanel() {
       {/* Abstención Esperada (personas que se espera no voten) y Prioridad */}
       <div className="grid grid-cols-2 gap-3 text-xs">
         <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px] uppercase font-bold">Personas que se espera no voten</span>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 block text-[10px] uppercase font-bold">Personas que se espera no voten</span>
+            <InfoTip term="abstencion_esperada" size="xs" />
+          </div>
           <span className="text-lg font-black text-rose-400 mt-0.5 block font-mono">
             {formatInt(abstEsperada)}
           </span>
@@ -300,7 +400,10 @@ export function RegionDetailPanel() {
           </span>
         </div>
         <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px] uppercase font-bold">Atención Estratégica</span>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 block text-[10px] uppercase font-bold">Atención Estratégica</span>
+            <InfoTip term="prioridad" size="xs" />
+          </div>
           <div className="mt-0.5">
             {selectedDetail.prioridad !== undefined && selectedDetail.prioridad !== null ? (
               <span className="text-lg font-black text-emerald-400 font-mono">
@@ -321,13 +424,19 @@ export function RegionDetailPanel() {
       {/* Secondary Metrics: Last Participation & Trend */}
       <div className="grid grid-cols-2 gap-3 text-xs">
         <div className="bg-slate-800/40 p-2.5 rounded-lg border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">Última Participación (2024)</span>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 block text-[10px]">Última Participación (2024)</span>
+            <InfoTip term="participacion" size="xs" />
+          </div>
           <span className="text-sm font-bold text-white mt-0.5 block">
             {formatPct(selectedDetail.last_participation)}
           </span>
         </div>
         <div className="bg-slate-800/40 p-2.5 rounded-lg border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">Tendencia por Elección</span>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-400 block text-[10px]">Tendencia por Elección</span>
+            <InfoTip term="trend_pp" size="xs" />
+          </div>
           <div className="flex items-center gap-1 mt-0.5">
             <span
               className={`text-sm font-bold ${
@@ -344,17 +453,28 @@ export function RegionDetailPanel() {
       {/* Bloque: Por qué este nivel de riesgo (4 componentes 50/20/15/15) */}
       <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800 space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-            Por qué este nivel de riesgo
-          </h3>
+          <div className="flex items-center gap-1">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Por qué este nivel de riesgo
+            </h3>
+            <InfoTip
+              term={"detalle.componentes" as any}
+              title="Componentes del Índice"
+              text="Ponderación que integra el índice de riesgo: 50% abstención pronosticada, 20% vulnerabilidad sociodemográfica, 15% tendencia de caída y 15% volatilidad."
+              size="xs"
+            />
+          </div>
           <span className="text-[10px] text-slate-400 font-mono">Pesos del Semáforo</span>
         </div>
 
         <div className="space-y-2">
           {/* r_abs (50%) */}
           <div>
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-slate-300 text-[11px]">Pronóstico de abstención (50%)</span>
+            <div className="flex justify-between items-center text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px] inline-flex items-center gap-1">
+                <span>Pronóstico de abstención (50%)</span>
+                <InfoTip term="r_abs" size="xs" />
+              </span>
               <span className="font-mono font-bold text-white text-[11px]">
                 {selectedDetail.r_abs !== undefined && selectedDetail.r_abs !== null
                   ? `${(selectedDetail.r_abs <= 1 ? selectedDetail.r_abs * 100 : selectedDetail.r_abs).toFixed(1)} pts`
@@ -375,8 +495,11 @@ export function RegionDetailPanel() {
 
           {/* r_vuln (20%) */}
           <div>
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-slate-300 text-[11px]">Vulnerabilidad sociodemográfica (20%)</span>
+            <div className="flex justify-between items-center text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px] inline-flex items-center gap-1">
+                <span>Vulnerabilidad sociodemográfica (20%)</span>
+                <InfoTip term="r_vuln" size="xs" />
+              </span>
               <span className="font-mono font-bold text-white text-[11px]">
                 {selectedDetail.r_vuln !== undefined && selectedDetail.r_vuln !== null
                   ? `${(selectedDetail.r_vuln <= 1 ? selectedDetail.r_vuln * 100 : selectedDetail.r_vuln).toFixed(1)} pts`
@@ -397,8 +520,11 @@ export function RegionDetailPanel() {
 
           {/* r_trend (15%) */}
           <div>
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-slate-300 text-[11px]">Tendencia histórica de caída (15%)</span>
+            <div className="flex justify-between items-center text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px] inline-flex items-center gap-1">
+                <span>Tendencia histórica de caída (15%)</span>
+                <InfoTip term="r_trend" size="xs" />
+              </span>
               <span className="font-mono font-bold text-white text-[11px]">
                 {selectedDetail.r_trend !== undefined && selectedDetail.r_trend !== null
                   ? `${(selectedDetail.r_trend <= 1 ? selectedDetail.r_trend * 100 : selectedDetail.r_trend).toFixed(1)} pts`
@@ -417,8 +543,11 @@ export function RegionDetailPanel() {
 
           {/* r_vol (15%) */}
           <div>
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-slate-300 text-[11px]">Volatilidad histórica (15%)</span>
+            <div className="flex justify-between items-center text-xs mb-0.5">
+              <span className="text-slate-300 text-[11px] inline-flex items-center gap-1">
+                <span>Volatilidad histórica (15%)</span>
+                <InfoTip term="r_vol" size="xs" />
+              </span>
               <span className="font-mono font-bold text-white text-[11px]">
                 {selectedDetail.r_vol !== undefined && selectedDetail.r_vol !== null
                   ? `${(selectedDetail.r_vol <= 1 ? selectedDetail.r_vol * 100 : selectedDetail.r_vol).toFixed(1)} pts`
@@ -457,37 +586,59 @@ export function RegionDetailPanel() {
 
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
-            <span className="text-[10px] text-slate-400 block">Jóvenes (18–34) en Lista</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 block">Jóvenes (18–34) en Lista</span>
+              <InfoTip term="ccpc.pct_ln_18_34" size="xs" />
+            </div>
             <span className="font-mono font-bold text-white text-xs mt-0.5 block">
               {formatPct(selectedDetail.ccpc?.pct_ln_18_34)}
             </span>
           </div>
           <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
-            <span className="text-[10px] text-slate-400 block">Part. Jóvenes (18–34)</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 block">Part. Jóvenes (18–34)</span>
+              <InfoTip term="ccpc.part_18_34" size="xs" />
+            </div>
             <span className="font-mono font-bold text-white text-xs mt-0.5 block">
               {formatPct(selectedDetail.ccpc?.part_18_34)}
             </span>
           </div>
           <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
-            <span className="text-[10px] text-slate-400 block">Brecha Juvenil vs Promedio</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 block">Brecha Juvenil vs Promedio</span>
+              <InfoTip term="ccpc.gap_youth_pp" size="xs" />
+            </div>
             <span className="font-mono font-bold text-amber-400 text-xs mt-0.5 block">
               {formatPp(selectedDetail.ccpc?.gap_youth_pp)}
             </span>
           </div>
           <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
-            <span className="text-[10px] text-slate-400 block">Brecha Género (Mujeres − Hombres)</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 block">Brecha Género (Mujeres − Hombres)</span>
+              <InfoTip term="ccpc.gap_sexo_pp" size="xs" />
+            </div>
             <span className="font-mono font-bold text-sky-400 text-xs mt-0.5 block">
               {formatPp(selectedDetail.ccpc?.gap_sexo_pp)}
             </span>
           </div>
           <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
-            <span className="text-[10px] text-slate-400 block">Lista Nominal Rural</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 block">Lista Nominal Rural</span>
+              <InfoTip term="ccpc.pct_ln_rural" size="xs" />
+            </div>
             <span className="font-mono font-bold text-white text-xs mt-0.5 block">
               {formatPct(selectedDetail.ccpc?.pct_ln_rural)}
             </span>
           </div>
           <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
-            <span className="text-[10px] text-slate-400 block">Participación Judicial 2025</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-400 block">Participación Judicial 2025</span>
+              <InfoTip
+                title="Participación Elección Judicial 2025"
+                text="Participación ciudadana registrada en la elección extraordinaria del Poder Judicial de la Federación 2025. Se presenta como referencia independiente del histórico federal."
+                size="xs"
+              />
+            </div>
             <span className="font-mono font-bold text-amber-300 text-xs mt-0.5 block">
               {formatPct(selectedDetail.pj_2025?.participation ?? selectedDetail.part_pj_2025)}
             </span>
@@ -499,11 +650,14 @@ export function RegionDetailPanel() {
       {selectedDetail.profile && selectedDetail.profile.length > 0 && (
         <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                Participación por Edad y Sexo (CCPC)
-              </h3>
-              <p className="text-[10px] text-slate-400">Comparativa mujeres vs hombres</p>
+            <div className="flex items-center gap-1.5">
+              <div>
+                <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                  Participación por Edad y Sexo (CCPC)
+                </h3>
+                <p className="text-[10px] text-slate-400">Comparativa mujeres vs hombres</p>
+              </div>
+              <InfoTip term="perfil_edad_sexo" size="xs" />
             </div>
 
             {/* Year Selector Tabs */}
@@ -595,9 +749,17 @@ export function RegionDetailPanel() {
       {selectedDetail.scenarios && selectedDetail.scenarios.length > 0 && (
         <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
           <div className="flex items-center justify-between mb-2.5">
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-              Comparación de Escenarios (Abstención 2027)
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                Comparación de Escenarios (Abstención 2027)
+              </h3>
+              <InfoTip
+                term={"detalle.escenarios" as any}
+                title="Comparación de Escenarios"
+                text="Contrasta el pronóstico de abstención 2027 en los tres escenarios: Base (inercial), Con Intervención (acciones focalizadas del INE) y Pesimista (caída general de participación)."
+                size="xs"
+              />
+            </div>
             <span className="text-[10px] text-slate-400 font-normal">
               (negativo = menos abstención)
             </span>
@@ -637,7 +799,14 @@ export function RegionDetailPanel() {
                       {label}
                     </span>
                     <span className="font-mono font-bold text-white flex items-center gap-1.5">
-                      <span>{hasVal ? formatPct(sc.pred_abstention) : "sin dato"}</span>
+                      {hasVal ? (
+                        <span>{formatPct(sc.pred_abstention)}</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-slate-400">
+                          <span>sin dato</span>
+                          <InfoTip term="sin_dato" size="xs" />
+                        </span>
+                      )}
                       {scDelta !== null && (
                         <span
                           className={`text-[10px] ${getDeltaAbstentionColorClass(scDelta)}`}
@@ -666,9 +835,17 @@ export function RegionDetailPanel() {
       {/* Historical Sparkline */}
       <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-            Serie Histórica CCPC (DIP_FED 2009–2024)
-          </h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              Serie Histórica CCPC (DIP_FED 2009–2024)
+            </h3>
+            <InfoTip
+              term={"detalle.serie" as any}
+              title="Serie Histórica de Participación"
+              text="Evolución de la participación electoral en elecciones de Diputaciones Federales (2009–2024), Presidenciales y Judicial 2025. Los huecos representan años con información no confiable (> 50 % de registros no especificados)."
+              size="xs"
+            />
+          </div>
           <span className="text-[10px] text-slate-400">INE CCPC</span>
         </div>
         <Sparkline
@@ -676,16 +853,29 @@ export function RegionDetailPanel() {
           predParticipation={selectedDetail.pred_participation}
           targetYear={2027}
         />
+        {selectedDetail.series?.some((p) => p.participation === null || p.reliable === false) && (
+          <div className="mt-2 text-[10px] text-slate-400 flex items-center justify-between bg-slate-900/60 px-2.5 py-1.5 rounded-lg border border-slate-800/80">
+            <span className="flex items-center gap-1 text-amber-300">
+              <span>⚠️</span>
+              <span>Contiene años sin información confiable (&gt; 50 % no especificados)</span>
+            </span>
+            <InfoTip term="confiabilidad" size="xs" />
+          </div>
+        )}
       </div>
 
       {/* Risk Drivers (Divergent Bar Chart) */}
       <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
-        <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-          Factores que Más Influyen en el Riesgo
-        </h3>
+        <div className="flex items-center justify-between mb-2.5">
+          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+            Factores que Más Influyen en el Riesgo
+          </h3>
+          <InfoTip term="factores" size="xs" />
+        </div>
         {!selectedDetail.drivers || selectedDetail.drivers.length === 0 ? (
-          <div className="text-xs text-slate-400 py-3 text-center">
-            Sin información suficiente
+          <div className="text-xs text-slate-400 py-3 text-center flex items-center justify-center gap-1.5">
+            <span>Sin información suficiente</span>
+            <InfoTip term="sin_dato" size="xs" />
           </div>
         ) : !hasProminentDrivers(selectedDetail.drivers) ? (
           <div className="text-xs text-slate-400 py-3 text-center">
@@ -730,9 +920,12 @@ export function RegionDetailPanel() {
       {selectedDetail.features && selectedDetail.features.length > 0 && (
         <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-800">
           <div className="flex items-center justify-between mb-2.5">
-            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-              Variables Sociodemográficas
-            </h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                Variables Sociodemográficas
+              </h3>
+              <InfoTip term="vulnerability_pp" size="xs" />
+            </div>
             <span className="text-[10px] text-slate-400">INEGI / CONAPO</span>
           </div>
           <div className="overflow-x-auto">
@@ -778,12 +971,16 @@ export function RegionDetailPanel() {
 
       {/* Recommendations */}
       <div>
-        <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-2.5">
-          Recomendaciones Preventivas
-        </h3>
+        <div className="flex items-center justify-between mb-2.5">
+          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+            Recomendaciones Preventivas
+          </h3>
+          <InfoTip term="recomendaciones" size="xs" />
+        </div>
         {!selectedDetail.recommendations || selectedDetail.recommendations.length === 0 ? (
-          <div className="p-3 bg-slate-800/40 rounded-xl border border-slate-800 text-xs text-slate-400 text-center">
-            Sin información suficiente
+          <div className="p-3 bg-slate-800/40 rounded-xl border border-slate-800 text-xs text-slate-400 text-center flex items-center justify-center gap-1.5">
+            <span>Sin información suficiente</span>
+            <InfoTip term="sin_dato" size="xs" />
           </div>
         ) : (
           <div className="space-y-2.5">

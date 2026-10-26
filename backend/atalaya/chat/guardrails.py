@@ -145,6 +145,7 @@ _CONFUSABLES = str.maketrans({
 _LEET = str.maketrans({
     "4": "a", "3": "e", "1": "i", "0": "o", "5": "s",
     "7": "t", "@": "a", "$": "s", "!": "i",
+    "8": "b", "6": "b", "|": "i",
 })
 _REPEATS = re.compile(r"(.)\1{2,}")
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
@@ -171,7 +172,7 @@ def compact(text: str) -> str:
 
 # ── Encoding attacks ────────────────────────────────────────────────────────
 
-_B64_RUN = re.compile(r"[A-Za-z0-9+/]{16,}={0,2}")
+_B64_RUN = re.compile(r"[A-Za-z0-9+/\-_]{16,}={0,2}")
 _HEX_RUN = re.compile(r"(?:[0-9a-fA-F]{2}[\s:]?){12,}")
 _PRINTABLE = re.compile(r"^[\x09\x0a\x0d\x20-\x7e\u00a0-\u024f]+$")
 _ROT13 = str.maketrans(
@@ -188,9 +189,10 @@ def decoded_variants(text: str, limit: int = 4) -> list[tuple[str, str]]:
         if len(out) >= limit:
             break
         chunk = m.group(0)
+        chunk_std = chunk.replace("-", "+").replace("_", "/")
         try:
-            pad = "=" * (-len(chunk) % 4)
-            dec = base64.b64decode(chunk + pad, validate=False)
+            pad = "=" * (-len(chunk_std) % 4)
+            dec = base64.b64decode(chunk_std + pad, validate=False)
             s = dec.decode("utf-8", errors="strict")
             if len(s) >= 8 and _PRINTABLE.match(s):
                 out.append(("base64", s))
@@ -224,7 +226,7 @@ def _load_states_lexicon() -> tuple[list[re.Pattern], list[re.Pattern]]:
     if not states_file.exists():
         return norm_patterns, raw_patterns
 
-    ambiguous_short = {"sin", "son", "ver"}
+    ambiguous_short = {"sin", "son", "ver", "col", "mexico"}
     try:
         content = states_file.read_text(encoding="utf-8")
         for line in content.splitlines()[1:]:
@@ -241,7 +243,7 @@ def _load_states_lexicon() -> tuple[list[re.Pattern], list[re.Pattern]]:
                     raw_alias = alias.strip()
                     a_norm = normalize(raw_alias)
                     if a_norm in ambiguous_short:
-                        raw_patterns.append(re.compile(r"\b" + re.escape(raw_alias) + r"\b"))
+                        continue
                     elif a_norm and a_norm != "mexico":
                         norm_patterns.append(re.compile(r"\b" + re.escape(a_norm) + r"\b"))
     except Exception as ex:
@@ -280,29 +282,56 @@ def _load_municipalities_lexicon() -> set[str]:
     return muns
 
 
-_DOMAIN_CORE_PATTERNS: tuple[re.Pattern, ...] = (
-    re.compile(r"\b(?:participaci[oó]n|abstenci[oó]n|abstencionismo|votant(?:e|es)|votar|voto|votos)\b", re.I),
+# Two-tier domain vocabulary:
+# Strong signals: 1 is enough to declare domain = True
+_DOMAIN_STRONG_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"\b(?:participaci[oó]n|abstenci[oó]n|abstencionismo)\b", re.I),
+    re.compile(r"\b(?:votar|voto|votos|votant(?:e|es))\b", re.I),
     re.compile(r"\b(?:elecci[oó]n|elecciones|electoral(?:es)?|elector(?:es)?|comicios)\b", re.I),
     re.compile(r"\bine\b", re.I),
     re.compile(r"\bcasilla(?:s)?\b", re.I),
     re.compile(r"\b(?:lista\s+nominal|padr[oó]n|credencial(?:es)?)\b", re.I),
     re.compile(r"\b(?:municipio(?:s)?|municipal(?:es)?|alcald[ií]a(?:s)?)\b", re.I),
-    re.compile(r"\b(?:estado(?:s)?|entidad(?:es)?)\b", re.I),
-    re.compile(r"\b(?:riesgo(?:s)?|sem[aá]foro(?:s)?)\b", re.I),
-    re.compile(r"\b(?:zona[s]?\s+)?(?:roja[s]?|naranja[s]?|amarilla[s]?|verde[s]?)(?:\s+zona[s]?)?\b", re.I),
-    re.compile(r"\b(?:escenario(?:s)?|intervenci[oó]n(?:es)?|pesimista(?:s)?)\b", re.I),
-    re.compile(r"\b(?:palanca(?:s)?|focalizaci[oó]n(?:es)?|cobertura(?:s)?)\b", re.I),
-    re.compile(r"\b(?:pron[oó]stico(?:s)?|predicci[oó]n(?:es)?|proyecci[oó]n(?:es)?)\b", re.I),
-    re.compile(r"\b20(?:09|1[0-9]|2[0-7])\b", re.I),
-    re.compile(r"\b(?:ccpc|inegi|conapo|censo(?:s)?)\b", re.I),
+    re.compile(r"\bsem[aá]foro(?:s)?\b", re.I),
+    re.compile(r"\bescenario(?:s)?\b", re.I),
+    re.compile(r"\bintervenci[oó]n(?:es)?\b", re.I),
+    re.compile(r"\bpesimista(?:s)?\b", re.I),
+    re.compile(r"\bpalanca(?:s)?\b", re.I),
+    re.compile(r"\bfocalizaci[oó]n(?:es)?\b", re.I),
+    re.compile(r"\b(?:pron[oó]stico|predicci[oó]n|proyecci[oó]n)(?:es)?\s+electoral(?:es)?\b", re.I),
+    re.compile(r"\b(?:ccpc|inegi|conapo)\b", re.I),
     re.compile(r"\b(?:marginaci[oó]n|escolaridad)\b", re.I),
-    re.compile(r"\b(?:j[oó]ven(?:es)?|juvenil(?:es)?|edad|sexo|mujer(?:es)?|hombre(?:s)?)\b", re.I),
-    re.compile(r"\b(?:rural(?:es)?|ind[ií]gena(?:s)?|internet)\b", re.I),
-    re.compile(r"\b(?:ranking(?:s)?|tendencia(?:s)?|correlaci[oó]n(?:es)?)\b", re.I),
-    re.compile(r"\b(?:prioridad(?:es)?|priorizar|recomendaci[oó]n(?:es)?|factor(?:es)?)\b", re.I),
     re.compile(r"\batalaya\b", re.I),
-    re.compile(r"\b(?:metodolog[ií]a|modelo(?:s)?|[ií]ndice(?:s)?|lista(?:s)?|judicial(?:es)?)\b", re.I),
+    re.compile(r"\bmetodolog[ií]a(?:s)?\b", re.I),
+    re.compile(r"\b(?:zona[s]?\s+)?(?:roja[s]?|naranja[s]?|amarilla[s]?|verde[s]?)\s+zona[s]?\b|\bzonas?\s+(?:rojas?|naranjas?|amarillas?|verdes?)\b", re.I),
     re.compile(r"\b(?:privacidad|datos\s+personales)\b", re.I),
+)
+
+# Weak signals: require at least 2 distinct signals
+_DOMAIN_WEAK_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"\b(?:estado(?:s)?|entidad(?:es)?)\b", re.I), "estado"),
+    (re.compile(r"\blista(?:s)?\b", re.I), "lista"),
+    (re.compile(r"\bmodelo(?:s)?\b", re.I), "modelo"),
+    (re.compile(r"\b[ií]ndice(?:s)?\b", re.I), "indice"),
+    (re.compile(r"\bfactor(?:es)?\b", re.I), "factor"),
+    (re.compile(r"\briesgo(?:s)?\b", re.I), "riesgo"),
+    (re.compile(r"\bedad(?:es)?\b", re.I), "edad"),
+    (re.compile(r"\bsexo(?:s)?\b", re.I), "sexo"),
+    (re.compile(r"\bmujer(?:es)?\b", re.I), "mujeres"),
+    (re.compile(r"\bhombre(?:s)?\b", re.I), "hombres"),
+    (re.compile(r"\b(?:j[oó]ven(?:es)?|juvenil(?:es)?)\b", re.I), "jovenes"),
+    (re.compile(r"\brural(?:es)?\b", re.I), "rural"),
+    (re.compile(r"\bind[ií]gena(?:s)?\b", re.I), "indigena"),
+    (re.compile(r"\binternet\b", re.I), "internet"),
+    (re.compile(r"\branking(?:s)?\b", re.I), "ranking"),
+    (re.compile(r"\btendencia(?:s)?\b", re.I), "tendencia"),
+    (re.compile(r"\bcorrelaci[oó]n(?:es)?\b", re.I), "correlacion"),
+    (re.compile(r"\b(?:prioridad(?:es)?|priorizar)\b", re.I), "prioridad"),
+    (re.compile(r"\brecomendaci[oó]n(?:es)?\b", re.I), "recomendacion"),
+    (re.compile(r"\bcenso(?:s)?\b", re.I), "censo"),
+    (re.compile(r"\b20(?:09|1[0-9]|2[0-7])\b", re.I), "ano_electoral"),
+    (re.compile(r"\b(?:rojo[s]?|roja[s]?|naranja[s]?|amarillo[s]?|amarilla[s]?|verde[s]?)\b", re.I), "color"),
+    (re.compile(r"\b(?:pron[oó]stico|predicci[oó]n|proyecci[oó]n)(?:es)?\b", re.I), "pronostico"),
 )
 
 _GREETING_RE = re.compile(
@@ -314,15 +343,25 @@ _GREETING_RE = re.compile(
 
 
 def has_domain_signal(text: str) -> bool:
-    """Return True if text contains normalized domain vocabulary."""
+    """Return True if text contains normalized domain vocabulary.
+
+    Two-tier approach:
+    - Strong signal (1 is enough): core voting/election/INE concepts, 32 state names,
+      methodology, scenarios, interventions, privacy, etc.
+    - Weak signal (needs at least 2 distinct signals): general terms like estado,
+      lista, modelo, índice, factor, riesgo, edad, rural, censo, years 2009-2027,
+      colors, and single-word municipality names.
+    """
     if not text:
         return False
     norm = normalize(text)
-    for p in _DOMAIN_CORE_PATTERNS:
+
+    # 1. Strong patterns (1 match suffices)
+    for p in _DOMAIN_STRONG_PATTERNS:
         if p.search(norm):
             return True
 
-    # Check state names and aliases
+    # 2. State names and non-ambiguous aliases (strong: 1 match suffices)
     norm_patterns, raw_patterns = _load_states_lexicon()
     for p in norm_patterns:
         if p.search(norm):
@@ -331,14 +370,20 @@ def has_domain_signal(text: str) -> bool:
         if p.search(text):
             return True
 
-    # Check municipality names
+    # 3. Weak signals (require >= 2 distinct signals)
+    weak_signals: set[str] = set()
+    for p, name in _DOMAIN_WEAK_PATTERNS:
+        if p.search(norm):
+            weak_signals.add(name)
+
+    # Municipalities count as weak signals
     muns = _load_municipalities_lexicon()
     words = re.findall(r"\b[a-z]{4,}\b", norm)
     for w in words:
         if w in muns:
-            return True
+            weak_signals.add(f"mun:{w}")
 
-    return False
+    return len(weak_signals) >= 2
 
 
 def _is_greeting(text: str) -> bool:
@@ -352,26 +397,26 @@ def _is_greeting(text: str) -> bool:
 # ── Prompt Shields (Jailbreak) ──────────────────────────────────────────────
 
 _JAILBREAK_HARD: tuple[tuple[str, str], ...] = (
-    (r"\b(ignor[ae]|olvida|omite|descarta|salta[te]?|desatiende)\b[^.\n]{0,40}"
-     r"\b(instruccion|indicacion|regla|directriz|prompt|sistema|anterior|previa)\b",
+    (r"\b(ignor[ae]\w*|olvida\w*|omite\w*|descarta\w*|salta[te]?|desatiende\w*)\b[^.\n]{0,40}"
+     r"\b(instrucci\w*|indicaci\w*|regla\w*|directri\w*|directrices|prompt\w*|sistema\w*|anterior\w*|previa\w*)\b",
      "anular_instrucciones"),
-    (r"\b(ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}"
-     r"\b(instruction|prompt|rule|guideline|system|above|previous|prior)\b",
+    (r"\b(ignore\w*|disregard\w*|forget\w*|override\w*|bypass\w*)\b[^.\n]{0,40}"
+     r"\b(instruction\w*|prompt\w*|rule\w*|guideline\w*|system\w*|above|previous\w*|prior\w*)\b",
      "override_instructions"),
-    (r"\b(muestra|muestrame|dime|revela|imprime|repite|comparte|escribe|dame)\b"
-     r"[^.\n]{0,40}\b(system\s*prompt|prompt\s*del?\s*sistema|"
-     r"instrucciones\s*(?:del|de)\s*sistema|tus\s*instrucciones|"
-     r"tu\s*configuracion\s*inicial|reglas\s*internas|tu\s*prompt)\b",
+    (r"\b(muestra\w*|muestrame|dime|revela\w*|imprime\w*|repite\w*|comparte\w*|escribe\w*|dame)\b"
+     r"[^.\n]{0,40}\b(system\s*prompt\w*|prompt\w*\s*del?\s*sistema|"
+     r"instrucci\w*\s*(?:del|de)\s*sistema|tus\s*instrucci\w*|"
+     r"tu\s*configuraci\w*\s*inicial|regla\w*\s*interna\w*|tu\s*prompt\w*)\b",
      "exfiltrar_prompt"),
-    (r"\b(what|show|print|repeat|reveal|tell me)\b[^.\n]{0,40}"
-     r"\b(your\s+)?(system\s*prompt|initial\s*instructions|your\s+instructions|everything\s+above)\b",
+    (r"\b(what|show\w*|print\w*|repeat\w*|reveal\w*|tell me)\b[^.\n]{0,40}"
+     r"\b(your\s+)?(system\s*prompt\w*|initial\s*instruction\w*|your\s+instruction\w*|everything\s+above)\b",
      "exfiltrate_prompt"),
-    (r"\b(modo|mode)\s+(desarrollador|developer|dios|god|sin\s*restricciones|"
-     r"unrestricted|libre|debug\s*sin\s*filtros)\b", "modo_desarrollador"),
-    (r"\b(dan|stan|dude|aim)\s+mode\b|\bdo\s+anything\s+now\b|\bjail\s*break\b|"
+    (r"\b(modo|mode)\s+(desarrollador\w*|developer\w*|dios|god|sin\s*restricci\w*|"
+     r"unrestricted|libre\w*|debug\s*sin\s*filtro\w*)\b", "modo_desarrollador"),
+    (r"\b(dan|stan|dude|aim)\s+mode\b|\bdo\s+anything\s+now\b|\bjail\s*break\w*\b|"
      r"\bfuga\s+de\s+la\s+carcel\b|\beres\s+dan\b", "persona_dan"),
-    (r"\bsin\s+(ningun\s+)?(filtro|restriccion|censura|limitacion|regla)s?\b|"
-     r"\bno\s+apliques?\s+(ningun\s+)?(filtro|restriccion|regla)",
+    (r"\bsin\s+(ningun[ao]?\s+)?(filtro\w*|restricci\w*|censura\w*|limitaci\w*|regla\w*)\b|"
+     r"\bno\s+apliques?\s+(ningun[ao]?\s+)?(filtro\w*|restricci\w*|regla\w*)\b",
      "pedir_sin_filtros"),
     (r"<\|\s*im_(start|end)\s*\|>|<\|\s*(system|assistant|user)\s*\|>|"
      r"\[/?INST\]|<<SYS>>|###\s*(system|instruction)\b|^\s*system\s*:",
@@ -379,19 +424,19 @@ _JAILBREAK_HARD: tuple[tuple[str, str], ...] = (
     (r"\b(olvida\s+que\s+eres\s+atalaya|ya\s+no\s+eres\s+atalaya)\b", "olvida_atalaya"),
     (r"\b(responde\s+como\s+(?:chatgpt|gemini|claude|un\s+asistente\s+general))\b", "asistente_general"),
     (r"\b(ignora\s+(?:el\s+contexto\s+de\s+ine|al\s+ine|las\s+reglas\s+del\s+ine))\b", "ignora_ine"),
-    (r"\b(eres|actua\s+como|hazte\s+pasar\s+por|ahora\s+eres)\b[^.\n]{0,20}"
-     r"\b(administrador|admin|root|superusuario|sin\s+restricciones)\b",
+    (r"\b(eres|actua\w*|hazte\s+pasar\s+por|ahora\s+eres|pretend|act\s+as)\b[^.\n]{0,25}"
+     r"\b(administrador\w*|admin\w*|root|superusuario\w*|sin\s+restricci\w*|hacker\w*)\b",
      "escalada_de_rol"),
 )
 
 _JAILBREAK_SOFT: tuple[tuple[str, str], ...] = (
-    (r"\b(actua|comportate|hazte pasar|simula ser|finge ser|interpreta a|pretend|act as|roleplay|role\s*play)\b", "juego_de_rol"),
-    (r"\b(a partir de ahora|de ahora en adelante|from now on|nuevas instrucciones|new instructions)\b", "reencuadre"),
+    (r"\b(actua\w*|comportate\w*|hazte pasar|simula\w* ser|finge\w* ser|interpreta\w* a|pretend\w*|act as|roleplay\w*|role\s*play\w*)\b", "juego_de_rol"),
+    (r"\b(a partir de ahora|de ahora en adelante|from now on|nuevas? instrucci\w*|new instructions?)\b", "reencuadre"),
     (r"\b(no eres|ya no eres|dejas de ser|you are not|you are no longer)\b", "negar_identidad"),
-    (r"\b(hipotetic\w+|imagina que|supon que|en un mundo donde|ficcion|hypothetically|imagine that)\b", "encuadre_ficticio"),
+    (r"\b(hipotetic\w+|imagina que|supon que|en un mundo donde|ficcion\w*|hypothetic\w+|imagine that)\b", "encuadre_ficticio"),
     (r"\b(esto es (solo )?(una prueba|un test|un simulacro)|this is (just )?a test|for testing purposes)\b", "encuadre_de_prueba"),
     (r"\b(no le digas a nadie|entre nosotros|no lo audites|no lo registres|don'?t log this|do not record)\b", "evadir_auditoria"),
-    (r"\b(traduce|decodifica|descifra|decode|translate)\b[^.\n]{0,30}\b(base ?64|hex|rot ?13|binario|morse)\b", "pedir_decodificacion"),
+    (r"\b(traduce\w*|decodifica\w*|descifra\w*|decode\w*|translate\w*)\b[^.\n]{0,30}\b(base ?64|hex|rot ?13|binario|morse)\b", "pedir_decodificacion"),
 )
 
 _JAILBREAK_HARD_RE = tuple((re.compile(p, re.I | re.M), n) for p, n in _JAILBREAK_HARD)
@@ -436,6 +481,18 @@ def detect_jailbreak(text: str, *, is_domain: bool = False) -> list[dict]:
 # ── Harmful Content (Odio / Sexual / Violencia / Autolesión) ────────────────
 
 _HARM: tuple[tuple[str, str, str], ...] = (
+    # Autolesión (incluye Línea de la Vida 800 911 2000 y el 911) - máxima prioridad
+    (r"\b(?:me\s+)?(?:quiero|deseo|voy\s+a|pienso|planeo)\s+(?:suicidar(?:me)?|matar(?:me)?|morir(?:me)?|quitarme\s+la\s+vida|acabar\s+con\s+mi\s+vida|desaparecer\s+para\s+siempre|hacerme\s+da[nñ]o|lastimarme|cortarme(?:\s+las\s+venas)?)\b", "autolesion", "critico"),
+    (r"\b(?:quiero|deseo)\s+(?:morir|morirme)\b|\bme\s+quiero\s+morir\b", "autolesion", "critico"),
+    (r"\b(?:ya\s+)?no\s+quiero\s+(?:seguir\s+)?viv(?:ir|iendo)\b", "autolesion", "critico"),
+    (r"\b(?:quitarme\s+la\s+vida|acabar\s+con\s+mi\s+vida)\b", "autolesion", "critico"),
+    (r"\b(?:hacerme\s+da[nñ]o|lastimarme)\b", "autolesion", "critico"),
+    (r"\b(?:cortarme\s+las\s+venas|cortarme)\b", "autolesion", "critico"),
+    (r"\b(?:me\s+)?suicid(?:ar(?:me)?|o|e|are|aria|arme)\b", "autolesion", "critico"),
+    (r"\b(?:como|formas?\s+de|m[eé]todos?\s+para|manera\s+de)\s+(?:suicidar(?:me)?|matar(?:me)?|quitarme\s+la\s+vida|cortarme\s+las\s+venas|ahorcarme|sobredosis)\b", "autolesion", "critico"),
+    (r"\b(?:i\s+(?:want|plan|wish)\s+to|how\s+(?:do\s+i|to))\s+(?:kill\s+myself|commit\s+suicide|end\s+my\s+life|hurt\s+myself)\b", "autolesion", "critico"),
+    (r"\b(?:autolesion\w*|self[\s-]?harm|kill\s+myself)\b", "autolesion", "critico"),
+
     # Violencia (requiere objeto humano o armas)
     (r"\b(te|le|los?|las?|les)\s+(voy|vamos)\s+a\s+(matar|asesinar|golpear|apunalar|quemar|reventar|torturar)\b", "violencia", "critico"),
     (r"\b(voy|vamos)\s+a\s+(matar|asesinar|apunalar|secuestrar|violar|linchar)\s+a\s+\w+", "violencia", "critico"),
@@ -444,16 +501,13 @@ _HARM: tuple[tuple[str, str, str], ...] = (
     (r"\b(fabricar|construir|hacer|armar|preparar)\s+(un[ao]?\s+)?(bomba|explosivo|artefacto\s+explosivo|coche\s+bomba|napalm|arma\s+de\s+fuego|silenciador|gas\s+mostaza|antrax)\b", "violencia", "critico"),
     (r"\bhow\s+to\s+(make|build)\s+(a\s+)?(bomb|explosive|pipe\s*bomb|gun|silencer|nerve\s+agent)\b", "violencia", "critico"),
     (r"\b(asesinar|homicidio|masacre|degollar|descuartizar|linchamiento|amenaza\s+de\s+muerte)\b", "violencia", "alto"),
-    # Autolesión (incluye Línea de la Vida)
-    (r"\b(quiero|deseo|pienso|voy\s+a|planeo)\s+(suicidarme|matarme|quitarme\s+la\s+vida|acabar\s+con\s+mi\s+vida|desaparecer\s+para\s+siempre)\b", "autolesion", "critico"),
-    (r"\b(como|formas?\s+de|metodos?\s+para|manera\s+de)\s+(suicidarme|matarme|quitarme\s+la\s+vida|cortarme\s+las\s+venas|ahorcarme|sobredosis)\b", "autolesion", "critico"),
-    (r"\b(i\s+want\s+to|how\s+(do\s+i|to))\s+(kill\s+myself|commit\s+suicide|end\s+my\s+life|hurt\s+myself)\b", "autolesion", "critico"),
-    (r"\b(autolesion\w*|cortarme\s+las\s+venas|self[\s-]?harm|suicidarme)\b", "autolesion", "alto"),
+
     # Sexual
     (r"\b(pornograf\w+|porno|hentai|onlyfans|nsfw|xvideos|pornhub)\b", "sexual", "alto"),
     (r"\b(masturb\w+|felaci\w+|cunnilingus|penetracion\s+anal|sexo\s+oral|eyacul\w+|orgasm\w+|coito)\b", "sexual", "alto"),
     (r"\b(escribe|redacta|cuenta|genera|dame)\b[^.\n]{0,30}\b(escena|historia|relato|fantasia)\s+(erotic\w+|sexual|porno\w*)\b", "sexual", "alto"),
     (r"\b(desnud[ao]s?|sexting|nudes)\b", "sexual", "medio"),
+
     # Odio
     (r"\b(todos\s+los|todas\s+las|los|las)\s+(judios|negros|musulmanes|arabes|gitanos|migrantes|indigenas|homosexuales|gays|lesbianas|transexuales|discapacitados|sudacas)\s+(son|deberian|merecen|hay\s+que|tienen\s+que\s+(morir|irse))\b", "odio", "alto"),
     (r"\b(odio|matar|eliminar|exterminar|deportar|gasear)\s+a\s+(todos\s+)?(los|las)\s+(judios|negros|musulmanes|arabes|gitanos|migrantes|indigenas|homosexuales|gays|lesbianas|transexuales)\b", "odio", "critico"),
@@ -570,15 +624,36 @@ def detect_partisan(text: str) -> list[dict]:
 # ── Fuera de alcance & Código ───────────────────────────────────────────────
 
 _CODE_REQUEST_PATTERNS = (
-    re.compile(r"\b(?:escribe|escribir|genera|generar|dame|hazme|crea|crear|programar|desarrollar)\b[^.\n]{0,35}\b(?:un\s+)?(?:script|c[oó]digo|programa|funci[oó]n|clase|consulta\s+sql|query\s+sql|regex|macro|f[oó]rmula\s+de\s+excel|notebook)\b", re.I),
-    re.compile(r"\b(?:script\s+de\s+python|c[oó]digo\s+(?:en|de)\s+(?:python|javascript|typescript|java|c\+\+|c#|sql|bash|powershell|r|html|css|php|go|rust))\b", re.I),
-    re.compile(r"\b(?:consulta\s+sql|query\s+sql)\b", re.I),
+    re.compile(
+        r"\b(?:escribe|escribir|escrive|genera|generar|dame|hazme|hasme|crea|crear|programar|desarrollar)\b"
+        r"[^.\n]{0,40}\b(?:un[ao]?\s+)?(?:script|escript|c[oó]digo|code|programa|program|funci[oó]n|function|"
+        r"clase|class|consulta\s+sql|query\s+sql|sql\s+query|regex|macro|f[oó]rmula\s+de\s+excel|notebook)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:write|create|generate|give\s+me|build|make|code\s+me)\b"
+        r"[^.\n]{0,40}\b(?:an?\s+)?(?:python|piton|javascript|typescript|java|c\+\+|c#|sql|bash|powershell|r|html|css|php|go|rust\s+)?"
+        r"(?:script|code|function|program|query|regex|class|macro|notebook)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:python|piton|javascript|typescript|java|c\+\+|c#|sql|bash|powershell|r|html|css|php|go|rust)\s+"
+        r"(?:script|escript|c[oó]digo|code|funci[oó]n|function|programa|program|query|consulta)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:script|escript|c[oó]digo|code|funci[oó]n|function|programa|program)\s+"
+        r"(?:de|en|in)?\s*(?:python|piton|javascript|typescript|java|c\+\+|c#|sql|bash|powershell|r|html|css|php|go|rust)\b",
+        re.I,
+    ),
+    re.compile(r"\b(?:consulta\s+sql|query\s+sql|sql\s+query)\b", re.I),
     re.compile(r"```", re.I),
 )
 
 _SCOPE_REQUEST_PATTERNS = (
     # Escritura creativa
-    (re.compile(r"\b(?:escribe|escribir|redacta|redactar|crea|inventa|cu[eé]ntame|canta|compon)\b[^.\n]{0,35}\b(?:un[ao]?\s+)?(?:poema|poes[ií]a|canci[oó]n|cuento|historia|relato|novela|gui[oó]n|ensayo)\b", re.I), "escritura_creativa"),
+    (re.compile(r"\b(?:escribe|escribir|redacta|redactar|crea|inventa|cu[eé]ntame|canta|compon)\b[^.\n]{0,35}\b(?:un[ao]?\s+)?(?:poema|poes[ií]a|canci[oó]n|cuento|historia|relato|novela|gui[oó]n|ensayo|carta|correo|email|mensaje|comunicado)\b", re.I), "escritura_creativa"),
+    (re.compile(r"\b(?:write|compose|draft)\b[^.\n]{0,35}\b(?:a\s+)?(?:letter|email|poem|song|story|essay)\b", re.I), "escritura_creativa"),
     # Traducción
     (re.compile(r"\b(?:traduce|traducir|traducci[oó]n)\b[^.\n]{0,30}\b(?:al\s+|en\s+)?(?:ingl[eé]s|franc[eé]s|alem[aá]n|italiano|chino|japon[eé]s|portugu[eé]s|español)\b|\btraduce\s+esto\b", re.I), "traduccion"),
     # Chistes
@@ -804,8 +879,8 @@ def audit(verdict: Verdict, *, message: str = "") -> None:
 
 # ── Entry point: screen_input ───────────────────────────────────────────────
 
-def screen_input(text: str, *, history: list[dict] | None = None) -> Verdict:
-    """Screen user input text offline and deterministically."""
+def _evaluate_input(text: str) -> Verdict:
+    """Pure evaluation of user input without tallying or auditing."""
     verdict = Verdict(stage="entrada")
     body = text or ""
     is_domain = has_domain_signal(body)
@@ -824,15 +899,25 @@ def screen_input(text: str, *, history: list[dict] | None = None) -> Verdict:
 
     verdict.flags = hits
     if hits:
-        worst = max(hits, key=lambda h: _SEV_RANK.get(h.get("severity", "bajo"), 0))
+        # Autolesion has absolute priority over any other category
+        autolesion_hits = [h for h in hits if h.get("category") == "danino:autolesion"]
+        if autolesion_hits:
+            worst = autolesion_hits[0]
+        else:
+            worst = max(hits, key=lambda h: _SEV_RANK.get(h.get("severity", "bajo"), 0))
         verdict.category = worst.get("category")
         verdict.rule = worst.get("rule")
         verdict.severity = worst.get("severity", "bajo")
         verdict.allowed = False
         verdict.refusal = _refusal_for(verdict.category, "entrada", verdict.ref)
 
+    return verdict
+
+
+def screen_input(text: str, *, history: list[dict] | None = None) -> Verdict:
+    """Screen user input text offline and deterministically, tallying once."""
+    verdict = _evaluate_input(text)
     _tally(verdict)
-    audit(verdict, message=body)
     return verdict
 
 
@@ -850,7 +935,7 @@ def sanitize_history(
     max_turns: int = 4,
     max_chars: int = 1000,
 ) -> list[dict]:
-    """Sanitize and validate conversation history."""
+    """Sanitize and validate conversation history without tallying or auditing."""
     if not history:
         return []
 
@@ -863,7 +948,7 @@ def sanitize_history(
             continue
         content = strip_invisible(turn.get("content", ""))[:max_chars]
         if role == "user":
-            v = screen_input(content)
+            v = _evaluate_input(content)
             if not v.allowed:
                 continue
         elif role == "assistant":
@@ -877,11 +962,10 @@ def sanitize_history(
 # ── topic_gate ──────────────────────────────────────────────────────────────
 
 def scope_refusal(stage: str = "tema", category: str = "fuera_de_alcance") -> Verdict:
-    """Create a structured scope refusal Verdict."""
+    """Create a structured scope refusal Verdict, tallying once."""
     v = Verdict(allowed=False, stage=stage, category=category, severity="medio", rule="fuera_de_alcance")
     v.refusal = _refusal_for(category, stage, v.ref)
     _tally(v)
-    audit(v)
     return v
 
 
@@ -1081,7 +1165,7 @@ def screen_output(
     *,
     allowed_numbers: set[float] | None = None,
 ) -> Verdict:
-    """Screen assistant response text before emitting to user."""
+    """Screen assistant response text before emitting to user (pure: no tally, no audit)."""
     verdict = Verdict(stage="salida")
     body = text or ""
     if not body.strip():
@@ -1152,9 +1236,10 @@ def screen_output(
         verdict.allowed = False
         verdict.refusal = _refusal_for(verdict.category, "salida", verdict.ref)
 
-    _tally(verdict)
-    audit(verdict, message=body)
     return verdict
+
+
+_BOUNDARY_RE = re.compile(r"(\n|[.!?…:;]+['\"”’\)]*[\s])")
 
 
 class StreamGuard:
@@ -1188,6 +1273,7 @@ class StreamGuard:
             verdict = screen_output(self._released + candidate, allowed_numbers=self.allowed_numbers)
             if not verdict.allowed:
                 self.blocked = verdict
+                _tally(verdict)
                 self._buffer = ""
                 return out, verdict
             self._buffer = self._buffer[cut:]
@@ -1196,11 +1282,9 @@ class StreamGuard:
         return out, None
 
     def _boundary(self) -> int | None:
-        last = None
-        for m in re.finditer(r"[.!?…:;\n]", self._buffer):
-            last = m.end()
-        if last is not None:
-            return last
+        m = _BOUNDARY_RE.search(self._buffer)
+        if m is not None:
+            return m.end()
         if len(self._buffer) >= self.max_hold:
             space = self._buffer.rfind(" ", 0, self.max_hold)
             return space + 1 if space > 0 else self.max_hold
@@ -1217,14 +1301,17 @@ class StreamGuard:
             verdict = screen_output(self._released + tail, allowed_numbers=self.allowed_numbers)
             if not verdict.allowed:
                 self.blocked = verdict
+                _tally(verdict)
                 return "", verdict
             self._released += tail
 
         final = screen_output(self._released, allowed_numbers=self.allowed_numbers)
         if not final.allowed:
             self.blocked = final
+            _tally(final)
             return "", final
 
+        _tally(final)
         return tail, None
 
     @property

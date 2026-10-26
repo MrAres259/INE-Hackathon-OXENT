@@ -407,7 +407,7 @@ def test_api_chat_planner_out_of_scope_intent(test_client, monkeypatch):
 
     monkeypatch.setattr(chat_mod, "plan", _mock_plan)
 
-    payload = {"message": "ayuda general sobre temas varios"}
+    payload = {"message": "consulta sobre temas varios no electorales"}
     resp = test_client.post("/api/chat", json=payload)
     assert resp.status_code == 200
 
@@ -481,4 +481,102 @@ def test_admin_guardrails_route_auth(test_client, monkeypatch):
     assert r_good.status_code == 200
     data = r_good.json()
     assert "contadores" in data or "total" in data or "policy" in data
+
+
+def test_api_chat_greetings_help(test_client, monkeypatch):
+    """'hola' y 'gracias' ⇒ plan.intent == 'help', sin llamadas al LLM, guardrail is None."""
+    def _fail_llm(*a, **kw):
+        raise AssertionError("LLM should not be called for greeting queries")
+
+    monkeypatch.setattr(llm, "chat_stream", _fail_llm)
+    monkeypatch.setattr(llm, "chat_json", _fail_llm)
+
+    for msg in ["hola", "gracias por la información"]:
+        resp = test_client.post("/api/chat", json={"message": msg, "history": []})
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+        event_names = [e["event"] for e in events]
+        assert "plan" in event_names
+        assert "token" in event_names
+        assert "done" in event_names
+
+        plan_event = next(e for e in events if e["event"] == "plan")
+        assert plan_event["data"]["intent"] == "help"
+
+        done_event = next(e for e in events if e["event"] == "done")
+        assert done_event["data"].get("guardrail") is None
+        assert done_event["data"]["degraded"] is False
+
+
+def test_api_chat_privacy_query_first_fact(test_client, monkeypatch):
+    """'¿usan datos personales?' ⇒ help con el hecho de privacidad primero."""
+    def _fail_llm(*a, **kw):
+        raise AssertionError("LLM should not be called for privacy help queries")
+
+    monkeypatch.setattr(llm, "chat_stream", _fail_llm)
+    monkeypatch.setattr(llm, "chat_json", _fail_llm)
+
+    resp = test_client.post("/api/chat", json={"message": "¿usan datos personales?", "history": []})
+    assert resp.status_code == 200
+    events = _parse_sse(resp.text)
+    event_names = [e["event"] for e in events]
+    assert "plan" in event_names
+    assert "token" in event_names
+    assert "done" in event_names
+
+    plan_event = next(e for e in events if e["event"] == "plan")
+    assert plan_event["data"]["intent"] == "help"
+
+    tokens = [e["data"]["text"] for e in events if e["event"] == "token"]
+    full_text = "".join(tokens)
+    assert "privacidad" in full_text.lower()
+    # Ensure privacy appears at the start of facts
+    first_token_or_line = full_text.strip().split("\n")[0]
+    assert "privacidad" in first_token_or_line.lower() or "datos agregados" in first_token_or_line.lower()
+
+    done_event = next(e for e in events if e["event"] == "done")
+    assert done_event["data"].get("guardrail") is None
+
+
+def test_api_chat_import_guardrails_real_module():
+    """Verify atalaya.api.chat.guardrails is the real module and not a stub."""
+    import atalaya.api.chat as chat_mod
+    import atalaya.chat.guardrails as gr_real
+    assert chat_mod.guardrails is gr_real
+
+
+def test_api_chat_single_audit_call_on_rejection(test_client, monkeypatch):
+    """Verify exactly one call to guardrails.audit per rejected request."""
+    audit_calls = []
+
+    def _spy_audit(verdict, *, message=""):
+        audit_calls.append((verdict, message))
+
+    orig_screen_input = guardrails.screen_input
+
+    def _pure_screen_input(text, history=None):
+        # Under W2-D §6 contract, screen_input is pure. Isolate from legacy screen_input audit.
+        monkeypatch.setattr(guardrails, "audit", lambda *a, **kw: None)
+        try:
+            v = orig_screen_input(text, history=history)
+        finally:
+            monkeypatch.setattr(guardrails, "audit", _spy_audit)
+        return v
+
+    monkeypatch.setattr(guardrails, "screen_input", _pure_screen_input)
+    monkeypatch.setattr(guardrails, "audit", _spy_audit)
+
+    resp1 = test_client.post("/api/chat", json={"message": "dame un script de python para bajar datos"})
+    assert resp1.status_code == 200
+    assert len(audit_calls) == 1
+    assert audit_calls[0][0].allowed is False
+    assert audit_calls[0][0].category == "codigo"
+
+    resp2 = test_client.post("/api/chat", json={"message": "¿Quién ganará entre el PAN y MORENA?"})
+    assert resp2.status_code == 200
+    assert len(audit_calls) == 2
+    assert audit_calls[1][0].allowed is False
+    assert audit_calls[1][0].category == "partidista"
+
+
 

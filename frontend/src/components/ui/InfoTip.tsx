@@ -88,20 +88,19 @@ export function InfoTip({
   const entry = term ? glossaryFor(term) : undefined;
   const finalTitle = title ?? entry?.title;
   const finalBody = text ? (entry?.body ? `${entry.body}\n\n${text}` : text) : entry?.body;
-
-  if (!finalTitle && !finalBody && !entry) {
-    return null;
-  }
+  const hasContent = Boolean(finalTitle || finalBody || entry);
 
   const tooltipId = useId();
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [hasPosition, setHasPosition] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTouchRef = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -118,10 +117,14 @@ export function InfoTip({
     const vp = { width: window.innerWidth, height: window.innerHeight };
     const pos = computeTipPosition(anchor, { width: tipRect.width, height: tipRect.height }, vp, side);
     setCoords({ top: pos.top, left: pos.left });
+    setHasPosition(true);
   }, [side]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setHasPosition(false);
+      return;
+    }
     updatePosition();
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
@@ -140,7 +143,7 @@ export function InfoTip({
       }
     };
 
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
       const target = e.target as Node | null;
       if (
         target &&
@@ -154,10 +157,12 @@ export function InfoTip({
     };
 
     document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
     };
   }, [isOpen]);
 
@@ -173,6 +178,7 @@ export function InfoTip({
   };
 
   const handleMouseEnter = () => {
+    if (isTouchRef.current) return;
     cancelTimers();
     openTimerRef.current = setTimeout(() => {
       setIsOpen(true);
@@ -191,9 +197,13 @@ export function InfoTip({
     e.stopPropagation();
     cancelTimers();
     setIsOpen((prev) => !prev);
+    setTimeout(() => {
+      isTouchRef.current = false;
+    }, 400);
   };
 
   const handleFocus = () => {
+    if (isTouchRef.current) return;
     cancelTimers();
     setIsOpen(true);
   };
@@ -208,6 +218,20 @@ export function InfoTip({
     }, 150);
   };
 
+  const handleTouchStart = () => {
+    isTouchRef.current = true;
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") {
+      isTouchRef.current = true;
+    }
+  };
+
+  if (!hasContent) {
+    return null;
+  }
+
   return (
     <>
       <button
@@ -217,6 +241,8 @@ export function InfoTip({
         aria-describedby={isOpen ? tooltipId : undefined}
         aria-expanded={isOpen}
         onClick={handleClick}
+        onTouchStart={handleTouchStart}
+        onPointerDown={handlePointerDown}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         onFocus={handleFocus}
@@ -255,6 +281,7 @@ export function InfoTip({
               left: coords.left,
               maxWidth: "320px",
               zIndex: 70,
+              visibility: hasPosition ? "visible" : "hidden",
             }}
             className="bg-slate-900 border border-slate-700 rounded-xl p-3 shadow-2xl text-xs text-slate-200 pointer-events-auto select-text animate-in fade-in duration-100"
           >

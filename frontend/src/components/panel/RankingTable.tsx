@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useAtalaya } from "@/lib/state";
 import { getRanking } from "@/lib/api";
 import type { RiskItem, Level } from "@/lib/types";
+import { InfoTip } from "@/components/ui/InfoTip";
 import {
   formatPct,
   formatPp,
@@ -84,19 +85,24 @@ export function RankingTable() {
       {/* Header & Controls */}
       <div>
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-base font-bold text-white">Ranking de Priorización 2027</h3>
-          <button
-            type="button"
-            onClick={handleExportCsv}
-            disabled={sortedItems.length === 0}
-            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 disabled:opacity-50"
-            title="Exportar listado actual a archivo CSV"
-          >
-            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            <span>Exportar CSV</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-base font-bold text-white">Ranking de Priorización 2027</h3>
+            <InfoTip term="prioridad" size="xs" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              disabled={sortedItems.length === 0}
+              className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span>Exportar CSV</span>
+            </button>
+            <InfoTip term="ranking.csv" size="xs" />
+          </div>
         </div>
         <p className="text-xs text-slate-400 mt-0.5">
           Top 20 zonas con mayor índice de vulnerabilidad y abstención potencial. Clic en una fila para ubicarla en el mapa.
@@ -164,6 +170,7 @@ export function RankingTable() {
             <option value="abstencion_esperada">Abstención esperada (personas)</option>
             <option value="prioridad">Prioridad</option>
           </select>
+          <InfoTip term="ranking.orden" size="xs" />
         </div>
       </div>
 
@@ -175,18 +182,35 @@ export function RankingTable() {
               <th className="py-2.5 pl-3 pr-2">#</th>
               <th className="py-2.5 px-2">Zona</th>
               <th className="py-2.5 px-2 text-right">
-                <div>Abst. 2027</div>
+                <div className="flex items-center justify-end gap-1">
+                  <span>Abst. 2027</span>
+                  <InfoTip term="pred_abstention" size="xs" />
+                </div>
                 {scenario !== "base" && (
-                  <div className="text-[9px] lowercase font-normal text-slate-400" title="negativo = menos abstención">
-                    (Δ vs base)
+                  <div className="flex items-center justify-end gap-0.5 text-[9px] lowercase font-normal text-slate-400">
+                    <span>(Δ vs base)</span>
+                    <InfoTip term="modo.delta" size="xs" />
                   </div>
                 )}
               </th>
-              <th className="py-2.5 px-2 text-right" title="Personas que se espera no voten">
-                Abst. Esperada
+              <th className="py-2.5 px-2 text-right">
+                <div className="flex items-center justify-end gap-1">
+                  <span>Abst. Esperada</span>
+                  <InfoTip term="abstencion_esperada" size="xs" />
+                </div>
               </th>
-              <th className="py-2.5 px-2 text-right">Riesgo</th>
-              <th className="py-2.5 pr-3 pl-2 text-right">Semáforo</th>
+              <th className="py-2.5 px-2 text-right">
+                <div className="flex items-center justify-end gap-1">
+                  <span>Riesgo</span>
+                  <InfoTip term="risk_score" size="xs" />
+                </div>
+              </th>
+              <th className="py-2.5 pr-3 pl-2 text-right">
+                <div className="flex items-center justify-end gap-1">
+                  <span>Semáforo</span>
+                  <InfoTip term="semaforo" size="xs" />
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60 bg-slate-900/60">
@@ -235,7 +259,6 @@ export function RankingTable() {
                           className={`text-[10px] font-normal ${getDeltaAbstentionColorClass(
                             item.delta_vs_base_pp
                           )}`}
-                          title="Cambio en abstención vs base (negativo = menos abstención)"
                         >
                           {formatDeltaPp(item.delta_vs_base_pp)}
                         </div>

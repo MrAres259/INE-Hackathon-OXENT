@@ -23,52 +23,67 @@ export const GLOSSARY = {
     body: "Simula una caída general de la participación y que se acentúen las tendencias históricas a la baja. Permite identificar qué zonas pasarían a semáforo rojo ante un escenario adverso.",
   },
   "param.lever": {
-    title: "Palanca Operativa",
+    title: "Palanca de intervención",
     body: "Tipo de acción institucional a implementar. Decide dónde rinde más el esfuerzo: el efecto se multiplica por un peso relativo según el perfil del municipio frente al percentil 75 nacional (tope 1.5×).",
     relation: "A mayor peso en la variable de la palanca, mayor reducción de abstención en ese municipio.",
   },
   "lever.promocion_jovenes": {
-    title: "Promoción en Jóvenes",
+    title: "Promoción del voto joven",
     body: "Focaliza esfuerzos en población de 18 a 24 años. El peso se calcula con el porcentaje de jóvenes según el censo INEGI 2020, rindiendo más donde hay mayor proporción de jóvenes.",
     relation: "Mayor impacto en municipios con alta proporción de personas de 18 a 24 años.",
   },
   "lever.casillas_rurales": {
-    title: "Casillas Rurales",
+    title: "Casillas y traslado en zonas rurales",
     body: "Instalación y difusión de casillas en zonas rurales. Tiene mayor efecto en municipios rurales, donde la dispersión territorial y la distancia a la casilla pesan más en la decisión de votar.",
     relation: "Mayor impacto en municipios con alto porcentaje de población rural.",
   },
   "lever.materiales_lengua_indigena": {
-    title: "Materiales en Lengua Indígena",
+    title: "Materiales y capacitación en lenguas indígenas",
     body: "Producción y difusión de materiales electorales en lenguas originarias. El impacto se pondera según el porcentaje de población hablante de lengua indígena en cada municipio.",
     relation: "Mayor impacto en zonas con mayor porcentaje de hablantes de lengua indígena.",
   },
   "lever.campana_general": {
-    title: "Campaña General de Difusión",
+    title: "Campaña general de promoción del voto",
     body: "Campaña institucional uniforme con peso de 1× para todos los municipios focalizados, sin ponderación sociodemográfica diferencial.",
     relation: "Aplica el mismo peso a todas las zonas seleccionadas.",
   },
   "param.targeting": {
-    title: "Criterio de Focalización",
+    title: "Focalización",
     body: "Define qué municipios reciben la acción según su nivel de riesgo en el escenario base. «Rojas y naranjas» atiende únicamente zonas de riesgo crítico y alto. Los demás municipios no cambian.",
     relation: "Solo se intervienen los municipios que coinciden con el criterio seleccionado.",
   },
+  "targeting.rojo": {
+    title: "Solo zonas rojas",
+    body: "Aplica la intervención únicamente en los municipios clasificados en riesgo crítico (semáforo rojo) en el escenario base.",
+    relation: "Concentra el 100 % de los recursos en los municipios con mayor abstención esperada y vulnerabilidad.",
+  },
+  "targeting.rojo_naranja": {
+    title: "Zonas rojas y naranjas",
+    body: "Aplica la intervención en municipios con riesgo crítico y alto (rojo y naranja) en el escenario base. Los municipios moderados y bajos no cambian.",
+    relation: "Cubre los dos niveles prioritarios de atención electoral preventiva.",
+  },
+  "targeting.todos": {
+    title: "Todo el país",
+    body: "Extiende la intervención a todos los municipios del país con datos válidos, independientemente de su nivel de riesgo.",
+    relation: "Aplica el efecto de forma homogénea a nivel nacional.",
+  },
   "param.effect_pp": {
-    title: "Efecto Máximo Esperado",
+    title: "Efecto máximo esperado",
     body: "Puntos porcentuales (pp) que aumentaría la participación en un municipio con peso 1× y cobertura del 100 %. 1 pp equivale a 1 persona votante por cada 100 de la lista nominal (rango 0–10).",
     relation: "Base del cálculo antes de multiplicar por cobertura y peso de la palanca.",
   },
   "param.coverage": {
-    title: "Cobertura de la Acción",
+    title: "Cobertura de la intervención",
     body: "Porcentaje de la población objetivo que realmente se alcanza con la intervención en territorio.",
     relation: "Efecto real = efecto máximo × cobertura × peso de la palanca.",
     example: "3.0 pp × 50 % × 1.2 = 1.8 pp de incremento real.",
   },
   "param.shock_pp": {
-    title: "Caída General de Participación",
+    title: "Caída general de participación",
     body: "Puntos porcentuales (pp) que disminuye la participación en todos los municipios del país en el escenario pesimista.",
   },
   "param.trend_amplifier": {
-    title: "Acentuación de Tendencia Negativa",
+    title: "Acentuación de tendencias negativas",
     body: "En municipios cuya participación viene cayendo, suma este porcentaje de su caída histórica al pronóstico de abstención. Con 0 % no hay penalización extra.",
   },
   "simulacion.votos": {
@@ -213,6 +228,46 @@ export const GLOSSARY = {
     title: "Asistente Virtual ATALAYA",
     body: "Asistente enfocado exclusivamente en participación y abstención ciudadana con los datos oficiales de ATALAYA. Cada cifra proviene de los cálculos del sistema; no emite opiniones partidistas ni genera código.",
   },
+  "ranking.orden": {
+    title: "Criterio de ordenación",
+    body: "Permite ordenar las zonas por índice de riesgo (vulnerabilidad y abstención relativa), abstención esperada (volumen absoluto de personas no votantes) o prioridad (atención sugerida entre zonas críticas rojas y naranjas).",
+  },
+  "ranking.csv": {
+    title: "Descarga de datos (CSV)",
+    body: "Descarga una tabla en formato CSV con el listado actual ordenado: clave geográfica, nombre, nivel, lista nominal, participación 2024, abstención 2027 pronosticada, abstención esperada en personas, prioridad, índice de riesgo y semáforo.",
+  },
+  "detalle.serie": {
+    title: "Serie histórica de participación",
+    body: "Muestra la participación ciudadana en elecciones federales previas (CCPC). Los años con tasa de no especificados mayor a 50 % se omiten por falta de confiabilidad estadística. La elección judicial extraordinaria 2025 se presenta por separado al tener naturaleza distinta.",
+  },
+  "detalle.componentes": {
+    title: "Componentes del índice de riesgo",
+    body: "El índice de riesgo (0–100) combina cuatro dimensiones ponderadas: 50 % abstención pronosticada, 20 % vulnerabilidad sociodemográfica, 15 % tendencia histórica a la baja y 15 % volatilidad electoral, calculadas según la posición relativa de la zona.",
+  },
+  "detalle.escenarios": {
+    title: "Comparación de escenarios",
+    body: "Contrasta el comportamiento proyectado de la zona entre el escenario Base (inercial), Intervención (con acciones focalizadas del INE) y Pesimista (caída general de participación y acentuación de tendencias).",
+  },
+  "comparar.resumen": {
+    title: "Resumen comparativo",
+    body: "Indica el cambio neto de zonas en cada color del semáforo entre el escenario base y el intervenido (por ejemplo, reducción de municipios en rojo crítico) y cuántas zonas mejoran hacia un nivel de menor riesgo.",
+  },
+  buscador: {
+    title: "Búsqueda geográfica",
+    body: "Permite localizar rápidamente cualquier estado o municipio de México por nombre o clave geográfica, sin distinción de mayúsculas, minúsculas o acentos ortográficos.",
+  },
+  navegacion: {
+    title: "Navegación territorial",
+    body: "Explora el país a tres niveles: nacional, estatal y municipal. Haz clic en una entidad para ver sus municipios y en «← México» en la barra de navegación para regresar a la vista nacional.",
+  },
+  "asistente.alcance": {
+    title: "Alcance del asistente",
+    body: "El asistente responde preguntas sobre participación ciudadana, abstención y semáforo 2027 con datos de ATALAYA. Por diseño no genera código ni scripts, no opina sobre partidos o candidaturas, ni procesa datos personales.",
+  },
+  guia: {
+    title: "Guía de uso del tablero",
+    body: "1. Explora el mapa nacional y su semáforo. 2. Elige un estado para ver municipios críticos. 3. Consulta el diagnóstico territorial con factores y recomendaciones. 4. Simula intervenciones en Escenarios para estimar votos recuperables.",
+  },
 } as const satisfies Record<string, GlossaryEntry>;
 
 export type GlossaryKey = keyof typeof GLOSSARY;
@@ -241,6 +296,10 @@ export function optionTerm(paramKey: string, value: string): GlossaryKey | undef
   const leverCandidate = `lever.${value}`;
   if (leverCandidate in GLOSSARY) {
     return leverCandidate as GlossaryKey;
+  }
+  const targetingCandidate = `targeting.${value}`;
+  if (targetingCandidate in GLOSSARY) {
+    return targetingCandidate as GlossaryKey;
   }
   return undefined;
 }

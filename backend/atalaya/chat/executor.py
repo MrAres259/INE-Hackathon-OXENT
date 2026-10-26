@@ -1004,19 +1004,57 @@ def _execute_catalog(spec: QuerySpec) -> DataResult:
     )
 
 
-def _execute_help() -> DataResult:
-    facts = [
-        "ATALAYA es el asistente de analítica del INE para explorar la participación ciudadana y predecir el riesgo de abstención.",
-        "Puedes consultar:",
-        "1. Ranking: '¿Qué 10 municipios de Chiapas tienen mayor riesgo en 2027?'",
-        "2. Consulta puntual: '¿Cuál fue la participación en Jalisco en 2021?'",
-        "3. Correlación: '¿Cómo se relaciona la escolaridad con la participación en Oaxaca?'",
-        "4. Escenarios: '¿Qué pasa si hacemos promoción del voto juvenil en zonas rojas con 4 puntos?'",
+def _execute_help(spec: QuerySpec | None = None) -> DataResult:
+    topic = None
+    if spec is not None and isinstance(spec.filters, dict):
+        topic = spec.filters.get("topic")
+    elif spec is None:
+        import inspect
+        frame = inspect.currentframe()
+        if frame and frame.f_back and "spec" in frame.f_back.f_locals:
+            s = frame.f_back.f_locals.get("spec")
+            if isinstance(s, QuerySpec) and isinstance(s.filters, dict):
+                topic = s.filters.get("topic")
+
+    is_privacy = (topic == "privacidad")
+
+    fact_privacy = (
+        "Privacidad de datos: ATALAYA opera únicamente con datos agregados; "
+        "no almacena ni consulta datos nominales o individuales. "
+        "En perfiles demográficos, las celdas con menos de 10 personas se encuentran suprimidas (N/D) para proteger la confidencialidad."
+    )
+    fact_scope = (
+        "ATALAYA es el asistente analítico del INE para explorar la participación ciudadana y el riesgo de abstención electoral en México."
+    )
+    fact_examples = [
+        "Consultas disponibles con datos verificados:",
+        "1. Ranking: «¿Qué municipios de Chiapas tienen mayor riesgo en 2027?»",
+        "2. Consulta puntual: «¿Cuál fue la participación en Jalisco en 2021?»",
+        "3. Correlación: «¿Cómo se relaciona la escolaridad con la participación en Oaxaca?»",
+        "4. Escenarios: «¿Qué pasa si hacemos promoción del voto juvenil en zonas rojas?»",
     ]
+    fact_no_scope = (
+        "Qué no responde: no genera código o scripts, no atiende temas ajenos a la participación electoral y sociodemografía, "
+        "no emite opiniones partidistas ni pronósticos de candidaturas, y no procesa datos personales."
+    )
+    fact_sources = (
+        "Fuentes oficiales: Conteos Censales de Participación Ciudadana del INE (CCPC 2009–2024), "
+        "Censo de Población y Vivienda de INEGI 2020 e Índice de Marginación de CONAPO 2020."
+    )
+    fact_forecast = (
+        "Pronóstico 2027: el índice de riesgo y la abstención pronosticada son estimaciones estadísticas bajo supuestos metodológicos "
+        "para orientar acciones preventivas del INE."
+    )
+
+    if is_privacy:
+        facts = [fact_privacy, fact_scope, *fact_examples, fact_no_scope, fact_sources, fact_forecast]
+    else:
+        facts = [fact_scope, *fact_examples, fact_no_scope, fact_privacy, fact_sources, fact_forecast]
+
     return DataResult(
         columns=[],
         rows=[],
-        source="ATALAYA",
+        source="ATALAYA · Asistente Analítico",
         facts=facts,
         empty=True,
     )
@@ -1054,9 +1092,9 @@ def execute(
     elif spec.intent == "profile":
         res = _execute_profile(spec, store, region_id)
     elif spec.intent in ("help", "out_of_scope"):
-        res = _execute_help()
+        res = _execute_help(spec)
     else:
-        res = _execute_help()
+        res = _execute_help(spec)
 
     hint = followup_hint or getattr(spec, "followup_hint", None)
     if hint and hint not in res.facts:

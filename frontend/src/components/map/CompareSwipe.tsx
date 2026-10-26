@@ -26,9 +26,12 @@ export function CompareSwipe({
   className = "",
 }: CompareSwipeProps) {
   const atalayaContext = useAtalaya();
-  const { comparePos = 50, setComparePos } = atalayaContext;
-  const activeView3d: "inclinada" | "cenital" =
-    view3d ?? (atalayaContext as any).view3d ?? "inclinada";
+  const {
+    comparePos = 50,
+    setComparePos,
+    view3d: contextView3d = "inclinada",
+  } = atalayaContext;
+  const activeView3d: "inclinada" | "cenital" = view3d ?? contextView3d;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapARef = useRef<MapLibreMap | null>(null);

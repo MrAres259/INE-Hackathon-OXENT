@@ -52,4 +52,37 @@ describe("SSE Stream Parser", () => {
     expect(res.events[0].event).toBe("data");
     expect(res.events[0].data).toBe("line1\nline2");
   });
+
+  it("preserves guardrail payload in done event", () => {
+    const raw =
+      'event: done\ndata: {"sources":[],"degraded":false,"guardrail":{"stage":"entrada","category":"codigo","ref":"gr-1a2b3c4d"}}\n\n';
+    const res = parseSSEChunk("", raw);
+    expect(res.events).toHaveLength(1);
+    expect(res.events[0].event).toBe("done");
+    const payload = JSON.parse(res.events[0].data);
+    expect(payload.sources).toEqual([]);
+    expect(payload.degraded).toBe(false);
+    expect(payload.guardrail).toEqual({
+      stage: "entrada",
+      category: "codigo",
+      ref: "gr-1a2b3c4d",
+    });
+  });
+
+  it("handles guardrail in salida stage with degraded response", () => {
+    const raw =
+      'event: token\ndata: {"text":"Texto inicial..."}\n\nevent: done\ndata: {"sources":["ATALAYA"],"degraded":true,"guardrail":{"stage":"salida","category":"cifra_no_respaldada","ref":"gr-8f9e0a1b"}}\n\n';
+    const res = parseSSEChunk("", raw);
+    expect(res.events).toHaveLength(2);
+    expect(res.events[0].event).toBe("token");
+    expect(res.events[1].event).toBe("done");
+    const payload = JSON.parse(res.events[1].data);
+    expect(payload.degraded).toBe(true);
+    expect(payload.sources).toEqual(["ATALAYA"]);
+    expect(payload.guardrail).toEqual({
+      stage: "salida",
+      category: "cifra_no_respaldada",
+      ref: "gr-8f9e0a1b",
+    });
+  });
 });

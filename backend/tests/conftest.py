@@ -32,6 +32,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROTECTED_DIRS = [
     (_REPO_ROOT / "data" / "build").resolve(),
     (_REPO_ROOT / "data" / "seed").resolve(),
+    (_REPO_ROOT / "data" / "cache" / "logs").resolve(),
     (_REPO_ROOT / "deliverables").resolve(),
     (_REPO_ROOT / "frontend" / "public" / "geo").resolve(),
 ]
@@ -247,3 +248,13 @@ def tmp_build(tmp_path: Path):
                     shutil.copy(f, seed_dir / f.name)
 
     return {"build_dir": build_dir, "seed_dir": seed_dir}
+
+
+@pytest.fixture(autouse=True)
+def isolate_guardrails_audit(monkeypatch, tmp_path: Path):
+    """Isolate guardrail audit log path from real cache/logs directory."""
+    try:
+        import atalaya.chat.guardrails as gr
+        monkeypatch.setattr(gr, "AUDIT_PATH", tmp_path / "guardrails.jsonl")
+    except (ImportError, AttributeError):
+        pass

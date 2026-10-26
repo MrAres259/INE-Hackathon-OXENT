@@ -12,6 +12,7 @@ import {
   BASEMAP,
   fillExpression,
   columnColorExpression,
+  columnHeightExpression,
   COLUMN_ZOOM_SPLIT,
   type ColorMode,
 } from "@/lib/mapStyle";
@@ -279,7 +280,7 @@ export function buildDataLayers(
       },
       paint: {
         "fill-extrusion-color": columnColorExpression(colorMode),
-        "fill-extrusion-height": ["coalesce", ["feature-state", "h"], 0],
+        "fill-extrusion-height": columnHeightExpression(),
         "fill-extrusion-base": 0,
         "fill-extrusion-opacity": 0.95,
         "fill-extrusion-vertical-gradient": true,
@@ -295,7 +296,7 @@ export function buildDataLayers(
       },
       paint: {
         "fill-extrusion-color": columnColorExpression(colorMode),
-        "fill-extrusion-height": ["coalesce", ["feature-state", "h"], 0],
+        "fill-extrusion-height": columnHeightExpression(),
         "fill-extrusion-base": 0,
         "fill-extrusion-opacity": 0.95,
         "fill-extrusion-vertical-gradient": true,

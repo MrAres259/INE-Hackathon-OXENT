@@ -769,10 +769,8 @@ def get_admin_guardrails(request: Request) -> dict[str, Any]:
     from atalaya.api.security import verify_admin_access
 
     verify_admin_access(request)
-    try:
-        from atalaya.chat import guardrails
-        return guardrails.stats()
-    except Exception as exc:
-        logger.error("Error retrieving guardrail stats: %s", exc)
-        return {"total_checked": 0, "blocked": 0, "categories": {}}
+    from atalaya.chat import guardrails
+
+    return guardrails.stats()
+
 

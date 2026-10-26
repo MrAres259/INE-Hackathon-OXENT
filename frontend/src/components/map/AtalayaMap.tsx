@@ -55,7 +55,6 @@ declare global {
 
 const isPerfEnabled = (): boolean => {
   if (typeof window === "undefined") return false;
-  if (process.env.NODE_ENV !== "production") return true;
   try {
     return new URLSearchParams(window.location.search).get("perf") === "1";
   } catch {
@@ -318,7 +317,7 @@ function AtalayaMapImpl({
       maxZoom: 12,
       attributionControl: false,
       dragRotate: false,
-      pitchWithRotate: false,
+      pitchWithRotate: true,
       fadeDuration: 0,
       pixelRatio: Math.min(dpr, 2),
     });

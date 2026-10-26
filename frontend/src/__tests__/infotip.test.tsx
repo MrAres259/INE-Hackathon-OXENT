@@ -94,4 +94,29 @@ describe("InfoTip and computeTipPosition", () => {
     const html = renderToStaticMarkup(<InfoTip />);
     expect(html).toBe("");
   });
+
+  it("handles left and right positioning in computeTipPosition", () => {
+    const anchor: DOMRectLike = {
+      top: 200,
+      bottom: 220,
+      left: 300,
+      right: 320,
+      width: 20,
+      height: 20,
+    };
+
+    const leftPos = computeTipPosition(anchor, tipSize, defaultViewport, "left", 8);
+    expect(leftPos.side).toBe("left");
+    expect(leftPos.left).toBe(300 - 100 - 8); // 192
+
+    const rightPos = computeTipPosition(anchor, tipSize, defaultViewport, "right", 8);
+    expect(rightPos.side).toBe("right");
+    expect(rightPos.left).toBe(320 + 8); // 328
+  });
+
+  it("renders custom title and text correctly", () => {
+    const html = renderToStaticMarkup(<InfoTip title="Test Title" text="Test Body" size="xs" />);
+    expect(html).toContain('aria-label="¿Qué es Test Title?"');
+    expect(html).toContain('p-0.5');
+  });
 });

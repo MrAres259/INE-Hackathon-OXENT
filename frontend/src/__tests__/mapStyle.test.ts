@@ -10,6 +10,7 @@ import {
   deltaHeight,
   mixHex,
   columnColorExpression,
+  columnHeightExpression,
   COLUMN_MAX_M,
   COLUMN_MIN_FRACTION,
   COLUMN_ZOOM_SPLIT,
@@ -26,6 +27,7 @@ import {
 } from "../lib/mapStyle";
 import { CATEGORY_COLORS } from "../lib/format";
 import type { RiskItem } from "../lib/types";
+import { validateStyleMin } from "@maplibre/maplibre-gl-style-spec";
 
 describe("mapStyle Logic & Expressions Tests", () => {
   it("exports valid map constants, layer IDs, column bounds, and basemap", () => {
@@ -52,8 +54,8 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(BASEMAP.maxzoom).toBe(16);
     expect(BASEMAP.attribution).toContain("Esri");
     expect(BASEMAP.attribution).toContain("INEGI MG 2024");
-    expect(COLUMN_MAX_M.state).toBe(420_000);
-    expect(COLUMN_MAX_M.mun).toBe(90_000);
+    expect(COLUMN_MAX_M.state).toBe(380_000);
+    expect(COLUMN_MAX_M.mun).toBe(70_000);
     expect(COLUMN_MIN_FRACTION).toBe(0.04);
     expect(COLUMN_ZOOM_SPLIT).toBe(5.5);
   });
@@ -200,6 +202,59 @@ describe("mapStyle Logic & Expressions Tests", () => {
       // Check feature-state dim check
       expect(JSON.stringify(expr)).toContain("dim");
     }
+  });
+
+  it("constructs valid columnHeightExpression with decreasing factors and passes style-spec validation", () => {
+    const expr = columnHeightExpression() as unknown[];
+    expect(Array.isArray(expr)).toBe(true);
+    expect(expr[0]).toBe("interpolate");
+    expect(expr[1]).toEqual(["linear"]);
+    expect(expr[2]).toEqual(["zoom"]);
+
+    // Stops: 3 -> 1, 5.5 -> 0.85, 7 -> 0.5, 9 -> 0.28, 12 -> 0.15
+    const stops: { zoom: number; factor: number }[] = [];
+    for (let i = 3; i < expr.length; i += 2) {
+      const z = expr[i] as number;
+      const mult = expr[i + 1] as unknown[];
+      expect(Array.isArray(mult)).toBe(true);
+      expect(mult[0]).toBe("*");
+      expect(mult[1]).toEqual(["coalesce", ["feature-state", "h"], 0]);
+      const factor = mult[2] as number;
+      stops.push({ zoom: z, factor });
+    }
+
+    expect(stops).toHaveLength(5);
+    expect(stops.map((s) => s.zoom)).toEqual([3, 5.5, 7, 9, 12]);
+    expect(stops.map((s) => s.factor)).toEqual([1, 0.85, 0.5, 0.28, 0.15]);
+
+    // Verify factor is strictly decreasing as zoom increases
+    for (let i = 1; i < stops.length; i++) {
+      expect(stops[i].factor).toBeLessThan(stops[i - 1].factor);
+    }
+
+    // Validate against MapLibre style specification using validateStyleMin
+    const minimalStyle = {
+      version: 8 as const,
+      sources: {
+        columns: {
+          type: "geojson" as const,
+          data: { type: "FeatureCollection" as const, features: [] },
+        },
+      },
+      layers: [
+        {
+          id: "test-column-height-layer",
+          type: "fill-extrusion" as const,
+          source: "columns",
+          paint: {
+            "fill-extrusion-height": columnHeightExpression(),
+          },
+        },
+      ],
+    };
+
+    const errors = validateStyleMin(minimalStyle);
+    expect(errors).toHaveLength(0);
   });
 
   it("produces correct featureStateFor edge cases using risk_score in category and |delta| in delta mode", () => {

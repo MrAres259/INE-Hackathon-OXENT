@@ -9,62 +9,7 @@ from atalaya.chat.executor import get_variable_meta
 from atalaya.chat.spec import DataResult, QuerySpec
 from atalaya import llm
 
-try:
-    from atalaya.chat import guardrails
-except ImportError:
-    import sys
-    guardrails = sys.modules.get("atalaya.chat.guardrails")
-    if guardrails is None:
-        import types
-        from dataclasses import dataclass, field
-
-        @dataclass
-        class Verdict:
-            allowed: bool = True
-            stage: str = "entrada"
-            category: str | None = None
-            severity: str = "bajo"
-            rule: str | None = None
-            refusal: str = ""
-            ref: str = "gr-00000000"
-            domain: bool = False
-            greeting: bool = False
-            flags: list[dict] = field(default_factory=list)
-
-            def as_public(self) -> dict | None:
-                if self.allowed and not self.flags:
-                    return None
-                return {"stage": self.stage, "category": self.category, "ref": self.ref}
-
-        class StreamGuard:
-            def __init__(self, *, allowed_numbers=None, max_hold=400):
-                self.allowed_numbers = allowed_numbers or set()
-                self.blocked = None
-
-            def feed(self, delta: str):
-                return delta, None
-
-            def finish(self):
-                return "", None
-
-        _stub = types.ModuleType("atalaya.chat.guardrails")
-        _stub.Verdict = Verdict
-        _stub.StreamGuard = StreamGuard
-        _stub.normalize = lambda text: text
-        _stub.has_domain_signal = lambda text: True
-        _stub.screen_input = lambda text, *, history=None: Verdict(allowed=True, domain=True)
-        _stub.sanitize_history = lambda history, *, max_turns=4, max_chars=1000: history or []
-        _stub.topic_gate = lambda text, *, history=None: Verdict(allowed=True, domain=True)
-        _stub.scope_refusal = lambda stage="tema", category="fuera_de_alcance": Verdict(
-            allowed=False, stage=stage, category=category, refusal=f"Rechazo {category}\n\nReferencia: gr-00000000", ref="gr-00000000"
-        )
-        _stub.screen_output = lambda text, *, allowed_numbers=None: Verdict(allowed=True)
-        _stub.numbers_in = lambda text: set()
-        _stub.audit = lambda verdict, *, message="": None
-        _stub.stats = lambda: {"total_checked": 0, "blocked": 0, "categories": {}}
-        _stub.SYSTEM_PROMPT_BLOCK = ""
-        guardrails = _stub
-        sys.modules["atalaya.chat.guardrails"] = _stub
+from atalaya.chat import guardrails
 
 logger = logging.getLogger(__name__)
 

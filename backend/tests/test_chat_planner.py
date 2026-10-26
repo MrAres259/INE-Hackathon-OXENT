@@ -428,4 +428,54 @@ def test_planner_user_query_fenced(monkeypatch):
     assert "<<<PREGUNTA_USUARIO>>>\nconsulta ambigua no resuelta por reglas\n<<<FIN_PREGUNTA_USUARIO>>>" in user_msgs[0]["content"]
 
 
+def test_planner_greetings_and_help():
+    """Verify 'hola' and 'gracias' resolve directly to intent='help' with rules method and no LLM."""
+    for phrase in ["hola", "buenos días", "gracias", "muchas gracias", "gracias por la información"]:
+        spec, method = plan(phrase)
+        assert method == "rules"
+        assert spec.intent == "help"
+
+
+def test_planner_privacy_queries():
+    """Verify privacy questions resolve to intent='help' with filters.topic='privacidad'."""
+    for phrase in ["¿usan datos personales?", "¿cómo protegen la privacidad?", "privacidad"]:
+        spec, method = plan(phrase)
+        assert method == "rules"
+        assert spec.intent == "help"
+        assert spec.filters.get("topic") == "privacidad"
+
+
+def test_planner_app_orientation_queries():
+    """Verify app orientation questions resolve to intent='help'."""
+    for phrase in ["¿qué es ATALAYA?", "¿de dónde salen los datos?", "¿qué puedes hacer?"]:
+        spec, method = plan(phrase)
+        assert method == "rules"
+        assert spec.intent == "help"
+
+
+def test_planner_llm_out_of_scope_domain_override(monkeypatch):
+    """When LLM returns out_of_scope for a question with domain signals ('participación en Jalisco 2021'), rules plan is used."""
+    import atalaya.chat.planner as planner_mod
+    monkeypatch.setattr(llm, "is_enabled", lambda: True)
+
+    orig_plan_rules = planner_mod._plan_rules
+    def _mock_plan_rules(msg, history=None, region_id=None):
+        spec, _, hint = orig_plan_rules(msg, history=history, region_id=region_id)
+        # Force low confidence to trigger LLM path
+        return spec, False, hint
+
+    monkeypatch.setattr(planner_mod, "_plan_rules", _mock_plan_rules)
+
+    # LLM proposes out_of_scope
+    monkeypatch.setattr(llm, "chat_json", lambda *a, **kw: QuerySpec(intent="out_of_scope"))
+
+    spec, method = planner_mod.plan("¿Cuál fue la participación en Jalisco en 2021?")
+    # Must override LLM out_of_scope and use rules plan
+    assert method == "rules"
+    assert spec.intent != "out_of_scope"
+    assert spec.intent == "lookup"
+    assert "14" in spec.unit_ids or spec.filters.get("cve_ent") == "14"
+
+
+
 

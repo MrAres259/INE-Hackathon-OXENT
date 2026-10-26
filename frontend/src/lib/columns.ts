@@ -13,8 +13,8 @@ export const COLUMN_SEGMENTS = 12;
 /**
  * Calculates column radius in kilometers based on territorial area.
  * R_eq = sqrt(area/π).
- * mun: clamp(0.35·R_eq, 1.0, 8.0) km (without area: 3 km).
- * state: clamp(0.22·R_eq, 15, 45) km (without area: 25 km).
+ * mun: clamp(0.22·R_eq, 0.8, 4.5) km (without area: 2 km).
+ * state: clamp(0.18·R_eq, 12, 35) km (without area: 20 km).
  */
 export function columnRadiusKm(level: Level, areaKm2?: number): number {
   if (
@@ -24,13 +24,13 @@ export function columnRadiusKm(level: Level, areaKm2?: number): number {
     Number.isNaN(areaKm2) ||
     areaKm2 <= 0
   ) {
-    return level === "mun" ? 3.0 : 25.0;
+    return level === "mun" ? 2.0 : 20.0;
   }
   const req = Math.sqrt(areaKm2 / Math.PI);
   if (level === "mun") {
-    return Math.max(1.0, Math.min(8.0, 0.35 * req));
+    return Math.max(0.8, Math.min(4.5, 0.22 * req));
   }
-  return Math.max(15.0, Math.min(45.0, 0.22 * req));
+  return Math.max(12.0, Math.min(35.0, 0.18 * req));
 }
 
 /**

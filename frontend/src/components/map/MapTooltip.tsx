@@ -11,7 +11,6 @@ import {
   getCategoryColor,
   getCategoryLabel,
 } from "@/lib/format";
-import { deltaColor } from "@/lib/mapStyle";
 
 export interface MapTooltipProps {
   hover: HoverInfo | null;
@@ -35,8 +34,8 @@ export function MapTooltip({
     : "Entidad Federativa";
 
   // Position and flipping near edges
-  const tooltipWidth = 270;
-  const tooltipHeight = 220;
+  const tooltipWidth = 280;
+  const tooltipHeight = 230;
   const flipX = hover.x + tooltipWidth > containerWidth - 16;
   const flipY = hover.y + tooltipHeight > containerHeight - 16;
 
@@ -81,7 +80,7 @@ export function MapTooltip({
         transform: transform || undefined,
       }}
     >
-      <div className="w-64 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-3 shadow-2xl text-white text-xs space-y-2">
+      <div className="w-68 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-3 shadow-2xl text-white text-xs space-y-2">
         {/* Header: Name, state, category chip */}
         <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-2">
           <div className="min-w-0">
@@ -103,7 +102,7 @@ export function MapTooltip({
           {isReliable && item?.pred_abstention !== null && item?.pred_abstention !== undefined ? (
             <div>
               <div className="flex items-baseline justify-between">
-                <span className="text-slate-300">Abstención 2027:</span>
+                <span className="text-slate-300">Abstención 2027 (pronóstico):</span>
                 <span className="font-bold text-white text-sm font-mono">
                   {formatPct(item.pred_abstention)}
                 </span>
@@ -112,8 +111,13 @@ export function MapTooltip({
                 item.pred_low !== undefined &&
                 item.pred_high !== null &&
                 item.pred_high !== undefined && (
-                  <div className="text-[10px] text-slate-400 text-right font-mono">
-                    intervalo {formatPct(item.pred_low)} – {formatPct(item.pred_high)}
+                  <div className="text-[10px] text-right font-mono mt-0.5">
+                    <div className="text-slate-400">
+                      intervalo {formatPct(item.pred_low)} – {formatPct(item.pred_high)}
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-sans">
+                      rango probable
+                    </div>
                   </div>
                 )}
             </div>
@@ -125,8 +129,8 @@ export function MapTooltip({
 
           {/* Abstención esperada en personas */}
           {abstEsperada > 0 && (
-            <div className="flex items-baseline justify-between text-slate-300">
-              <span>Abstención esperada:</span>
+            <div className="flex items-baseline justify-between text-slate-300 pt-0.5">
+              <span>Personas que no votarían:</span>
               <span className="font-medium text-slate-100 font-mono">
                 {formatInt(abstEsperada)} pers.
               </span>
@@ -135,21 +139,30 @@ export function MapTooltip({
 
           {/* Alternate scenario (Intervención / Pesimista) */}
           {hasAlt && hover.alt && hover.alt.pred_abstention !== null && (
-            <div className="pt-1 mt-1 border-t border-slate-800/80 flex items-baseline justify-between">
-              <span className="text-slate-300">Con intervención:</span>
-              <div className="flex items-baseline gap-1.5 font-mono">
-                <span className="font-bold text-emerald-300">
+            <div className="pt-1 mt-1 border-t border-slate-800/80 space-y-0.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-slate-300">Con intervención:</span>
+                <span className="font-bold text-emerald-300 font-mono">
                   {formatPct(hover.alt.pred_abstention)}
                 </span>
-                {deltaPp !== null && (
-                  <span
-                    className="font-semibold text-[11px]"
-                    style={{ color: deltaColor(deltaPp) }}
-                  >
-                    Δ {formatDeltaPp(deltaPp)}
-                  </span>
-                )}
               </div>
+              {deltaPp !== null && (
+                <div className="text-[10px] text-right font-mono">
+                  {deltaPp < -0.01 ? (
+                    <span className="text-emerald-400 font-medium">
+                      {formatDeltaPp(deltaPp)} = menos abstención
+                    </span>
+                  ) : deltaPp > 0.01 ? (
+                    <span className="text-rose-400 font-medium">
+                      {formatDeltaPp(deltaPp)} = más abstención
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 font-medium">
+                      {formatDeltaPp(deltaPp)} = sin cambio
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -165,10 +178,10 @@ export function MapTooltip({
         </div>
 
         {/* Footer click hint */}
-        <div className="pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between">
-          <span className="text-slate-500 font-mono">Clave INEGI {hover.id}</span>
-          <span className="text-emerald-400/90 font-medium">
-            {isMun ? "Clic para ver detalle →" : "Clic para ver municipios →"}
+        <div className="pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between gap-1">
+          <span className="text-slate-500 font-mono shrink-0">Clave INEGI {hover.id}</span>
+          <span className="text-emerald-400/90 font-medium text-right">
+            Clic para ver el diagnóstico completo →
           </span>
         </div>
       </div>

@@ -13,6 +13,7 @@ from atalaya.chat.spec import CORE_CATALOG_KEYS, QuerySpec, get_catalog_keys
 from atalaya.config import SEED_DIR
 from atalaya.ingest.common import norm_name, zpad
 from atalaya import llm
+from atalaya.chat import guardrails
 
 # Ensure W4-A final metric keys are recognized by QuerySpec validator
 CORE_CATALOG_KEYS.update({"prioridad", "abstencion_esperada", "vulnerability_pp"})
@@ -447,6 +448,19 @@ def _plan_rules(
     """
     _init_states()
     text_lower = message.lower()
+
+    # 0. Deterministic orientation, greetings and privacy help rules (high confidence)
+    if re.search(r"^(?:hola|buenos?\s+d[ií]as?|buenas?\s+tardes?|buenas?\s+noches?|saludos?|gracias|muchas\s+gracias)\b", text_lower):
+        spec = QuerySpec(intent="help")
+        return spec, True, None
+
+    if re.search(r"datos\s+personales|prote(?:gen|cci[oó]n)\s+(?:de\s+)?(?:la\s+)?privacidad|c[oó]mo\s+protegen|privacidad|aviso\s+de\s+privacidad|confidencialidad", text_lower):
+        spec = QuerySpec(intent="help", filters={"topic": "privacidad"})
+        return spec, True, None
+
+    if re.search(r"qu[eé]\s+es\s+atalaya|acerca\s+de\s+atalaya|sobre\s+atalaya|de\s+d[oó]nde\s+(?:salen|vienen|obtienen)\s+(?:los\s+)?datos|fuentes?\s+de\s+(?:los\s+)?datos|qu[eé]\s+puedes\s+hacer|qu[eé]\s+haces?\b|c[oó]mo\s+funciona", text_lower):
+        spec = QuerySpec(intent="help")
+        return spec, True, None
 
     # 1. Check Year
     year_match = re.findall(r"\b(19\d{2}|20\d{2})\b", message)
@@ -893,6 +907,11 @@ def plan(
             timeout_s=30.0,
             temperature=0.0,
         )
+
+        if llm_spec.intent == "out_of_scope" and guardrails.has_domain_signal(message):
+            logger.info("LLM planificó out_of_scope pero el mensaje tiene señal de dominio fuerte. Usando plan de reglas.")
+            return PlanResult(spec_rules, "rules", followup_hint=followup_hint)
+
         llm_spec = _validate_llm_spec(llm_spec, message, region_id=region_id)
         object.__setattr__(llm_spec, "followup_hint", followup_hint)
         return PlanResult(llm_spec, "llm", followup_hint=followup_hint)
