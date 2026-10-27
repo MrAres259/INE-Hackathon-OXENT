@@ -23,6 +23,8 @@ export function TopBar() {
     setIsScenarioModalOpen,
     apiAvailable,
     hasData,
+    isScenarioModified,
+    resetScenarioParams,
   } = useAtalaya();
 
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -68,27 +70,50 @@ export function TopBar() {
           <InfoTip term="escenarios" size="sm" />
 
           {scenario !== "base" && (
-            <button
-              type="button"
-              onClick={() => setIsScenarioModalOpen(true)}
-              className="h-8 px-2.5 text-xs font-semibold rounded-md border border-border bg-card hover:bg-accent text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-              aria-label="Ajustar parámetros"
-            >
-              <svg
-                className="w-3.5 h-3.5 text-primary"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setIsScenarioModalOpen(true)}
+                className="h-8 px-2.5 text-xs font-semibold rounded-md border border-border bg-card hover:bg-accent text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                aria-label="Ajustar parámetros"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
-                />
-              </svg>
-              <span>Ajustar</span>
-            </button>
+                <svg
+                  className="w-3.5 h-3.5 text-primary"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+                  />
+                </svg>
+                <span>Ajustar</span>
+              </button>
+
+              {isScenarioModified(scenario) && (
+                <button
+                  type="button"
+                  onClick={() => resetScenarioParams(scenario)}
+                  className="h-8 px-2 text-xs font-medium rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                  title="Restablecer valores originales"
+                  aria-label="Restablecer valores originales"
+                >
+                  <span>Modificado</span>
+                  <span className="text-muted-foreground/60">·</span>
+                  <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -252,27 +277,48 @@ export function TopBar() {
           </div>
 
           {scenario !== "base" && (
-            <button
-              type="button"
-              onClick={() => setIsScenarioModalOpen(true)}
-              className="h-8 px-2.5 rounded-md border border-border bg-card hover:bg-accent text-primary flex items-center gap-1 transition-colors shadow-xs shrink-0 cursor-pointer text-xs font-semibold"
-              aria-label="Ajustar parámetros"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsScenarioModalOpen(true)}
+                className="h-8 px-2.5 rounded-md border border-border bg-card hover:bg-accent text-primary flex items-center gap-1 transition-colors shadow-xs shrink-0 cursor-pointer text-xs font-semibold"
+                aria-label="Ajustar parámetros"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
-                />
-              </svg>
-              <span>Ajustar</span>
-            </button>
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+                  />
+                </svg>
+                <span>Ajustar</span>
+              </button>
+
+              {isScenarioModified(scenario) && (
+                <button
+                  type="button"
+                  onClick={() => resetScenarioParams(scenario)}
+                  className="h-8 min-w-[40px] px-2 rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+                  title="Restablecer valores originales"
+                  aria-label="Restablecer valores originales"
+                >
+                  <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

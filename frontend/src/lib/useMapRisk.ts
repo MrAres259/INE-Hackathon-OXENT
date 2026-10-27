@@ -11,7 +11,7 @@ import {
   maxAbstencionEsperada,
   EMPTY_LEVEL_INDEX,
 } from "./mapRisk";
-import { paramsForScenario, describeScenario } from "./scenarioParams";
+import { paramsForScenario, describeScenario, scenarioParamsKey } from "./scenarioParams";
 
 // Module-level cache for base scenario so multiple mounts (or React StrictMode) only trigger one fetch
 let basePromise: Promise<LevelIndex> | null = null;
@@ -36,6 +36,12 @@ function fetchBaseOnce(): Promise<LevelIndex> {
   return basePromise;
 }
 
+interface StoredAlt {
+  scenario: ScenarioId;
+  paramsKey: string;
+  data: LevelIndex;
+}
+
 export function useMapRisk(): MapRiskData {
   const { scenario, scenarioParams, mapMode, meta } = useAtalaya();
 
@@ -43,7 +49,7 @@ export function useMapRisk(): MapRiskData {
   const [baseLoading, setBaseLoading] = useState<boolean>(!cachedBase);
   const [baseError, setBaseError] = useState<string | null>(null);
 
-  const [alt, setAlt] = useState<LevelIndex | null>(null);
+  const [storedAlt, setStoredAlt] = useState<StoredAlt | null>(null);
   const [altLoading, setAltLoading] = useState<boolean>(false);
   const [altError, setAltError] = useState<string | null>(null);
 
@@ -82,10 +88,26 @@ export function useMapRisk(): MapRiskData {
   const needsAlt = scenario !== "base" || mapMode === "delta" || mapMode === "compare";
   const altLabel = describeScenario(altScenario, scenarioParams, meta);
 
+  const resolvedParams = useMemo(
+    () => paramsForScenario(altScenario, scenarioParams, meta),
+    [altScenario, scenarioParams, meta]
+  );
+  const currentParamsKey = useMemo(
+    () => scenarioParamsKey(resolvedParams),
+    [resolvedParams]
+  );
+
+  const isAltValid =
+    storedAlt !== null &&
+    storedAlt.scenario === altScenario &&
+    storedAlt.paramsKey === currentParamsKey;
+
+  const alt: LevelIndex | null = isAltValid ? storedAlt.data : null;
+
   // Simulate alternate scenario with 400ms debounce
   useEffect(() => {
     if (!needsAlt) {
-      setAlt(null);
+      setStoredAlt(null);
       setAltLoading(false);
       setAltError(null);
       return;
@@ -97,29 +119,35 @@ export function useMapRisk(): MapRiskData {
 
     setAltLoading(true);
     const reqId = ++reqIdRef.current;
+    const targetScenario = altScenario;
+    const targetKey = currentParamsKey;
+    const targetParams = resolvedParams;
 
     const timer = setTimeout(async () => {
       try {
-        const resolvedParams = paramsForScenario(altScenario, scenarioParams, meta);
         const [stateSim, munSim] = await Promise.all([
           simulateScenario({
-            scenario: altScenario,
-            params: resolvedParams,
+            scenario: targetScenario,
+            params: targetParams,
             level: "state",
             ent: null,
           }),
           simulateScenario({
-            scenario: altScenario,
-            params: resolvedParams,
+            scenario: targetScenario,
+            params: targetParams,
             level: "mun",
             ent: null,
           }),
         ]);
 
         if (reqId === reqIdRef.current) {
-          setAlt({
-            state: indexItems(stateSim.items),
-            mun: indexItems(munSim.items),
+          setStoredAlt({
+            scenario: targetScenario,
+            paramsKey: targetKey,
+            data: {
+              state: indexItems(stateSim.items),
+              mun: indexItems(munSim.items),
+            },
           });
           setAltLoading(false);
           setAltError(null);
@@ -135,7 +163,7 @@ export function useMapRisk(): MapRiskData {
     return () => {
       clearTimeout(timer);
     };
-  }, [needsAlt, altScenario, scenarioParams, meta]);
+  }, [needsAlt, altScenario, currentParamsKey, resolvedParams, meta]);
 
   const active: LevelIndex = scenario === "base" ? base : (alt ?? base);
 
@@ -147,6 +175,8 @@ export function useMapRisk(): MapRiskData {
     [base]
   );
 
+  const isCalculatingAlt = needsAlt && (!isAltValid || altLoading);
+
   return {
     base,
     alt,
@@ -154,7 +184,7 @@ export function useMapRisk(): MapRiskData {
     altLabel,
     active,
     vmax,
-    loading: baseLoading || altLoading,
+    loading: baseLoading || isCalculatingAlt,
     error: baseError ?? altError,
   };
 }

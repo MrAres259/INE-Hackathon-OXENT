@@ -1,37 +1,49 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useAtalaya } from "@/lib/state";
 import {
   formatSignedVotes,
   getVotesLabel,
+  getVotesColorClass,
   formatDeltaPp,
+  getDeltaAbstentionColorClass,
   CATEGORY_LABELS,
 } from "@/lib/format";
 import { ApiError } from "@/lib/api";
 import { InfoTip } from "@/components/ui/InfoTip";
 import { PARAM_TERM, optionTerm, glossaryFor } from "@/lib/glossary";
+import { defaultsForScenario, isScenarioModified } from "@/lib/scenarioParams";
+import { showToast } from "@/lib/toast";
 
 export function ScenarioControls() {
   const {
     isScenarioModalOpen,
     setIsScenarioModalOpen,
     meta,
-    scenarioParams,
-    setScenarioParams,
-    runSimulation,
+    paramsByScenario,
+    applyScenarioParams,
+    resetScenarioParams,
     simulationResult,
     scenario,
   } = useAtalaya();
 
-  const [localParams, setLocalParams] = useState<Record<string, number | string>>(scenarioParams);
+  const activeParams = useMemo(() => {
+    if (scenario === "base") return {};
+    return paramsByScenario[scenario] ?? {};
+  }, [scenario, paramsByScenario]);
+
+  const [localParams, setLocalParams] = useState<Record<string, number | string>>(activeParams);
   const [isSimulating, setIsSimulating] = useState(false);
   const [paramErrors, setParamErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
+  // Sync localParams when scenario or state params change
   useEffect(() => {
-    setLocalParams(scenarioParams);
-  }, [scenarioParams]);
+    if (scenario !== "base") {
+      setLocalParams(paramsByScenario[scenario] ?? {});
+    }
+  }, [scenario, paramsByScenario]);
 
   // Close sheet on Escape key
   useEffect(() => {
@@ -45,41 +57,86 @@ export function ScenarioControls() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isScenarioModalOpen, setIsScenarioModalOpen]);
 
-  if (!isScenarioModalOpen) return null;
-
   // Find scenario definition dynamically from meta
   const scenarioDef =
     meta?.scenarios.find((s) => s.id === scenario && s.params && s.params.length > 0) ??
+    meta?.scenarios.find((s) => s.id === scenario) ??
     meta?.scenarios.find((s) => s.id === "intervencion") ??
     meta?.scenarios[0];
 
   const paramsList = scenarioDef?.params ?? [];
 
+  const defaults = useMemo(() => defaultsForScenario(scenario, meta), [scenario, meta]);
+  const isModified = useMemo(() => {
+    if (scenario === "base") return false;
+    return (
+      isScenarioModified(scenario, localParams, meta) ||
+      isScenarioModified(scenario, paramsByScenario[scenario], meta)
+    );
+  }, [scenario, localParams, paramsByScenario, meta]);
+
+  if (!isScenarioModalOpen) return null;
+
   const handleSimulate = async () => {
+    if (scenario === "base") return;
     setIsSimulating(true);
     setParamErrors({});
     setGeneralError(null);
     try {
-      await runSimulation(localParams);
-      setScenarioParams(localParams);
+      await applyScenarioParams(scenario, localParams);
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 422) {
         const errors: Record<string, string> = {};
         const data = err.data as Record<string, unknown>;
+        let errorMsg = "Error de validación (422) en los parámetros enviados.";
         if (Array.isArray(data?.detail)) {
           for (const item of data.detail as Array<{ loc?: string[]; msg?: string }>) {
             const key = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : "general";
             errors[key] = item.msg || "Parámetro inválido";
           }
+          errorMsg = data.detail.map((d) => d.msg).filter(Boolean).join(". ") || errorMsg;
         } else if (typeof data?.detail === "string") {
+          errorMsg = data.detail;
           setGeneralError(data.detail);
         } else {
-          setGeneralError("Error de validación (422) en los parámetros enviados.");
+          setGeneralError(errorMsg);
         }
         setParamErrors(errors);
+        showToast({
+          kind: "error",
+          title: "Error de simulación",
+          detail: errorMsg,
+        });
       } else {
-        setGeneralError((err as Error)?.message || "Error al simular escenario");
+        const msg = (err as Error)?.message || "Error al simular escenario";
+        setGeneralError(msg);
+        showToast({
+          kind: "error",
+          title: "Error de simulación",
+          detail: msg,
+        });
       }
+    } finally {
+      setIsSimulating(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (scenario === "base" || !isModified || isSimulating) return;
+    setIsSimulating(true);
+    setParamErrors({});
+    setGeneralError(null);
+    try {
+      setLocalParams(defaults);
+      await resetScenarioParams(scenario);
+    } catch (err: unknown) {
+      const msg = (err as Error)?.message || "Error al restablecer valores";
+      setGeneralError(msg);
+      showToast({
+        kind: "error",
+        title: "Error de simulación",
+        detail: msg,
+      });
     } finally {
       setIsSimulating(false);
     }
@@ -331,7 +388,7 @@ export function ScenarioControls() {
         })()}
 
         {/* Simulation Summary Result */}
-        {simulationResult && (
+        {simulationResult ? (
           <div className="rounded-lg border border-border bg-card p-3 space-y-3">
             <div className="flex items-center justify-between text-xs font-bold text-foreground">
               <span>Resultado simulado</span>
@@ -347,9 +404,9 @@ export function ScenarioControls() {
                   <InfoTip term="simulacion.votos" size="xs" />
                 </div>
                 <span
-                  className={`text-sm sm:text-base font-bold tnum font-mono ${
-                    simulationResult.summary.votos_adicionales >= 0 ? "text-good" : "text-bad"
-                  } block mt-0.5`}
+                  className={`text-sm sm:text-base font-bold tnum font-mono ${getVotesColorClass(
+                    simulationResult.summary.votos_adicionales
+                  )} block mt-0.5`}
                 >
                   {formatSignedVotes(simulationResult.summary.votos_adicionales)}
                 </span>
@@ -359,9 +416,9 @@ export function ScenarioControls() {
                   Cambio en abstención
                 </span>
                 <span
-                  className={`text-sm sm:text-base font-bold tnum font-mono ${
-                    simulationResult.summary.mean_delta_pp <= 0 ? "text-good" : "text-bad"
-                  } block mt-0.5`}
+                  className={`text-sm sm:text-base font-bold tnum font-mono ${getDeltaAbstentionColorClass(
+                    simulationResult.summary.mean_delta_pp
+                  )} block mt-0.5`}
                 >
                   {formatDeltaPp(simulationResult.summary.mean_delta_pp)}
                 </span>
@@ -441,47 +498,74 @@ export function ScenarioControls() {
               );
             })()}
           </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-center">
+            <p className="text-xs text-muted-foreground">
+              Aplica para ver el resultado
+            </p>
+          </div>
         )}
       </div>
 
       {/* Footer Actions */}
-      <div className="flex items-center justify-end gap-2 border-t border-border p-3 shrink-0">
+      <div className="flex items-center justify-between gap-2 border-t border-border p-3 shrink-0">
         <button
           type="button"
-          onClick={() => setIsScenarioModalOpen(false)}
-          className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          onClick={handleReset}
+          disabled={!isModified || isSimulating}
+          className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted rounded-md transition-colors flex items-center gap-1.5 cursor-pointer"
+          title="Restablecer valores originales"
+          aria-label="Restablecer valores originales"
         >
-          Cerrar
+          <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
+          </svg>
+          <span>Restablecer</span>
         </button>
-        <button
-          type="button"
-          onClick={handleSimulate}
-          disabled={isSimulating}
-          className="px-4 py-1.5 text-xs font-semibold text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-md transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
-        >
-          {isSimulating ? (
-            <>
-              <svg className="animate-spin size-3.5" viewBox="0 0 24 24" fill="none">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                />
-              </svg>
-              <span>Simulando...</span>
-            </>
-          ) : (
-            <span>Aplicar</span>
-          )}
-        </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsScenarioModalOpen(false)}
+            className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            Cerrar
+          </button>
+          <button
+            type="button"
+            onClick={handleSimulate}
+            disabled={isSimulating}
+            className="px-4 py-1.5 text-xs font-semibold text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-md transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+          >
+            {isSimulating ? (
+              <>
+                <svg className="animate-spin size-3.5" viewBox="0 0 24 24" fill="none">
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                  />
+                </svg>
+                <span>Simulando...</span>
+              </>
+            ) : (
+              <span>Aplicar</span>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

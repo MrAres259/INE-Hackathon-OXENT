@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   defaultParamsFromMeta,
+  defaultsForScenario,
   paramsForScenario,
   describeScenario,
+  isScenarioModified,
+  scenarioParamsKey,
 } from "../lib/scenarioParams";
 import { MOCK_META } from "../lib/mocks/meta";
 
@@ -118,5 +121,30 @@ describe("scenarioParams Pure Functions", () => {
 
     const descPesim = describeScenario("pesimista", {}, null);
     expect(descPesim).toBe("Pesimista: caída 2 pp · acentuación 50 %");
+  });
+
+  it("extracts scenario-specific defaults using defaultsForScenario", () => {
+    expect(defaultsForScenario("base", MOCK_META)).toEqual({});
+    expect(defaultsForScenario("intervencion", MOCK_META)).toEqual({
+      lever: "promocion_jovenes",
+      targeting: "rojo_naranja",
+      effect_pp: 3.0,
+      coverage: 100,
+    });
+    expect(defaultsForScenario("pesimista", MOCK_META)).toEqual({
+      shock_pp: 2.0,
+      trend_amplifier: 50,
+    });
+  });
+
+  it("produces deterministic canonical string keys with scenarioParamsKey", () => {
+    expect(scenarioParamsKey({ b: "foo", a: 42 })).toBe("a:42|b:foo");
+  });
+
+  it("detects modification using isScenarioModified", () => {
+    const intervDefaults = defaultsForScenario("intervencion", MOCK_META);
+    expect(isScenarioModified("intervencion", intervDefaults, MOCK_META)).toBe(false);
+    expect(isScenarioModified("intervencion", { ...intervDefaults, effect_pp: 5 }, MOCK_META)).toBe(true);
+    expect(isScenarioModified("base", {}, MOCK_META)).toBe(false);
   });
 });

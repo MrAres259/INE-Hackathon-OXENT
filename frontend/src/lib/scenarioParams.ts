@@ -13,6 +13,79 @@ const TARGETING_DEFAULT_LABELS: Record<string, string> = {
   todos: "Todo el país",
 };
 
+const INTERVENCION_FALLBACK_DEFAULTS: Record<string, number | string> = {
+  lever: "promocion_jovenes",
+  targeting: "rojo_naranja",
+  effect_pp: 3.0,
+  coverage: 100,
+};
+
+const PESIMISTA_FALLBACK_DEFAULTS: Record<string, number | string> = {
+  shock_pp: 2.0,
+  trend_amplifier: 50,
+};
+
+/**
+ * Default parameters for a single scenario.
+ * base => {}
+ * intervencion / pesimista => defaults defined in meta, or standard defaults if meta is null
+ */
+export function defaultsForScenario(
+  scenario: ScenarioId,
+  meta: Meta | null
+): Record<string, number | string> {
+  if (scenario === "base") return {};
+
+  const scDef = meta?.scenarios?.find((s) => s.id === scenario);
+  if (scDef?.params && scDef.params.length > 0) {
+    const defs: Record<string, number | string> = {};
+    for (const p of scDef.params) {
+      defs[p.key] = p.default;
+    }
+    return defs;
+  }
+
+  if (scenario === "intervencion") {
+    return { ...INTERVENCION_FALLBACK_DEFAULTS };
+  }
+  if (scenario === "pesimista") {
+    return { ...PESIMISTA_FALLBACK_DEFAULTS };
+  }
+
+  return {};
+}
+
+/**
+ * Canonical string key representing scenario parameters for cache/matching.
+ */
+export function scenarioParamsKey(params: Record<string, number | string>): string {
+  const keys = Object.keys(params).sort();
+  return keys.map((k) => `${k}:${params[k]}`).join("|");
+}
+
+/**
+ * Returns true if the given scenario has parameters that differ from its defaults.
+ */
+export function isScenarioModified(
+  scenario: ScenarioId,
+  params: Record<string, number | string> | undefined,
+  meta: Meta | null
+): boolean {
+  if (scenario === "base" || !params) return false;
+  const defs = defaultsForScenario(scenario, meta);
+  const resolved = paramsForScenario(scenario, params, meta);
+  for (const k of Object.keys(defs)) {
+    const defVal = defs[k];
+    const resVal = resolved[k];
+    if (typeof defVal === "number") {
+      if (Number(resVal) !== Number(defVal)) return true;
+    } else {
+      if (String(resVal) !== String(defVal)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Union of the `default` value of params across ALL scenarios in meta (keys do not clash).
  */
