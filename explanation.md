@@ -1,4 +1,4 @@
-# ATALAYA — Riesgo de abstención en México
+# Atalaya Electoral — Riesgo de abstención en México
 
 > **Fuente de verdad del proyecto.** Describe para qué sirve la app, cómo está construida y qué módulo implementa cada funcionalidad, tal como está hoy. Si el código y este documento discrepan, se corrige el que esté mal.
 
@@ -10,9 +10,9 @@ Propuesta para el **Hackathon INE 2026 «Hackea la participación: Datos que con
 
 - **Pregunta guía:** *¿Qué zonas podrían presentar mayor abstención en el futuro si no se interviene?*
 - **Para qué le sirve al INE:** planeación anticipada y priorización estratégica de recursos rumbo a la elección federal del **6 de junio de 2027**.
-- **Fuente obligatoria:** la convocatoria exige aprovechar la **Plataforma de Conteos Censales de Participación Ciudadana (CCPC) 2009–2024** del INE; ATALAYA la usa como fuente electoral única.
+- **Fuente obligatoria:** la convocatoria exige aprovechar la **Plataforma de Conteos Censales de Participación Ciudadana (CCPC) 2009–2024** del INE; Atalaya Electoral la usa como fuente electoral única.
 
-ATALAYA es un tablero y un conjunto de entregables que:
+**Atalaya Electoral** (equipo OXENT; antes "ATALAYA") es un tablero web y un conjunto de entregables que:
 
 1. **Pronostica** la abstención de los **2,478 municipios** (Marco Geoestadístico INEGI 2024) y de los 32 estados para 2027.
 2. **Clasifica** cada zona en un **semáforo** 🟢 verde · 🟡 amarillo · 🟠 naranja · 🔴 rojo que combina tendencia histórica y vulnerabilidad sociodemográfica, visible en un **mapa navegable** (país → estado → municipio).
@@ -22,7 +22,9 @@ ATALAYA es un tablero y un conjunto de entregables que:
 6. **Genera los entregables del reto**: reporte metodológico (PDF), presentación ejecutiva (PDF) con mapas renderizados por el mismo motor cartográfico de la app, mapa de escenarios (GeoJSON y visor HTML autónomo), figuras PNG y base de datos anonimizada (XLSX/CSV), empaquetados y verificados contra la convocatoria.
 7. **Se publica en internet** como tablero dinámico (`http://46.250.172.193:8080`) detrás de un borde Caddy, con supervisor que reinicia cualquier componente caído.
 
-**Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; el clúster de búsqueda es **desechable** (se puede borrar y recrear: la app degrada a memoria en ~2 s y vuelve sola cuando el clúster nuevo está cargado); el mapa usa un motor WebGL dedicado (MapLibre GL) con teselas vectoriales de la geometría oficial INEGI, sin polígonos dibujados a mano; **la app se explica sola**: cada concepto de la interfaz lleva una ayuda ⓘ tomada de un único glosario, para que alguien del INE que nunca la ha visto entienda cada control y cómo se relaciona con los demás.
+**Principios:** solo datos agregados y disociados; supresión de celdas pequeñas; todo flujo con LLM tiene respaldo determinista; el clúster de búsqueda es **desechable** (se puede borrar y recrear: la app degrada a memoria en ~2 s y vuelve sola cuando el clúster nuevo está cargado); el mapa usa un motor WebGL dedicado (MapLibre GL) con teselas vectoriales de la geometría oficial INEGI, sin polígonos dibujados a mano; **la app se explica sola**: cada concepto de la interfaz lleva una ayuda ⓘ tomada de un único glosario, para que alguien del INE que nunca la ha visto entienda cada control y cómo se relaciona con los demás; **funciona en celular, tablet y PC** con el mismo contenido (panel lateral en PC, hoja inferior en pantallas chicas).
+
+**Identidad visual.** Nombre visible "Atalaya Electoral", bajada "Riesgo de abstención · Elección federal 2027". Logo: torre vigía (atalaya) blanca sobre cuadro magenta, con el faro en el amarillo del semáforo y la cruz de la torre que evoca la marca en la boleta (`frontend/src/components/brand/BrandMark.tsx`, `frontend/src/app/icon.svg` como favicon, `frontend/public/brand/`, `backend/atalaya/report/assets/` con variante clara para fondos oscuros). Estilo claro institucional: magenta `#b5186b`, tinta morada `#4a2a48`, Montserrat en títulos y Source Sans 3 en texto. Los nombres técnicos no cambiaron (paquete `atalaya`, variables `ATALAYA_*`, índices `atalaya-`, tareas programadas `ATALAYA`).
 
 ---
 
@@ -70,8 +72,8 @@ flowchart LR
 | API | FastAPI + SSE | `backend/atalaya/api` |
 | Asistente | Reglas deterministas + GLM-5.2 vía MaaS (API compatible OpenAI) | `backend/atalaya/chat`, `backend/atalaya/llm.py` |
 | Entregables | openpyxl, GeoJSON, mapas renderizados con MapLibre en Chrome headless (CDP), gráficas SVG en Python, PDF con Chrome/Edge headless | `backend/atalaya/export.py`, `backend/atalaya/report` |
-| Frontend | Next.js 16, React 19, Tailwind 4, MapLibre GL 5 (WebGL) con fuente vectorial MVT | `frontend/src` |
-| Mapa base | Esri World Dark Gray Canvas (teselas ráster sin llave); tolera fallos aislados de teselas y, si el servicio cae, queda el contorno propio de México | `frontend/src/lib/mapStyle.ts`, `mapSupport.ts` |
+| Frontend | Next.js 16, React 19, Tailwind 4 (tokens de diseño claros en `globals.css`, fuentes Montserrat + Source Sans 3 con `next/font`), MapLibre GL 5 (WebGL) con fuente vectorial MVT; responsive celular/tablet/PC | `frontend/src` |
+| Mapa base | Esri World **Light** Gray Canvas (base + etiquetas, teselas ráster sin llave); tolera fallos aislados de teselas y, si el servicio cae, queda el contorno propio de México | `frontend/src/lib/mapStyle.ts`, `mapSupport.ts` |
 | Geografía | mapshaper + geojson-vt + vt-pbf (Node) | `tools/geo` |
 | Publicación | **Caddy 2.11** como borde público (puerto 8080) + supervisor Python con reinicio automático; tarea programada de Windows | `scripts/Caddyfile.template`, `backend/atalaya/ops/supervisor.py`, `scripts/serve_public.ps1` |
 | Orquestación | PowerShell 5.1 | `scripts/*.ps1` |
@@ -149,6 +151,8 @@ Datos curados versionados en `data/seed/`: `states.csv` (estados y alias), `vari
 
 `risk_score = 100 · (0.50·rango(abstención pronosticada) + 0.20·rango(vulnerabilidad) + 0.15·rango(−tendencia) + 0.15·rango(volatilidad))`, rangos dentro de cada nivel. 🔴 ≥ 75 · 🟠 ≥ 55 · 🟡 ≥ 35 · 🟢 < 35 · ⚪ sin dato. Los componentes (`r_abs`, `r_vuln`, `r_trend`, `r_vol`) se guardan para explicar cada índice. `rescore` evalúa escenarios contra la distribución base.
 
+**Colores (fuente única, idénticos en app, reporte, presentación y visor):** verde `#3f9a5b`, amarillo `#f2bf3a` (texto encima oscuro; como texto sobre blanco `#9a6b00`), naranja `#ec7a2c`, rojo `#c8352f`, sin dato `#bdbdbd`. Viven en `frontend/src/lib/format.ts` (`CATEGORY_COLORS`) y `backend/atalaya/report/charts.py` (`CATEGORY_COLORS`); una prueba (`test_report_map_capture.py`) exige que coincidan, y `/api/meta` publica los mismos.
+
 Estado actual (base): 297 municipios rojos (12.9 % de la LN), 756 naranjas (49.5 %), 742 amarillos (29.2 %), 678 verdes (8.3 %), 5 sin dato.
 
 ### 4.4 Escenarios
@@ -193,7 +197,7 @@ Resumen: zonas por color vs base, LN por color, votos adicionales/perdidos (`Δp
 
 ### 4.8 Asistente conversacional
 
-`api/chat.py` (`POST /api/chat`, SSE) orquesta `chat/`:
+`api/chat.py` (`POST /api/chat`, SSE) orquesta `chat/`. El asistente se presenta como "asistente de Atalaya Electoral" y cita sus fuentes propias como `Atalaya Electoral · Pronóstico 2027`, `… · Simulación de escenarios 2027`, etc. (el ejecutor también reconoce las fuentes antiguas `ATALAYA · …` por compatibilidad):
 
 | Paso | Qué hace | Dónde |
 |---|---|---|
@@ -249,14 +253,20 @@ Verificación en vivo (`temp/optfix/tools/chat_guard_probe.py`, 56 casos con var
 
 ### 4.10 Frontend
 
-Tablero oscuro de una sola pantalla en escritorio (el mapa llena su columna; el panel derecho hace scroll interno); lógica separada de presentación.
+Tablero claro de una sola pantalla; lógica separada de presentación. **Distribución** (`src/app/page.tsx`, `src/app/layout.tsx`):
 
-**Mapa de escenarios (MapLibre GL, WebGL, teselas vectoriales).** La geometría llega como **teselas vectoriales MVT** generadas de los shapefiles oficiales INEGI MG 2024 (`/geo/tiles/{z}/{x}/{y}.pbf`, una fuente `atalaya` con capas `states` y `mun`, `promoteId` sobre `id`), que MapLibre carga por demanda según el zoom y sobre-amplía hasta zoom 12 con bordes nítidos. Los datos de riesgo de los 32 estados y 2,478 municipios (`/api/risk?level=state|mun` sin `ent`) se aplican con *feature-state* —pintado incremental: solo se actualizan los ids cuyo estado cambió—, sin volver a subir geometría al cambiar de escenario. Los estados se ven en zoom bajo y los municipios aparecen al acercarse (fundido entre zoom 5 y 6; límites municipales con opacidad creciente con el zoom). Al elegir un estado la cámara hace `fitBounds` y el resto del país se atenúa; la selección se resalta en estados y municipios. Modos:
+- **Barra superior** (`TopBar.tsx`): logo + nombre, selector de escenario (Base · Intervención · Pesimista) con ⓘ y botón **Ajustar** (si el escenario no es base), buscador global de estados y municipios (atajo `/`), indicador del motor de datos (OpenSearch / memoria / demostración), enlace a Metodología y botón **?** que abre la guía (evento `atalaya:open-guide`). En pantallas compactas pasa a dos filas y el buscador se abre a todo el ancho desde un ícono.
+- **Mapa** a todo el alto, con controles flotantes: migas (México › estado › municipio) y selector de capas arriba a la izquierda, leyenda plegable abajo a la izquierda (plegada en celular), herramientas (3D, vista, PNG, guía) arriba a la derecha, zoom nativo abajo a la derecha.
+- **Panel** con pestañas Diagnóstico · Ranking · Asistente (`SidePanelTabs.tsx`, una sola instancia; el chat conserva la conversación al cambiar de pestaña o girar la tablet). PC (≥ 1024 px): panel lateral derecho redimensionable (320–640 px, doble clic restaura; ancho y plegado se recuerdan en `localStorage`) y plegable con un botón sobre el mapa. Celular y tablet vertical (< 1024 px): **hoja inferior** con tres alturas (asomada 132 px, media 52 %, completa), que se cambia tocando o arrastrando el asa; al elegir una zona sube a media y activa Diagnóstico. El mapa encuadra el estado elegido por encima de la hoja (variable CSS `--map-fit-bottom` que lee `AtalayaMap` vía `fitPaddingWithInset`) y los controles nativos se desplazan sobre ella (`--map-inset-bottom`).
+- **Ajustar** (`ScenarioControls.tsx`) es una hoja lateral sobre el mapa (abajo en celular), no un modal: parámetros desde `Meta`, fórmula viva, botón Aplicar y resultado simulado (votos ± y conteos por categoría).
+- Verificado sin scroll horizontal ni errores de consola a 360, 375, 768, 1024, 1366 y 1920 px (`temp/smallfix/tools/ui_shots.py`, toques reales en emulación móvil).
+
+**Mapa de escenarios (MapLibre GL, WebGL, teselas vectoriales).** La geometría llega como **teselas vectoriales MVT** generadas de los shapefiles oficiales INEGI MG 2024 (`/geo/tiles/{z}/{x}/{y}.pbf`, una fuente `atalaya` con capas `states` y `mun`, `promoteId` sobre `id`), que MapLibre carga por demanda según el zoom y sobre-amplía hasta zoom 12 con bordes nítidos. Los datos de riesgo de los 32 estados y 2,478 municipios (`/api/risk?level=state|mun` sin `ent`) se aplican con *feature-state* —pintado incremental: solo se actualizan los ids cuyo estado cambió—, sin volver a subir geometría al cambiar de escenario. Los estados se ven en zoom bajo y los municipios aparecen al acercarse (fundido entre zoom 5 y 6; límites municipales con opacidad creciente con el zoom). Al elegir un estado la cámara hace `fitBounds` y el resto del país se atenúa; la selección se resalta en estados y municipios (borde magenta `#b5186b`; hover en tinta `#4a2a48`; bordes estatales blancos y municipales blancos translúcidos sobre el mapa base gris claro). Modos:
 
 | Modo | Qué muestra |
 |---|---|
 | **Semáforo** | Categoría de riesgo del escenario activo |
-| **Cambio Δ** | Intervención − base en pp de abstención (escala divergente: azul = menos abstención) |
+| **Cambio Δ** | Intervención − base en pp de abstención (escala divergente de 7 clases: azul = menos abstención, rojo = más; "sin cambio" gris claro `#e6e1e4`) |
 | **Comparar** | Dos mapas sincronizados con cortina arrastrable: izquierda sin intervención, derecha con intervención; resumen "Rojo: 297 → 232 · N mejoran de categoría" |
 | **3D** (conmutador) | Bloques extruidos con **foco**: en vista nacional (zoom < 5.5) se levantan los 32 estados; al acercarse (zoom ≥ 5.5) se levantan **solo los municipios del estado en foco** y todo lo demás queda plano (colores y límites municipales visibles) para ver el contexto. Estado en foco = el seleccionado o, si no hay selección, el que está bajo el centro del mapa (se recalcula al terminar cada movimiento; sobre el mar conserva el anterior). **Altura = índice de riesgo (0–100) del escenario activo** con curva `(índice/100)^1.6` (mínimo 4 %), así que rojo > naranja > amarillo > verde; en Cambio Δ la altura = \|Δ\| en pp (tope 5). La altura se reduce al acercarse (municipios ×1 en zoom 5.5 → ×0.2 en zoom 12) para que los bloques no tapen a los vecinos. No es topografía. Vistas **Inclinada** (50°) y **Cenital** (0°); en 3D se inclina/rota con clic derecho + arrastre (máx. 65°) |
 
@@ -264,7 +274,9 @@ El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&vi
 
 **Rendimiento.** Antes se extruían los polígonos de los 2,478 municipios y de los estados a la vez (entre zoom 5 y 6.2 ambos niveles); ahora solo 32 estados en nacional o solo los municipios de un estado en foco (filtro `ent` en la capa `mun-extrusion`, que se cambia únicamente cuando cambia el foco, `setExtrusionFocus`), sin traslape de niveles. El hover se procesa como máximo una vez por cuadro (`requestAnimationFrame`), ignora movimientos < 3 px y no consulta nada mientras el mapa se mueve; en 3D consulta primero las extrusiones, así que se resalta y selecciona el bloque bajo el cursor. `pixelRatio` con tope 2 (1.5 en 3D) y `AtalayaMap` memoizado con callbacks estables. Medido con WebGL por software: paneo estatal en 3D 7.6 → 9.9 fps, hover p95 148 → 119 ms. Con `?perf=1` el mapa expone contadores en `window.__atalayaPerf` (`temp/optfix/tools/perf_probe.py`).
 
-**Ayuda contextual (la app se explica sola).** Cada concepto lleva un ícono ⓘ (`components/ui/InfoTip.tsx`) que al pasar el mouse, enfocar con teclado o tocar muestra título, explicación en lenguaje llano, "cómo se relaciona" y ejemplo; se dibuja en un portal con posición que se voltea para no salirse de la pantalla. Todos los textos salen de **un solo glosario** (`lib/glossary.ts`, 61 términos: escenarios y parámetros, semáforo e indicadores, mapa, asistente), cuyos títulos coinciden con las etiquetas de la UI. Hay ⓘ en la barra superior (escenarios, motor de datos), el modal **Ajustar** (cada parámetro, explicación de la opción elegida y **fórmula viva** del efecto real: efecto × cobertura × peso de la palanca), la barra y leyenda del mapa, el buscador, el breadcrumb, el panel de diagnóstico (cada métrica, componente del índice, indicador CCPC, factores y recomendaciones, más una línea de lectura: "Riesgo alto (69.2 de 100): se espera que no vote el 52.1 % …"), el ranking y el asistente. Una **guía de primera visita** ("¿Cómo leer este mapa?", 4 pasos, se recuerda en `localStorage`) se reabre con el botón "?" de la barra. La página **Metodología** es además el manual: "Cómo usar ATALAYA", glosario completo con buscador, el mapa 3D y los límites del asistente.
+**Ayuda contextual (la app se explica sola).** Cada concepto lleva un ícono ⓘ (`components/ui/InfoTip.tsx`) que al pasar el mouse, enfocar con teclado o tocar muestra título, explicación en lenguaje llano, "cómo se relaciona" y ejemplo; se dibuja en un portal con posición que se voltea para no salirse de la pantalla. Todos los textos salen de **un solo glosario** (`lib/glossary.ts`, 61 términos: escenarios y parámetros, semáforo e indicadores, mapa, asistente), cuyos títulos coinciden con las etiquetas de la UI. Hay ⓘ en la barra superior (escenarios, motor de datos), la hoja **Ajustar** (cada parámetro, explicación de la opción elegida y **fórmula viva** del efecto real: efecto × cobertura × peso de la palanca), la barra y leyenda del mapa, el buscador, el breadcrumb, el panel de diagnóstico (cada métrica, componente del índice, indicador CCPC, factores y recomendaciones, más una línea de lectura: "Riesgo alto (69.2 de 100): se espera que no vote el 52.1 % …"), el ranking y el asistente. Una **guía de primera visita** es un recorrido anclado de 6 pasos (escenario → capas → panel → buscar → herramientas/3D → leyenda): resalta cada control real con un anillo y un globo que nunca se sale de la pantalla, salta pasos cuyo control no está visible, se recuerda en `localStorage` y se reabre con el botón "?" de la barra o de las herramientas. La página **Metodología** (`/metodologia`) es además el manual: "Cómo usar Atalaya Electoral", glosario completo con buscador, el mapa 3D, los límites del asistente, el modelo y las fuentes, con índice lateral en PC y chips desplazables en celular.
+
+**Panel de diagnóstico.** Sin selección muestra el **Panorama nacional 2027**: abstención pronosticada **ponderada por lista nominal** (Σ abstención esperada / Σ LN = 48.2 % en base, coherente con el supuesto nacional de 51.84 % de participación), abstención esperada en personas, zonas evaluadas, escenario activo, barra apilada del semáforo con conteos y porcentajes del nivel visible, y zonas de mayor riesgo clicables (`src/lib/panelStats.ts`). Con selección, la ficha de la zona (ver tabla). El **ranking** agrega selector Estados/Municipios, filtro local por color del semáforo y orden por columna con un clic; en celular muestra solo #, zona, abstención e índice para que quepa sin desplazar.
 
 **Robustez del motor.** Geometría en tres modos (`data-geometry`): `vector` (default, `tiles.json` válido), `geojson` (respaldo con `mun_all.json`/`states.json` si falta o es inválido el manifiesto) y `mock` (`NEXT_PUBLIC_MOCK`). Antes de crear el mapa se detecta WebGL; sin él, un aviso deja disponibles ranking y panel. Carga con límite de 20 s y error visible con **Reintentar**; pérdida de contexto WebGL → aviso "Recuperando mapa…", recuperación propia de MapLibre y, si no ocurre en 5 s, remontaje limpio (una sola ruta de destrucción); cada mapa está envuelto en un *error boundary* para que un fallo del mapa nunca tumbe la página; en el comparador, la sincronía de cámaras se re-suscribe al mapa nuevo. El mapa base solo se oculta tras ≥ 6 errores de teselas en 20 s sin ninguna carga exitosa. El contenedor expone `data-map-state="loading|ready|error|unsupported|context-lost"` para pruebas automatizadas.
 
@@ -274,21 +286,25 @@ El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&vi
 | Foco del 3D (`resolveFocusEnt`: selección › estado bajo el centro › foco anterior; `entFromFeature`) | `src/lib/focus.ts` |
 | Limitador de hover (un procesamiento por cuadro, umbral de 3 px) | `src/lib/hoverThrottle.ts` |
 | Glosario único de la UI (`GLOSSARY`, `glossaryFor`, `PARAM_TERM`, `optionTerm`) y componente ⓘ (`InfoTip`, `computeTipPosition`) | `src/lib/glossary.ts`, `src/components/ui/InfoTip.tsx` |
-| Guía de primera visita (`shouldShowGuide`, `dismissGuide`) | `src/components/map/MapGuide.tsx` |
+| Guía de primera visita anclada (`shouldShowGuide`, `dismissGuide`, anclas `data-tour`) | `src/components/map/MapGuide.tsx` |
+| Marca (`BrandMark`, `BrandLockup`), favicon e íconos | `src/components/brand/BrandMark.tsx`, `src/app/icon.svg`, `favicon.ico`, `apple-icon.png`, `public/brand/` |
+| Tokens de diseño (colores, tipografías, `float-panel`, `tnum`) y estilo claro de los controles de MapLibre | `src/app/globals.css`, `src/app/layout.tsx` |
+| Distribución responsive: panel lateral / hoja inferior (`useIsCompact`, `nearestSnap`, `nextSnap`, `getSnapHeight`) | `src/app/page.tsx`, `src/lib/useMediaQuery.ts`, `src/components/panel/SidePanelTabs.tsx` |
+| Cifras del panorama nacional y del ranking (conteos por categoría, abstención ponderada, top de zonas, filtro por semáforo) | `src/lib/panelStats.ts` |
 | Parámetros de escenario desde `Meta` (defaults, filtrado por escenario, descripción legible) | `src/lib/scenarioParams.ts` |
 | Cliente API + SSE; mocks fieles al contrato real solo ante fallo de red | `src/lib/api.ts`, `src/lib/mocks/*` |
 | Manifiesto de teselas (`fetchTileManifest`, validación, `absoluteTileUrl`) y GeoJSON de respaldo: estados, municipios por estado y nacional, contorno, índice de bbox | `src/lib/geo.ts` |
-| Soporte del motor (puro): `detectWebGL`, `featureTarget` (fuente/`sourceLayer` por modo), `levelOfFeature`, `createTileErrorTracker` | `src/lib/mapSupport.ts` |
+| Soporte del motor (puro): `detectWebGL`, `featureTarget` (fuente/`sourceLayer` por modo), `levelOfFeature`, `createTileErrorTracker`, `fitPaddingWithInset` (encuadre sobre la hoja inferior) | `src/lib/mapSupport.ts` |
 | Datos del mapa: índices nacionales base y alterno, conteos por categoría, transiciones, escala 3D | `src/lib/mapRisk.ts`, `src/lib/useMapRisk.ts` |
 | Estilo del mapa: ids de capas y fuentes (`SOURCE_IDS.vector`, `SOURCE_LAYERS`), mapa base, expresiones de color (categoría y Δ; extrusiones con variantes atenuada y hover, `extrusionColorExpression`), alturas (`riskHeight`, `deltaHeight`, `extrusionHeightExpression(level)` por zoom, `EXTRUSION_MAX_M`), `featureStateFor`, leyendas | `src/lib/mapStyle.ts` |
 | Motor: fuentes (`buildSources` vectorial o GeoJSON), capas (fondo, mapa base, contorno, rellenos, bordes, `states-extrusion`, `mun-extrusion` filtrada por foco, hover, selección de estado y municipio, etiquetas), feature-state incremental, hover limitado, clic, foco 3D (`data-focus-ent`), cámara Inclinada/Cenital, ciclo de vida y recuperación | `src/components/map/AtalayaMap.tsx`, `mapLayers.ts` (`setExtrusionVisible`, `setExtrusionFocus`) |
 | Avisos y contención de fallos del mapa | `src/components/map/MapFallback.tsx`, `MapErrorBoundary.tsx` |
-| Cáscara del mapa: modos, comparador con cortina y cámara sincronizada, tooltip, leyenda (categorías o Δ), breadcrumb, buscador, exportación PNG | `src/components/map/RiskMap.tsx`, `CompareSwipe.tsx`, `compareSync.ts`, `MapToolbar.tsx`, `MapTooltip.tsx`, `Legend.tsx`, `Breadcrumb.tsx`, `RegionSearch.tsx` |
-| Selector de escenario, controles generados desde `Meta` e indicador del motor (`OpenSearch` / `memoria`) | `src/components/layout/TopBar.tsx`, `ScenarioControls.tsx` |
+| Cáscara del mapa: selector de capas (`MapLayerSwitcher`) y herramientas (`MapToolbar`), comparador con cortina y cámara sincronizada, tooltip (oculto en pantallas táctiles), leyenda plegable (categorías o Δ), breadcrumb, exportación PNG | `src/components/map/RiskMap.tsx`, `CompareSwipe.tsx`, `compareSync.ts`, `MapToolbar.tsx`, `MapTooltip.tsx`, `Legend.tsx`, `Breadcrumb.tsx` |
+| Barra superior: marca, selector de escenario, buscador global (`RegionSearch`), indicador del motor (`OpenSearch` / `memoria`), Metodología, guía; hoja Ajustar con controles generados desde `Meta` | `src/components/layout/TopBar.tsx`, `src/components/map/RegionSearch.tsx`, `src/components/layout/ScenarioControls.tsx` |
 | Detalle: semáforo, intervalo, serie (cortes por datos no confiables, judicial aparte), componentes del índice, perfil edad × sexo (celdas protegidas), indicadores CCPC, factores, recomendaciones, prioridad | `src/components/panel/RegionDetailPanel.tsx`, `src/components/viz/Sparkline.tsx` |
-| Ranking ordenable (riesgo, abstención esperada, prioridad) y exportación CSV | `src/components/panel/RankingTable.tsx` |
+| Ranking ordenable (riesgo, abstención esperada, prioridad; también por columna), Estados/Municipios, filtro por semáforo y exportación CSV | `src/components/panel/RankingTable.tsx` |
 | Asistente con streaming, tabla y fuente; rechazos de guardrails como aviso con título por categoría (estilo neutro y "Estamos contigo" para autolesión), referencia `gr-…` y 2 sugerencias; nota cuando la salida se completó con datos verificados; contador de 1,000 caracteres | `src/components/panel/ChatPanel.tsx`, `src/lib/api.ts` (`ChatDone.guardrail`) |
-| Metodología y manual: cómo usar ATALAYA, glosario con buscador, mapa 3D, límites del asistente, candidatos y backtests, supuesto nacional, R², confiabilidad, privacidad, fuentes | `src/app/metodologia/page.tsx` |
+| Metodología y manual: cómo usar Atalaya Electoral, glosario con buscador, mapa 3D, límites del asistente, candidatos y backtests, supuesto nacional, R², confiabilidad, privacidad, fuentes | `src/app/metodologia/page.tsx` |
 
 ### 4.11 Entregables (`deliverables/`, generados)
 
@@ -296,14 +312,16 @@ El estado del mapa es compartible por URL: `?mapa=semaforo|delta|compare&3d=1&vi
 |---|---|---|
 | Base de datos anonimizada `base_datos_atalaya.xlsx` + `csv/` | `python -m atalaya.export` | Hojas `LEEME`, `diccionario`, `semaforo_ponderado`, `priorizacion`, `municipios`, `estados`, `participacion_historica`, `perfil_edad_sexo` (protegido), `drivers`, `recomendaciones`, `metricas_modelo`. Valida antes de exportar |
 | Mapa de escenarios `mapa_escenarios_{municipal,estatal}.geojson` | `python -m atalaya.export` | Semáforo y abstención por escenario, factor y recomendación principal |
-| Reporte metodológico `reporte_metodologico.{html,pdf}` (15 pp.) | `python -m atalaya.report.build_report [--svg-maps]` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, limitaciones |
+| Reporte metodológico `reporte_metodologico.{html,pdf}` (14 pp.) | `python -m atalaya.report.build_report [--svg-maps] [--today AAAA-MM-DD]` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, limitaciones |
 | Presentación ejecutiva `presentacion_ejecutiva.{html,pdf}` (10 diapositivas) | `python -m atalaya.report.build_slides [--svg-maps]` | Mensajes clave con mapas y gráficas |
 | Figuras `figuras/*.png` | (las escriben los dos comandos anteriores) | `state_part_2024`, `state_semaforo`, `mun_semaforo_base`, `mun_semaforo_intervencion`, `mun_diff`, `chart_map_base` a 2× |
 
-| Visor autónomo de escenarios `visor_escenarios.html` (≈ 6 MB) | `python -m atalaya.viewer` | **Archivo ejecutable** del mapa de escenarios: un solo HTML con MapLibre y los GeoJSON incrustados; abre con doble clic, sin servidor ni internet; modos semáforo base, con intervención, cambio Δ y comparador con cortina; estados/municipios, buscador, tooltip con recomendación principal |
+| Visor autónomo de escenarios `visor_escenarios.html` (≈ 6 MB) | `python -m atalaya.viewer` | **Archivo ejecutable** del mapa de escenarios: un solo HTML con MapLibre y los GeoJSON incrustados; abre con doble clic, sin servidor ni internet; mismo estilo claro, logo y paleta que la app, usable en celular; modos semáforo base, con intervención, cambio Δ y comparador con cortina; estados/municipios, buscador, tooltip con recomendación principal |
 | Paquete de entrega `entrega/OXENT_Reto2_Prediccion_y_escenarios_de_riesgo_de_abstencion.zip` | `python -m atalaya.submission [--allow-missing-letters]` | Verifica la convocatoria y arma el zip (ver §4.13) |
 
 El reporte usa formato de cuartilla (carta, Arial 11, interlineado 1.5) y `build_report` falla si sale con menos de 10 o más de 15 páginas (hoy 14). Reporte y presentación incluyen la URL del tablero público (`--app-url`, default `ATALAYA_PUBLIC_URL` = `http://46.250.172.193:8080`) y la referencia al visor y a los GeoJSON.
+
+**Marca en los documentos.** Reporte, presentación, visor, hojas LEEME/diccionario del XLSX y `ENLACES.txt` dicen "Atalaya Electoral" y llevan el logo **incrustado** en el HTML (se lee de `report/assets/`, sin depender de internet): portada y encabezado del reporte, portada (variante clara sobre magenta) y esquina de cada diapositiva, barra y favicon del visor. Acentos de marca magenta/tinta y semáforo con la paleta única (§4.3). La **fecha de generación** del reporte se calcula al generarlo (`facts.format_date_es`, sin depender del *locale*; `--today` la fija para pruebas). La presentación inserta su CSS sin escapar (`{{ styles_css | safe }}`), de lo contrario las tipografías caían en serif.
 
 **Una sola fuente de cifras:** `report/facts.py` → `compute_facts` calcula todo número que aparece en reporte y presentación (categorías por escenario, LN en riesgo, transiciones base → intervención, parámetros reales de `SCENARIOS`, votos, perfil por edad con etiquetas exactas, modelo, prioridades, confiabilidad, privacidad), en crudo y formateado; las plantillas no calculan ni escriben cifras. Ambos documentos se presentan como **propuesta del equipo** (`--team`, `--repo-url`) y cada porcentaje indica su base (% de los municipios o % de la LN). La presentación falla (exit 2) si alguna tarjeta desborda su texto.
 
@@ -321,7 +339,7 @@ Gráficas no cartográficas en SVG generado en Python (`report/charts.py`: líne
 
 `atalaya/submission.py` verifica cada entregable mínimo obligatorio y arma el zip con el nombre del equipo y el eje (máximo 20 MB para el correo; si excede, excluye los CSV que duplican hojas del XLSX):
 
-| Exigencia de la convocatoria | Entregable ATALAYA | Verificación automática |
+| Exigencia de la convocatoria | Entregable Atalaya Electoral | Verificación automática |
 |---|---|---|
 | Presentación ejecutiva ≤ 10 diapositivas | `01_presentacion_ejecutiva.pdf` | ≤ 10 páginas |
 | Reporte metodológico y preventivo, 10–15 cuartillas: variables, semáforo, recomendaciones preventivas y de priorización | `02_reporte_metodologico.pdf` | 10–15 páginas carta y las 5 secciones clave |
@@ -371,11 +389,14 @@ cd backend; python scripts\bootstrap_cluster.py [--reset] [--skip-parity] [--api
 # Solo teselas del mapa (tras cambiar la geometría)
 cd tools/geo; node --max-old-space-size=6144 build_geo.mjs --tiles-only
 # Pruebas (sin red; una guardia impide que escriban en datos reales)
-cd backend;  python -m pytest -q          # 473 pruebas
-cd frontend; npm run typecheck; npm test; npm run build   # 199 pruebas
+cd backend;  python -m pytest -q          # 481 pruebas (el resumen lo oculta la configuración: usar --junitxml o el código de salida)
+cd frontend; npm run typecheck; npm test; npm run build   # 249 pruebas
 cd tools/geo; npm test                    # 14 pruebas
 # Sondas del arquitecto en Chrome headless / SSE (app en marcha; no versionadas)
 python temp/osmap/tools/map_probe.py --shots <dir>
+python temp/smallfix/tools/ui_shots.py --base <url> --out <dir> [--only phone,laptop] [--guide]   # 6 tamaños: desborde, pestañas, Ajustar, errores JS
+python temp/smallfix/tools/console_dump.py <url> [--width 375 --mobile]   # con `next dev` muestra avisos de hidratación
+python temp/smallfix/tools/overflow_check.py <url> --width 360            # culpables de scroll horizontal en emulación móvil
 python temp/optfix/tools/perf_probe.py --base http://127.0.0.1:3000 --3d [--perf] [--compare URL2]   # fps de paneo y latencia de hover
 python temp/optfix/tools/chat_guard_probe.py --base http://127.0.0.1:8001   # batería de guardrails (8 s entre casos por el límite del chat)
 ```
@@ -398,8 +419,10 @@ backend/atalaya/
   chat/     spec · guardrails · guard (envoltura) · planner · executor · writer
   report/   facts · charts · map_capture · build_report · build_slides · map_print/ · templates/ · slides_templates/
 backend/scripts/   bootstrap_cluster.py · check_cluster.py · os_parity.py · smoke_llm.py · validate_build.py
-backend/tests/     473 pruebas offline (aisladas del log real de guardrails)
-frontend/src/      app/ · components/{map,panel,layout,viz,ui} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapSupport,mapRisk,useMapRisk,focus,hoverThrottle,glossary,mocks}
+  report/assets/   logo de Atalaya Electoral (símbolo, logo y variante clara) incrustado en reporte, presentación y visor
+backend/tests/     481 pruebas offline (aisladas del log real de guardrails)
+frontend/src/      app/ (page, layout, globals.css, icon.svg, favicon.ico, apple-icon.png, metodologia/) · components/{brand,map,panel,layout,viz,ui} · lib/{api,state,geo,format,types,scenarioParams,mapStyle,mapSupport,mapRisk,useMapRisk,focus,hoverThrottle,glossary,panelStats,useMediaQuery,mocks}
+frontend/public/brand/   logo y símbolo en SVG
 frontend/public/geo/   tiles/{z}/{x}/{y}.pbf + tiles.json (teselas MVT) y capas GeoJSON de respaldo (versionadas)
 tools/geo/         build_geo.mjs · build_tiles.mjs + pruebas
 data/seed/         catálogos y reglas curadas (incluye guardrail_lists.json, listas personalizables del asistente)
@@ -450,6 +473,8 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 **Entregables del Reto 2:** reporte 14 pp (cuartilla), presentación 10 diapositivas, GeoJSON, visor autónomo, base anonimizada y figuras; `atalaya.submission` los valida todos.
 
 **Optimización y correcciones** (rama `Optimization-n-fixes`, 2026-10-26): modo 3D de bloques con foco (altura = índice de riesgo, ya no población; al acercarse solo se levantan los municipios del estado en foco y el resto queda plano; vistas Inclinada/Cenital), rendimiento del mapa (hover limitado por cuadro, extrusión acotada al foco, `pixelRatio` acotado), guardrails del asistente (batería en vivo 56/56), ayuda ⓘ en toda la interfaz con glosario único, guía de primera visita y Metodología como manual. Corregido además un error previo del asistente: la comparación entre dos zonas reportaba "diferencia absoluta +0.0 pp" porque restaba fracciones; ahora da los pp correctos (p. ej., Tijuana 46.6 % vs Mexicali 47.5 % ⇒ 0.9 pp). Verificado: 473 pruebas backend, 199 frontend, 14 geo, build de producción, sondas de rendimiento y capturas de la UI en Chrome headless a 1280 y 1500 px.
+
+**Rediseño y marca "Atalaya Electoral"** (rama `small-fixes`, 2026-10-27): interfaz clara de estilo institucional (magenta INE, Montserrat + Source Sans 3) en todo lo que rodea al mapa —barra superior con escenario, Ajustar y buscador; controles flotantes del mapa; panel lateral redimensionable y plegable en PC y hoja inferior en celular/tablet; Ajustar como hoja lateral; guía anclada de 6 pasos; panorama nacional con KPI ponderado por lista nominal; ranking con filtros por semáforo; asistente y Metodología rediseñados—, logo y favicon nuevos, mapa base gris claro y paleta del semáforo nueva idéntica en app, reporte, presentación y visor; nombre nuevo también en asistente, API y entregables. El funcionamiento del mapa no cambió (único ajuste: el encuadre del estado elegido deja libre la hoja inferior en celular). Corregido además: botón dentro de botón en el ranking que rompía la hidratación de React, pestañas que regresaban solas a Diagnóstico, CSS escapado en la presentación (tipografías en serif), fecha de generación fija en el reporte. Verificado: 481 pruebas backend, 249 frontend, build de producción, `map_probe.py` 4/4, sin avisos de hidratación (modo desarrollo) y sin scroll horizontal ni errores en 360–1920 px; reporte 14 pp y presentación 10 diapositivas regenerados con mapas MapLibre.
 
 **Pendiente (acciones del equipo, fuera del código):**
 1. Firmar las cartas de cesión de derechos y de decir verdad y colocarlas en `deliverables/entrega/cartas/`; regenerar el zip con `python -m atalaya.submission`.
