@@ -338,3 +338,31 @@ def test_facts_default_app_url_and_parameter(synthetic_build_env):
     )
     assert facts_custom["app_url"] == custom_url
 
+
+def test_facts_generated_date_label(synthetic_build_env):
+    """Verifies generated_date_label is computed in Spanish without locale dependency."""
+    from datetime import date
+    from atalaya.report.facts import compute_facts, format_date_es
+
+    d1 = date(2026, 10, 31)
+    assert format_date_es(d1) == "31 de octubre de 2026"
+    d2 = date(2026, 1, 5)
+    assert format_date_es(d2) == "5 de enero de 2026"
+
+    facts = compute_facts(
+        synthetic_build_env["build_dir"],
+        deliverables_dir=synthetic_build_env["deliv_dir"],
+        today=d1,
+    )
+    assert facts["generated_date_label"] == "31 de octubre de 2026"
+    assert facts["generated_date_iso"] == "2026-10-31"
+
+    # Default today
+    facts_today = compute_facts(
+        synthetic_build_env["build_dir"],
+        deliverables_dir=synthetic_build_env["deliv_dir"],
+    )
+    today = date.today()
+    assert str(today.year) in facts_today["generated_date_label"]
+    assert facts_today["generated_date_iso"] == today.isoformat()
+

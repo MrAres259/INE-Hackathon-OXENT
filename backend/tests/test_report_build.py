@@ -439,3 +439,23 @@ def test_report_branding_and_logo_svg(synthetic_workspace):
     assert 'width: 155px;' in content
 
 
+def test_report_dynamic_generation_date(synthetic_workspace):
+    """Verifies that report HTML uses dynamic date and respects today parameter."""
+    from datetime import date
+
+    test_date = date(2026, 10, 31)
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+        team="OXENT",
+        today=test_date,
+    )
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    assert "31 de octubre de 2026" in content
+    assert "20 de octubre de 2026" not in content
+    assert "Fecha de generación: 31 de octubre de 2026" in content
+    assert "<strong>Fecha de generación:</strong> 31 de octubre de 2026" in content
+
+

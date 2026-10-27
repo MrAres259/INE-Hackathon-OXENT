@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import html
 import json
 import math
@@ -102,6 +103,7 @@ def generate_report(
     repo_url: str = DEFAULT_REPO_URL,
     app_url: str = DEFAULT_APP_URL,
     svg_maps: bool = False,
+    today: date | None = None,
 ) -> dict[str, Any]:
     """Generates the methodological report in HTML and PDF formats."""
     b_dir = build_dir or BUILD_DIR
@@ -111,7 +113,14 @@ def generate_report(
     o_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Compute all quantitative facts (single source of truth)
-    stats = compute_facts(b_dir, deliverables_dir=d_dir, team=team, repo_url=repo_url, app_url=app_url)
+    stats = compute_facts(
+        b_dir,
+        deliverables_dir=d_dir,
+        team=team,
+        repo_url=repo_url,
+        app_url=app_url,
+        today=today,
+    )
 
     # 2. Charts
     history_line_svg = svg_line(
@@ -361,6 +370,7 @@ def generate_report(
         map_engines=map_engines,
         brand_logo_svg=brand_logo_svg,
         brand_mark_svg=brand_mark_svg,
+        generated_date_label=stats.get("generated_date_label", ""),
     )
     html_out = o_dir / "reporte_metodologico.html"
     html_out.write_text(rendered_html, encoding="utf-8")
@@ -399,7 +409,10 @@ def main() -> None:
     parser.add_argument("--repo-url", type=str, default=DEFAULT_REPO_URL, help="URL del repositorio")
     parser.add_argument("--app-url", type=str, default=DEFAULT_APP_URL, help="URL pública de la aplicación")
     parser.add_argument("--svg-maps", action="store_true", help="Forzar el respaldo SVG sin intentar la captura MapLibre")
+    parser.add_argument("--today", type=str, default=None, help="Fecha de generación (YYYY-MM-DD), default hoy")
     args = parser.parse_args()
+
+    today_val = date.fromisoformat(args.today) if args.today else None
 
     res = generate_report(
         build_dir=args.build_dir,
@@ -410,6 +423,7 @@ def main() -> None:
         repo_url=args.repo_url,
         app_url=args.app_url,
         svg_maps=args.svg_maps,
+        today=today_val,
     )
     pages = res.get("pages", 0)
     print(f"Listo: {res['html_path']} y {res['pdf_path']} ({pages} páginas).")

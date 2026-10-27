@@ -239,12 +239,12 @@ export function RankingTable() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-border bg-card">
-        <table className="w-full text-left text-xs">
+        <table className="w-full table-fixed sm:table-auto text-left text-xs">
           <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur text-[10px] uppercase font-semibold text-muted-foreground border-b border-border">
             <tr>
-              <th className="py-2.5 pl-3 pr-2 w-7">#</th>
-              <th className="py-2.5 px-2">Zona</th>
-              <th className="py-2.5 px-2 text-right">
+              <th className="py-2.5 px-1.5 sm:pl-3 sm:pr-2 w-7">#</th>
+              <th className="py-2.5 px-1.5 sm:px-2 min-w-0">Zona</th>
+              <th className="py-2.5 px-1.5 sm:px-2 text-right w-16 sm:w-auto">
                 <div className="inline-flex items-center justify-end gap-1">
                   <button
                     type="button"
@@ -253,10 +253,13 @@ export function RankingTable() {
                       sortBy === "abst" ? "text-primary font-bold" : ""
                     }`}
                   >
-                    <span>Abst. 2027</span>
+                    <span className="sm:hidden">Abst.</span>
+                    <span className="hidden sm:inline">Abst. 2027</span>
                     {sortBy === "abst" && <span className="text-xs">↓</span>}
                   </button>
-                  <InfoTip term="pred_abstention" size="xs" />
+                  <span className="hidden sm:inline-flex">
+                    <InfoTip term="pred_abstention" size="xs" />
+                  </span>
                 </div>
               </th>
               {scenario !== "base" && (
@@ -291,7 +294,7 @@ export function RankingTable() {
                   <InfoTip term="abstencion_esperada" size="xs" />
                 </div>
               </th>
-              <th className="py-2.5 px-2 text-right">
+              <th className="py-2.5 px-1.5 sm:px-2 text-right w-14 sm:w-auto">
                 <div className="inline-flex items-center justify-end gap-1">
                   <button
                     type="button"
@@ -303,7 +306,9 @@ export function RankingTable() {
                     <span>Riesgo</span>
                     {sortBy === "risk" && <span className="text-xs">↓</span>}
                   </button>
-                  <InfoTip term="risk_score" size="xs" />
+                  <span className="hidden sm:inline-flex">
+                    <InfoTip term="risk_score" size="xs" />
+                  </span>
                 </div>
               </th>
               <th className="hidden sm:table-cell py-2.5 pr-3 pl-2 text-right">
@@ -347,26 +352,26 @@ export function RankingTable() {
                       isSelected ? "bg-accent/70" : ""
                     }`}
                   >
-                    <td className="py-2.5 pl-3 pr-2 font-mono text-[11px] text-muted-foreground group-hover:text-foreground tnum">
+                    <td className="py-2.5 px-1.5 sm:pl-3 sm:pr-2 font-mono text-[11px] text-muted-foreground group-hover:text-foreground tnum">
                       {idx + 1}
                     </td>
-                    <td className="py-2.5 px-2 min-w-0">
+                    <td className="py-2.5 px-1.5 sm:px-2 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className={`size-2 shrink-0 rounded-full ${style.dotClass}`} />
                         <div className="min-w-0 flex-1">
                           <div className="font-semibold text-foreground group-hover:text-primary transition-colors truncate">
                             {item.name}
                           </div>
-                          <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
-                            <span>Clave {item.id}</span>
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1.5 truncate">
+                            <span className="truncate">Clave {item.id}</span>
                             {item.prioridad !== undefined && item.prioridad !== null && (
-                              <span className="text-primary font-semibold">· Prioridad #{item.prioridad}</span>
+                              <span className="text-primary font-semibold truncate shrink-0">· Prioridad #{item.prioridad}</span>
                             )}
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="py-2.5 px-2 text-right font-mono font-bold text-foreground tnum">
+                    <td className="py-2.5 px-1.5 sm:px-2 text-right font-mono font-bold text-foreground tnum">
                       <div>{formatPct(item.pred_abstention)}</div>
                       {item.delta_vs_base_pp !== undefined && item.delta_vs_base_pp !== null && (
                         <div
@@ -397,7 +402,7 @@ export function RankingTable() {
                       <div className="text-foreground">{formatInt(abstEsperada)}</div>
                       <div className="text-[9px] text-muted-foreground font-normal">pers.</div>
                     </td>
-                    <td className="py-2.5 px-2 text-right font-display font-bold text-foreground text-sm tnum">
+                    <td className="py-2.5 px-1.5 sm:px-2 text-right font-display font-bold text-foreground text-sm tnum">
                       {item.risk_score ?? "—"}
                     </td>
                     <td className="hidden sm:table-cell py-2.5 pr-3 pl-2 text-right">

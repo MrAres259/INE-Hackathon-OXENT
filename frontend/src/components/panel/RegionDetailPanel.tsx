@@ -80,29 +80,33 @@ export function RegionDetailPanel() {
         {/* Global Summary KPI Cards (2xN grid) */}
         <div className="grid grid-cols-2 gap-2">
           {/* Card 1: Abstención pronosticada */}
-          <div className="rounded-lg border border-border bg-card p-3">
-            <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-              <span>Abstención pronosticada</span>
-              <InfoTip term="pred_abstention" size="xs" />
+          <div className="rounded-lg border border-border bg-card p-3 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                <span>Abstención pronosticada</span>
+                <InfoTip term="pred_abstention" size="xs" />
+              </div>
+              <div className="tnum mt-1 font-display text-xl font-bold text-foreground">
+                {formatPct(natStats.avgAbstention)}
+              </div>
             </div>
-            <div className="tnum mt-1 font-display text-xl font-bold text-foreground">
-              {formatPct(natStats.avgAbstention)}
-            </div>
-            <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+            <div className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
               nacional, ponderada por lista nominal
             </div>
           </div>
 
           {/* Card 2: Abstención Esperada */}
-          <div className="rounded-lg border border-border bg-card p-3">
-            <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-              <span>Abstención esperada</span>
-              <InfoTip term="abstencion_esperada" size="xs" />
-            </div>
-            <div className="tnum mt-1 font-display text-xl font-bold text-foreground">
-              {natStats.totalExpected > 1e6
-                ? `${(natStats.totalExpected / 1e6).toFixed(1)} M`
-                : formatInt(natStats.totalExpected)}
+          <div className="rounded-lg border border-border bg-card p-3 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                <span>Abstención esperada</span>
+                <InfoTip term="abstencion_esperada" size="xs" />
+              </div>
+              <div className="tnum mt-1 font-display text-xl font-bold text-foreground">
+                {natStats.totalExpected > 1e6
+                  ? `${(natStats.totalExpected / 1e6).toFixed(1)} M`
+                  : formatInt(natStats.totalExpected)}
+              </div>
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
               personas
@@ -110,17 +114,19 @@ export function RegionDetailPanel() {
           </div>
 
           {/* Card 3: Zonas Evaluadas */}
-          <div className="rounded-lg border border-border bg-card p-3">
-            <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-              <span>Zonas evaluadas</span>
-              <InfoTip
-                title="Total de Zonas Evaluadas"
-                text="Número total de entidades federativas (32) o municipios evaluados según el nivel territorial activo."
-                size="xs"
-              />
-            </div>
-            <div className="tnum mt-1 font-display text-xl font-bold text-foreground">
-              {totalZonesCount}
+          <div className="rounded-lg border border-border bg-card p-3 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                <span>Zonas evaluadas</span>
+                <InfoTip
+                  title="Total de Zonas Evaluadas"
+                  text="Número total de entidades federativas (32) o municipios evaluados según el nivel territorial activo."
+                  size="xs"
+                />
+              </div>
+              <div className="tnum mt-1 font-display text-xl font-bold text-foreground">
+                {totalZonesCount}
+              </div>
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
               {level === "state" ? "entidades federativas" : "municipios"}
@@ -128,13 +134,15 @@ export function RegionDetailPanel() {
           </div>
 
           {/* Card 4: Escenario Activo */}
-          <div className="rounded-lg border border-border bg-card p-3">
-            <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-              <span>Escenario activo</span>
-              <InfoTip term="escenarios" size="xs" />
-            </div>
-            <div className="mt-1 font-display text-xl font-bold capitalize text-primary truncate">
-              {scenario}
+          <div className="rounded-lg border border-border bg-card p-3 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                <span>Escenario activo</span>
+                <InfoTip term="escenarios" size="xs" />
+              </div>
+              <div className="mt-1 font-display text-xl font-bold capitalize text-primary truncate">
+                {scenario}
+              </div>
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">
               {scenario === "base"

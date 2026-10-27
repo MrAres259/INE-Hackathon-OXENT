@@ -5,6 +5,7 @@ No quantitative figure should be calculated or hardcoded outside of this module.
 """
 from __future__ import annotations
 
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -20,6 +21,27 @@ from atalaya.model.scenarios import SCENARIOS, default_params, simulate
 DEFAULT_TEAM = "OXENT"
 DEFAULT_REPO_URL = "https://github.com/MrAres259/INE-Hackathon-OXENT"
 DEFAULT_APP_URL = os.getenv("ATALAYA_PUBLIC_URL", "http://46.250.172.193:8080")
+
+SPANISH_MONTHS = (
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+)
+
+
+def format_date_es(d: date) -> str:
+    """Format date in Spanish without locale dependency (e.g. '27 de octubre de 2026')."""
+    month_name = SPANISH_MONTHS[d.month - 1]
+    return f"{d.day} de {month_name} de {d.year}"
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -80,6 +102,7 @@ def compute_facts(
     team: str = DEFAULT_TEAM,
     repo_url: str = DEFAULT_REPO_URL,
     app_url: str = DEFAULT_APP_URL,
+    today: date | None = None,
 ) -> dict[str, Any]:
     """Computes all validated quantitative facts for ATALAYA report and slides.
 
@@ -93,12 +116,18 @@ def compute_facts(
         Team name for presentation and report branding.
     repo_url : str
         Public GitHub repository URL.
+    today : date, optional
+        Date of generation (defaults to date.today()).
 
     Returns
     -------
     dict[str, Any]
         Dictionary of facts with both raw numbers and pre-formatted display strings.
     """
+    d_today = today or date.today()
+    generated_date_label = format_date_es(d_today)
+    generated_date_iso = d_today.isoformat()
+
     b_dir = Path(build_dir)
 
     # 1. Load primary units and metrics
@@ -904,6 +933,8 @@ def compute_facts(
         "team": team,
         "repo_url": repo_url,
         "app_url": app_url,
+        "generated_date_label": generated_date_label,
+        "generated_date_iso": generated_date_iso,
         "target_year": target_year,
         "n_mun": n_mun,
         "n_states": n_states,
