@@ -1,6 +1,8 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import fs from "fs";
+import path from "path";
 import { BrandMark, BrandLockup } from "../components/brand/BrandMark";
 import {
   nearestSnap,
@@ -10,6 +12,42 @@ import {
   useIsCompact,
   SNAP_PEEK_BASE_PX,
 } from "../lib/useMediaQuery";
+import {
+  useSidePanelTabs,
+  SidePanelTabs,
+  type PanelTabId,
+} from "../components/panel/SidePanelTabs";
+import DashboardPage from "../app/page";
+
+let mockRegionId: string | null = null;
+let mockScenarioOpen = false;
+
+vi.mock("@/lib/state", () => ({
+  useAtalaya: () => ({
+    selectedRegionId: mockRegionId,
+    isScenarioModalOpen: mockScenarioOpen,
+  }),
+}));
+
+vi.mock("@/components/map/RiskMap", () => ({
+  RiskMap: () => <div data-testid="risk-map" />,
+}));
+
+vi.mock("@/components/layout/ScenarioControls", () => ({
+  ScenarioControls: () => <div data-testid="scenario-controls" />,
+}));
+
+vi.mock("@/components/panel/RegionDetailPanel", () => ({
+  RegionDetailPanel: () => <div data-testid="detail-panel" />,
+}));
+
+vi.mock("@/components/panel/RankingTable", () => ({
+  RankingTable: () => <div data-testid="ranking-panel" />,
+}));
+
+vi.mock("@/components/panel/ChatPanel", () => ({
+  ChatPanel: () => <div data-testid="chat-panel" />,
+}));
 
 describe("W1-A Shell & Brand Suite (shell.test.tsx)", () => {
   describe("BrandMark and BrandLockup (Contract C6)", () => {
@@ -164,6 +202,243 @@ describe("W1-A Shell & Brand Suite (shell.test.tsx)", () => {
       // Cleanup
       unsub();
       expect(mockMq.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+    });
+  });
+
+  describe("W2-A Shell Fixes Suite", () => {
+    describe("A1 · SidePanelTabs tab switching and stabilization", () => {
+      let defaultView: any;
+      let fakeDoc: any;
+      let fakeElement: any;
+      const origWindow = (globalThis as any).window;
+      const origDoc = (globalThis as any).document;
+      const origActEnv = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+
+      beforeEach(() => {
+        defaultView = {
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          HTMLIFrameElement: class {},
+        };
+        fakeDoc = {
+          nodeType: 9,
+          createElement: () => fakeElement,
+          createTextNode: () => ({ nodeType: 3 }),
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          createComment: () => ({ nodeType: 8 }),
+          defaultView: defaultView,
+          activeElement: null,
+          body: {
+            classList: {
+              add: () => {},
+              remove: () => {},
+            },
+          },
+        };
+        fakeElement = {
+          nodeType: 1,
+          tagName: "DIV",
+          ownerDocument: fakeDoc,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          appendChild: () => {},
+          removeChild: () => {},
+          insertBefore: () => {},
+          setAttribute: () => {},
+          removeAttribute: () => {},
+          style: {},
+          childNodes: [],
+        };
+        defaultView.document = fakeDoc;
+        (globalThis as any).document = fakeDoc;
+        (globalThis as any).window = defaultView;
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+      });
+
+      afterEach(() => {
+        (globalThis as any).document = origDoc;
+        (globalThis as any).window = origWindow;
+        (globalThis as any).IS_REACT_ACT_ENVIRONMENT = origActEnv;
+      });
+
+      it("con una zona seleccionada, cambiar a Ranking y forzar un re-render del padre no regresa a Diagnóstico; cambiar a otra zona sí", async () => {
+        const ReactDOM = await import("react-dom/client");
+        const root = ReactDOM.createRoot(fakeElement);
+
+        let latestHook: ReturnType<typeof useSidePanelTabs> | null = null;
+        const tabChanges: string[] = [];
+
+        function ParentComponent({ regionId, renderId }: { regionId: string | null; renderId: number }) {
+          // Inline function created anew on every render of parent (simulating the bug condition)
+          const onTabChangeInline = (tab: PanelTabId) => {
+            tabChanges.push(`render-${renderId}:${tab}`);
+          };
+
+          latestHook = useSidePanelTabs(regionId, onTabChangeInline);
+          return null;
+        }
+
+        // 1. Initial mount with region "09" selected
+        React.act(() => {
+          root.render(<ParentComponent regionId="09" renderId={1} />);
+        });
+        expect(latestHook!.activeTab).toBe("detail");
+
+        // 2. User switches to "ranking"
+        React.act(() => {
+          latestHook!.selectTab("ranking");
+        });
+        expect(latestHook!.activeTab).toBe("ranking");
+
+        // 3. Parent re-renders with the SAME regionId ("09") and a NEW inline onTabChange callback
+        React.act(() => {
+          root.render(<ParentComponent regionId="09" renderId={2} />);
+        });
+        // The tab MUST remain "ranking" (not forced back to "detail")
+        expect(latestHook!.activeTab).toBe("ranking");
+
+        // 4. Force another re-render of parent with same region
+        React.act(() => {
+          root.render(<ParentComponent regionId="09" renderId={3} />);
+        });
+        expect(latestHook!.activeTab).toBe("ranking");
+
+        // 5. Selecting a DIFFERENT region ("19") DOES return to "detail"
+        React.act(() => {
+          root.render(<ParentComponent regionId="19" renderId={4} />);
+        });
+        expect(latestHook!.activeTab).toBe("detail");
+        expect(tabChanges).toContain("render-4:detail");
+
+        // 6. Switching to "chat", deselecting, and reselecting region "19"
+        React.act(() => {
+          latestHook!.selectTab("chat");
+        });
+        expect(latestHook!.activeTab).toBe("chat");
+
+        // Deselect (null)
+        React.act(() => {
+          root.render(<ParentComponent regionId={null} renderId={5} />);
+        });
+        // Deselecting does not force detail
+        expect(latestHook!.activeTab).toBe("chat");
+
+        // Reselect region "19"
+        React.act(() => {
+          root.render(<ParentComponent regionId="19" renderId={6} />);
+        });
+        expect(latestHook!.activeTab).toBe("detail");
+
+        React.act(() => {
+          root.unmount();
+        });
+      });
+
+      it("a 375 px con una zona seleccionada, las pestañas Ranking y Asistente se pueden abrir y se quedan abiertas", async () => {
+        const ReactDOM = await import("react-dom/client");
+        const root = ReactDOM.createRoot(fakeElement);
+
+        let latestHook: ReturnType<typeof useSidePanelTabs> | null = null;
+        let snapState = "peek";
+
+        function MobileHost({ regionId, tick }: { regionId: string | null; tick: number }) {
+          latestHook = useSidePanelTabs(regionId, (tab) => {
+            if (snapState === "peek") snapState = "half";
+          });
+          return null;
+        }
+
+        // Mount on 375px mobile device with region selected
+        React.act(() => {
+          root.render(<MobileHost regionId="09" tick={1} />);
+        });
+        expect(latestHook!.activeTab).toBe("detail");
+
+        // Open Ranking
+        React.act(() => {
+          latestHook!.selectTab("ranking");
+        });
+        expect(latestHook!.activeTab).toBe("ranking");
+        expect(snapState).toBe("half");
+
+        // Force parent re-render (e.g. state/prop updates on 375px screen)
+        React.act(() => {
+          root.render(<MobileHost regionId="09" tick={2} />);
+        });
+        // Stays open on Ranking
+        expect(latestHook!.activeTab).toBe("ranking");
+
+        // Open Asistente
+        React.act(() => {
+          latestHook!.selectTab("chat");
+        });
+        expect(latestHook!.activeTab).toBe("chat");
+
+        // Force another parent re-render
+        React.act(() => {
+          root.render(<MobileHost regionId="09" tick={3} />);
+        });
+        // Stays open on Asistente
+        expect(latestHook!.activeTab).toBe("chat");
+
+        React.act(() => {
+          root.unmount();
+        });
+      });
+    });
+
+    describe("A2 · Una sola instancia del panel", () => {
+      it("renders exactly one <aside data-tour='panel'> in DashboardPage", () => {
+        mockRegionId = null;
+        mockScenarioOpen = false;
+        const html = renderToStaticMarkup(<DashboardPage />);
+        const matches = html.match(/<aside[^>]*data-tour="panel"/g);
+        expect(matches).not.toBeNull();
+        expect(matches!.length).toBe(1);
+      });
+
+      it("desktop panel contains resize handle and toggle button", () => {
+        mockRegionId = null;
+        mockScenarioOpen = false;
+        const html = renderToStaticMarkup(<DashboardPage />);
+        // Desktop has resize handle
+        expect(html).toContain("cursor-col-resize");
+        // Compact grab handle is not rendered on desktop
+        expect(html).not.toContain("Expandir o contraer panel");
+        // Toggle button is present on PC
+        expect(html).toContain('aria-label="Ocultar panel"');
+      });
+    });
+
+    describe("A3 & C10 · Map CSS variables (--map-inset-bottom and --map-fit-bottom)", () => {
+      it("renders CSS variables with 0px on desktop initial markup", () => {
+        mockRegionId = null;
+        mockScenarioOpen = false;
+        const html = renderToStaticMarkup(<DashboardPage />);
+        expect(html).toContain("--map-inset-bottom:0px");
+        expect(html).toContain("--map-fit-bottom:0px");
+      });
+
+      it("calculates --map-fit-bottom as Math.round(0.52 * innerHeight) in compact mode", () => {
+        const vh = 800;
+        const expectedFitBottom = `${Math.round(0.52 * vh)}px`; // "416px"
+        expect(expectedFitBottom).toBe("416px");
+
+        const mobileVh = 667;
+        const expectedMobileFit = `${Math.round(0.52 * mobileVh)}px`; // "347px"
+        expect(expectedMobileFit).toBe("347px");
+      });
+    });
+
+    describe("A4 · MapLibre controls margin-bottom in globals.css", () => {
+      it("globals.css sets margin-bottom: var(--map-inset-bottom, 0px) for bottom controls", () => {
+        const cssPath = path.resolve(__dirname, "../app/globals.css");
+        const cssContent = fs.readFileSync(cssPath, "utf-8");
+        expect(cssContent).toContain(".maplibregl-ctrl-bottom-right");
+        expect(cssContent).toContain(".maplibregl-ctrl-bottom-left");
+        expect(cssContent).toContain("margin-bottom: var(--map-inset-bottom, 0px);");
+      });
     });
   });
 });

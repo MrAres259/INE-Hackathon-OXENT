@@ -161,7 +161,7 @@ def _build_llm_system_prompt() -> str:
     states_list = ", ".join(f"{cve}: {_STATE_NAMES.get(cve, cve)}" for cve in sorted(_STATE_NAMES.keys()))
     
     return (
-        "Eres el planificador estructurado de consultas de ATALAYA, plataforma de analítica sobre "
+        "Eres el planificador estructurado de consultas de Atalaya Electoral, plataforma de analítica sobre "
         "participación ciudadana y riesgo de abstención electoral en México (INE).\n"
         "Tu tarea es convertir la pregunta del usuario en un objeto JSON `QuerySpec`.\n"
         "REGLAS OBLIGATORIAS:\n"
@@ -176,7 +176,7 @@ def _build_llm_system_prompt() -> str:
         f"{states_list}\n"
         "4. Intents permitidos: ranking, lookup, compare, correlation, trend, scenario, explain_unit, "
         "catalog, help, out_of_scope, profile.\n"
-        "5. Si la pregunta está fuera de los temas de participación electoral o sociodemografía de ATALAYA, "
+        "5. Si la pregunta está fuera de los temas de participación electoral o sociodemografía de Atalaya Electoral, "
         "intent='out_of_scope'. Si la pregunta pide código, asistencia general o temas ajenos, intent='out_of_scope'.\n"
         "6. La elección por defecto es DIP_FED. Si preguntan por 2027 o el futuro, usa pred_abstention o risk_score."
     )
@@ -458,7 +458,7 @@ def _plan_rules(
         spec = QuerySpec(intent="help", filters={"topic": "privacidad"})
         return spec, True, None
 
-    if re.search(r"qu[eé]\s+es\s+atalaya|acerca\s+de\s+atalaya|sobre\s+atalaya|de\s+d[oó]nde\s+(?:salen|vienen|obtienen)\s+(?:los\s+)?datos|fuentes?\s+de\s+(?:los\s+)?datos|qu[eé]\s+puedes\s+hacer|qu[eé]\s+haces?\b|c[oó]mo\s+funciona", text_lower):
+    if re.search(r"qu[eé]\s+es\s+atalaya(?:\s+electoral)?|acerca\s+de\s+atalaya(?:\s+electoral)?|sobre\s+atalaya(?:\s+electoral)?|de\s+d[oó]nde\s+(?:salen|vienen|obtienen)\s+(?:los\s+)?datos|fuentes?\s+de\s+(?:los\s+)?datos|qu[eé]\s+puedes\s+hacer|qu[eé]\s+haces?\b|c[oó]mo\s+funciona", text_lower):
         spec = QuerySpec(intent="help")
         return spec, True, None
 

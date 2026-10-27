@@ -133,15 +133,10 @@
       background: rgba(181, 24, 107, 0.08);
     }
 
-    .ctrl-btn.active {
-      color: #ffffff;
-      background: var(--cat-verde);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-    }
-
+    .ctrl-btn.active,
     .ctrl-btn.active-emerald {
       color: #ffffff;
-      background: var(--accent-emerald);
+      background: #b5186b;
       box-shadow: 0 1px 3px rgba(181, 24, 107, 0.25);
     }
 
@@ -532,6 +527,25 @@
       }
       #tooltip {
         max-width: calc(100vw - 20px);
+      }
+    }
+
+    @media (max-width: 639px) {
+      #mode-group {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        width: 100%;
+        overflow-x: visible;
+      }
+      #mode-group .ctrl-btn {
+        width: 100%;
+        min-height: 40px;
+        padding: 6px 8px;
+        font-size: 11px;
+        text-align: center;
+        white-space: normal;
+        line-height: 1.2;
       }
     }
   </style>

@@ -141,7 +141,7 @@ def get_variable_meta(key: str) -> dict[str, str]:
         return {
             "label_es": "Prioridad de intervención",
             "description": "Lugar de prioridad para asignación de recursos según volumen de abstención esperada y riesgo",
-            "source": "ATALAYA · Priorización de recursos 2027",
+            "source": "Atalaya Electoral · Priorización de recursos 2027",
             "unit": "posición",
             "level": "mun|state",
         }
@@ -149,7 +149,7 @@ def get_variable_meta(key: str) -> dict[str, str]:
         return {
             "label_es": "Abstencionistas esperados",
             "description": "Número estimado de personas inscritas que no acudirían a votar en 2027",
-            "source": "ATALAYA · Pronóstico 2027",
+            "source": "Atalaya Electoral · Pronóstico 2027",
             "unit": "personas",
             "level": "mun|state",
         }
@@ -157,7 +157,7 @@ def get_variable_meta(key: str) -> dict[str, str]:
         return {
             "label_es": "Vulnerabilidad estructural",
             "description": "Abstención relativa predicha por el perfil sociodemográfico municipal",
-            "source": "ATALAYA · Perfil estructural",
+            "source": "Atalaya Electoral · Perfil estructural",
             "unit": "pp",
             "level": "mun|state",
         }
@@ -165,7 +165,7 @@ def get_variable_meta(key: str) -> dict[str, str]:
     return {
         "label_es": key.replace("_", " ").title(),
         "description": "",
-        "source": "ATALAYA",
+        "source": "Atalaya Electoral",
         "unit": "",
         "level": "mun|state",
     }
@@ -256,16 +256,25 @@ def _resolve_sources(keys: list[str], spec: QuerySpec | None = None, store: Any 
             _add_source(f"INE · Conteos Censales de Participación Ciudadana {yr}")
             continue
 
-        if raw_src.startswith("INE ·") or raw_src.startswith("INEGI ·") or raw_src.startswith("CONAPO ·") or raw_src.startswith("ATALAYA ·"):
-            _add_source(raw_src)
+        if (
+            raw_src.startswith("INE ·")
+            or raw_src.startswith("INEGI ·")
+            or raw_src.startswith("CONAPO ·")
+            or raw_src.startswith("Atalaya Electoral ·")
+            or raw_src.startswith("ATALAYA ·")
+        ):
+            if raw_src.startswith("ATALAYA ·"):
+                _add_source(raw_src.replace("ATALAYA ·", "Atalaya Electoral ·"))
+            else:
+                _add_source(raw_src)
         elif raw_src in ("INE", "INE CCPC"):
             _add_source(f"INE · Conteos Censales de Participación Ciudadana {eff_year}")
         elif raw_src == "INEGI":
             _add_source("INEGI · Censo 2020")
         elif raw_src == "CONAPO":
             _add_source("CONAPO · Marginación 2020")
-        elif raw_src == "ATALAYA":
-            _add_source("ATALAYA · Pronóstico 2027 (con datos INE e INEGI)")
+        elif raw_src in ("Atalaya Electoral", "ATALAYA"):
+            _add_source("Atalaya Electoral · Pronóstico 2027 (con datos INE e INEGI)")
         elif raw_src:
             _add_source(raw_src)
 
@@ -814,7 +823,7 @@ def _execute_scenario(spec: QuerySpec, store: Any) -> DataResult:
         return DataResult(
             columns=[],
             rows=[],
-            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            source="Atalaya Electoral · Simulación de escenarios 2027 (con datos INE e INEGI)",
             facts=["No fue posible simular el escenario: módulo de escenarios no disponible."],
             empty=True,
         )
@@ -824,7 +833,7 @@ def _execute_scenario(spec: QuerySpec, store: Any) -> DataResult:
         return DataResult(
             columns=[],
             rows=[],
-            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            source="Atalaya Electoral · Simulación de escenarios 2027 (con datos INE e INEGI)",
             facts=["No fue posible simular el escenario: sin datos disponibles."],
             empty=True,
         )
@@ -836,7 +845,7 @@ def _execute_scenario(spec: QuerySpec, store: Any) -> DataResult:
         return DataResult(
             columns=[],
             rows=[],
-            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            source="Atalaya Electoral · Simulación de escenarios 2027 (con datos INE e INEGI)",
             facts=[f"No fue posible simular el escenario: {e}"],
             empty=True,
         )
@@ -845,7 +854,7 @@ def _execute_scenario(spec: QuerySpec, store: Any) -> DataResult:
         return DataResult(
             columns=[],
             rows=[],
-            source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+            source="Atalaya Electoral · Simulación de escenarios 2027 (con datos INE e INEGI)",
             facts=["No fue posible simular el escenario: sin unidades coincidentes."],
             empty=True,
         )
@@ -907,7 +916,7 @@ def _execute_scenario(spec: QuerySpec, store: Any) -> DataResult:
     return DataResult(
         columns=columns,
         rows=rows,
-        source="ATALAYA · Simulación de escenarios 2027 (con datos INE e INEGI)",
+        source="Atalaya Electoral · Simulación de escenarios 2027 (con datos INE e INEGI)",
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -921,7 +930,7 @@ def _execute_explain_unit(spec: QuerySpec, store: Any, region_id: str | None = N
         return DataResult(
             columns=["Factor", "Impacto (pp)", "Efecto"],
             rows=[],
-            source="ATALAYA · Diagnóstico predictivo y factores clave 2027",
+            source="Atalaya Electoral · Diagnóstico predictivo y factores clave 2027",
             facts=["No se encontró la información de la unidad solicitada."],
             empty=True,
         )
@@ -992,7 +1001,7 @@ def _execute_explain_unit(spec: QuerySpec, store: Any, region_id: str | None = N
     return DataResult(
         columns=columns,
         rows=rows,
-        source="ATALAYA · Diagnóstico predictivo y factores clave 2027",
+        source="Atalaya Electoral · Diagnóstico predictivo y factores clave 2027",
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -1005,14 +1014,14 @@ def _execute_catalog(spec: QuerySpec) -> DataResult:
         rows.append([k, info["label_es"], info["source"], info["unit"]])
 
     facts = [
-        f"El catálogo de ATALAYA cuenta con {len(rows)} variables analíticas registradas.",
-        "Fuentes oficiales: INE (resultados electorales), INEGI (Censo 2020), CONAPO (Marginación 2020) y ATALAYA (modelos predictivos).",
+        f"El catálogo de Atalaya Electoral cuenta con {len(rows)} variables analíticas registradas.",
+        "Fuentes oficiales: INE (resultados electorales), INEGI (Censo 2020), CONAPO (Marginación 2020) y Atalaya Electoral (modelos predictivos).",
     ]
 
     return DataResult(
         columns=columns,
         rows=rows,
-        source="ATALAYA · Diccionario y catálogo de variables",
+        source="Atalaya Electoral · Diccionario y catálogo de variables",
         facts=facts,
         empty=len(rows) == 0,
     )
@@ -1033,12 +1042,12 @@ def _execute_help(spec: QuerySpec | None = None) -> DataResult:
     is_privacy = (topic == "privacidad")
 
     fact_privacy = (
-        "Privacidad de datos: ATALAYA opera únicamente con datos agregados; "
+        "Privacidad de datos: Atalaya Electoral opera únicamente con datos agregados; "
         "no almacena ni consulta datos nominales o individuales. "
         "En perfiles demográficos, las celdas con menos de 10 personas se encuentran suprimidas (N/D) para proteger la confidencialidad."
     )
     fact_scope = (
-        "ATALAYA es el asistente analítico del INE para explorar la participación ciudadana y el riesgo de abstención electoral en México."
+        "Atalaya Electoral es el asistente analítico del INE para explorar la participación ciudadana y el riesgo de abstención electoral en México."
     )
     fact_examples = [
         "Consultas disponibles con datos verificados:",
@@ -1068,7 +1077,7 @@ def _execute_help(spec: QuerySpec | None = None) -> DataResult:
     return DataResult(
         columns=[],
         rows=[],
-        source="ATALAYA · Asistente Analítico",
+        source="Atalaya Electoral · Asistente Analítico",
         facts=facts,
         empty=True,
     )

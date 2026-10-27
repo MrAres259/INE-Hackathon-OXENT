@@ -105,13 +105,56 @@ describe("panelStats helper functions", () => {
     expect(dist[0].bgClass).toBe("bg-risk-crit");
   });
 
-  it("computes national stats (averages and totals)", () => {
+  it("computes national stats (weighted average by lista nominal)", () => {
     const stats = computeNationalStats(mockRiskItems);
     expect(stats.totalZones).toBe(4);
-    expect(stats.avgAbstention).toBeCloseTo((0.48 + 0.62 + 0.35 + 0.53) / 4);
+    // Weighted abstention: 8,320,000 expected / 18,000,000 total LN ≈ 46.22%
+    expect(stats.avgAbstention).toBeCloseTo(8320000 / 18000000);
     // Expected abstention: 0.48 * 1M + 0.62 * 3M + 0.35 * 8M + 0.53 * 6M
     // = 480k + 1860k + 2800k + 3180k = 8320k = 8,320,000
     expect(stats.totalExpected).toBe(8320000);
+  });
+
+  it("calculates weighted average properly with distinct lista_nominal", () => {
+    const items: RiskItem[] = [
+      {
+        id: "A",
+        name: "Estado Pequeno",
+        level: "state",
+        ent: "01",
+        lista_nominal: 1000000,
+        pred_abstention: 0.20,
+        category: "verde",
+      } as RiskItem,
+      {
+        id: "B",
+        name: "Estado Grande",
+        level: "state",
+        ent: "02",
+        lista_nominal: 9000000,
+        pred_abstention: 0.50,
+        category: "amarillo",
+      } as RiskItem,
+    ];
+    const stats = computeNationalStats(items);
+    // Simple average would be 0.35, weighted is (200k + 4500k) / 10M = 0.47
+    expect(stats.avgAbstention).toBeCloseTo(0.47);
+    expect(stats.totalExpected).toBe(4700000);
+  });
+
+  it("returns null for avgAbstention when items have no lista_nominal", () => {
+    const itemsWithoutLn: RiskItem[] = [
+      {
+        id: "X",
+        name: "Zona Sin LN",
+        level: "mun",
+        ent: "01",
+        pred_abstention: 0.45,
+        category: "naranja",
+      } as RiskItem,
+    ];
+    const stats = computeNationalStats(itemsWithoutLn);
+    expect(stats.avgAbstention).toBeNull();
   });
 
   it("handles empty array in national stats gracefully", () => {

@@ -782,4 +782,39 @@ def test_executor_nonexistent_unit_id_gracefully_handled(mock_store):
     assert len(result.rows) == 0
 
 
+def test_help_and_sources_brand_name(mock_store):
+    """Verify deterministic help, catalog, and model sources contain 'Atalaya Electoral' and none say 'ATALAYA' in uppercase."""
+    # 1. Help intent
+    help_res = execute(QuerySpec(intent="help"))
+    assert help_res.empty
+    assert "Atalaya Electoral" in help_res.source
+    assert "ATALAYA" not in help_res.source
+    for fact in help_res.facts:
+        assert "ATALAYA" not in fact
+    assert any("Atalaya Electoral" in fact for fact in help_res.facts)
+
+    # 2. Help privacy topic
+    privacy_res = execute(QuerySpec(intent="help", filters={"topic": "privacidad"}))
+    assert "Atalaya Electoral" in privacy_res.source
+    assert "ATALAYA" not in privacy_res.source
+    for fact in privacy_res.facts:
+        assert "ATALAYA" not in fact
+    assert any("Atalaya Electoral" in fact for fact in privacy_res.facts)
+
+    # 3. Catalog intent
+    cat_res = execute(QuerySpec(intent="catalog"))
+    assert "Atalaya Electoral" in cat_res.source
+    assert "ATALAYA" not in cat_res.source
+    for fact in cat_res.facts:
+        assert "ATALAYA" not in fact
+    assert any("Atalaya Electoral" in fact for fact in cat_res.facts)
+
+    # 4. Sources in get_variable_meta for model variables
+    for key in ("prioridad", "abstencion_esperada", "vulnerability_pp"):
+        meta = get_variable_meta(key)
+        assert "Atalaya Electoral" in meta["source"]
+        assert "ATALAYA" not in meta["source"]
+
+
+
 

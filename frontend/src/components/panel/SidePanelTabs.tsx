@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useAtalaya } from "@/lib/state";
 import { RegionDetailPanel } from "./RegionDetailPanel";
 import { RankingTable } from "./RankingTable";
@@ -63,22 +63,37 @@ export interface SidePanelTabsProps {
   onTabChange?: (tab: PanelTabId) => void;
 }
 
-export function SidePanelTabs({ onTabChange }: SidePanelTabsProps) {
-  const { selectedRegionId } = useAtalaya();
+export function useSidePanelTabs(
+  selectedRegionId: string | null | undefined,
+  onTabChange?: (tab: PanelTabId) => void
+) {
   const [activeTab, setActiveTab] = useState<PanelTabId>("detail");
 
-  // Automatically activate Diagnóstico when a region is selected
-  useEffect(() => {
-    if (selectedRegionId) {
-      setActiveTab("detail");
-      onTabChange?.("detail");
-    }
-  }, [selectedRegionId, onTabChange]);
+  const onTabChangeRef = useRef(onTabChange);
+  onTabChangeRef.current = onTabChange;
 
-  const handleTabClick = (tabId: PanelTabId) => {
+  const prevRegionIdRef = useRef<string | null>(selectedRegionId ?? null);
+
+  // Automatically activate Diagnóstico only when selectedRegionId changes to a non-null value
+  useEffect(() => {
+    if (selectedRegionId && selectedRegionId !== prevRegionIdRef.current) {
+      setActiveTab("detail");
+      onTabChangeRef.current?.("detail");
+    }
+    prevRegionIdRef.current = selectedRegionId ?? null;
+  }, [selectedRegionId]);
+
+  const selectTab = (tabId: PanelTabId) => {
     setActiveTab(tabId);
-    onTabChange?.(tabId);
+    onTabChangeRef.current?.(tabId);
   };
+
+  return { activeTab, selectTab, setActiveTab };
+}
+
+export function SidePanelTabs({ onTabChange }: SidePanelTabsProps) {
+  const { selectedRegionId } = useAtalaya();
+  const { activeTab, selectTab } = useSidePanelTabs(selectedRegionId, onTabChange);
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-card overflow-hidden">
@@ -88,7 +103,8 @@ export function SidePanelTabs({ onTabChange }: SidePanelTabsProps) {
           <button
             key={t.id}
             type="button"
-            onClick={() => handleTabClick(t.id)}
+            onClick={() => selectTab(t.id)}
+            data-tab={t.id}
             className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 sm:py-3 text-xs font-semibold transition-colors cursor-pointer ${
               activeTab === t.id
                 ? "border-primary text-primary"

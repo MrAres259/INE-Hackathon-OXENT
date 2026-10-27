@@ -4,6 +4,7 @@ import {
   featureTarget,
   levelOfFeature,
   createTileErrorTracker,
+  fitPaddingWithInset,
 } from "@/lib/mapSupport";
 
 describe("mapSupport", () => {
@@ -210,4 +211,51 @@ describe("mapSupport", () => {
       expect(tracker.hidden("carto-base")).toBe(false);
     });
   });
+
+  describe("fitPaddingWithInset", () => {
+    it("calculates padding with extra bottom inset within bounds", () => {
+      // containerHeight = 800, 60% = 480, base = 48, maxExtra = 432
+      const padding = fitPaddingWithInset(48, 800, 200);
+      expect(padding).toEqual({
+        top: 48,
+        right: 48,
+        left: 48,
+        bottom: 248,
+      });
+    });
+
+    it("bounds extra padding to containerHeight * 0.6 - base", () => {
+      // containerHeight = 500, 60% = 300, base = 48, maxExtra = 252
+      const padding = fitPaddingWithInset(48, 500, 400);
+      expect(padding).toEqual({
+        top: 48,
+        right: 48,
+        left: 48,
+        bottom: 300, // 48 + 252
+      });
+    });
+
+    it("handles zero or negative extraBottom by setting extra to 0", () => {
+      const pZero = fitPaddingWithInset(48, 800, 0);
+      expect(pZero).toEqual({ top: 48, right: 48, left: 48, bottom: 48 });
+
+      const pNeg = fitPaddingWithInset(48, 800, -100);
+      expect(pNeg).toEqual({ top: 48, right: 48, left: 48, bottom: 48 });
+    });
+
+    it("handles non-numeric or NaN values by falling back to 0", () => {
+      const pNaN = fitPaddingWithInset(48, 800, NaN as any);
+      expect(pNaN).toEqual({ top: 48, right: 48, left: 48, bottom: 48 });
+
+      const pUndef = fitPaddingWithInset(48, 800, undefined as any);
+      expect(pUndef).toEqual({ top: 48, right: 48, left: 48, bottom: 48 });
+    });
+
+    it("handles small container height where containerHeight * 0.6 < base", () => {
+      // 50 * 0.6 = 30, base = 48, maxExtra = max(0, 30 - 48) = 0
+      const padding = fitPaddingWithInset(48, 50, 100);
+      expect(padding).toEqual({ top: 48, right: 48, left: 48, bottom: 48 });
+    });
+  });
 });
+

@@ -324,7 +324,11 @@ def test_guard_check_compatibility():
     assert "No genero código ni scripts" in rejection
 
     assert guard.REJECTION_PERSONAL_DATA
+    assert "Atalaya Electoral" in guard.REJECTION_PERSONAL_DATA
+    assert "ATALAYA" not in guard.REJECTION_PERSONAL_DATA
     assert guard.REJECTION_POLITICAL
+    assert "Atalaya Electoral" in guard.REJECTION_POLITICAL
+    assert "ATALAYA" not in guard.REJECTION_POLITICAL
 
 
 # ── Performance test: screen_input < 5 ms average over 200 messages ─────────

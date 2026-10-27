@@ -5,6 +5,8 @@ import { Breadcrumb } from "../components/map/Breadcrumb";
 import { MapLayerSwitcher, MapToolbar } from "../components/map/MapToolbar";
 import { Legend } from "../components/map/Legend";
 import { MapFallback } from "../components/map/MapFallback";
+import { CompareSwipe } from "../components/map/CompareSwipe";
+import { RiskMap } from "../components/map/RiskMap";
 
 // Mock Atalaya context
 vi.mock("@/lib/state", () => ({
@@ -28,6 +30,7 @@ vi.mock("@/lib/state", () => ({
     view3d: "inclinada",
     setView3d: vi.fn(),
     scenario: "base",
+    scenarioParams: {},
     riskItems: [],
   })),
 }));
@@ -76,6 +79,67 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain("float-panel");
       expect(html).toContain("Nivel de riesgo");
       expect(html).toContain("% LN");
+      // B3: Quita "· Puntos = municipios"
+      expect(html).not.toContain("Puntos = municipios");
+      expect(html).toContain("Escenario: Base (inercial)");
+    });
+  });
+
+  describe("CompareSwipe", () => {
+    it("renders full comparison summary text with responsive 'de categoría' suffix", () => {
+      const mockData = {
+        active: { state: new Map(), mun: new Map() },
+        base: {
+          state: new Map(),
+          mun: new Map([
+            [
+              "01001",
+              {
+                id: "01001",
+                ent: "01",
+                name: "Aguascalientes",
+                level: "mun",
+                category: "rojo",
+                lista_nominal: 50000,
+              },
+            ],
+          ]),
+        },
+        alt: {
+          state: new Map(),
+          mun: new Map([
+            [
+              "01001",
+              {
+                id: "01001",
+                ent: "01",
+                name: "Aguascalientes",
+                level: "mun",
+                category: "verde",
+                lista_nominal: 50000,
+              },
+            ],
+          ]),
+        },
+        loading: false,
+        error: null,
+        altLabel: "Intervención focalizada",
+      } as any;
+
+      const html = renderToStaticMarkup(<CompareSwipe data={mockData} />);
+      expect(html).toContain("Rojo: 1 → 0 municipios · 1 mejoran");
+      expect(html).toContain('<span class="hidden sm:inline"> de categoría</span>');
+      expect(html).toContain("Intervención focalizada");
+    });
+  });
+
+  describe("RiskMap", () => {
+    it("positions tools at lg:top-[56px] on PC and organizes top-left group in column with gap-2", () => {
+      const html = renderToStaticMarkup(<RiskMap />);
+      // B2: tools top-right below panel collapse button (top: 56px, right: 12px) on PC
+      expect(html).toContain("lg:top-[56px]");
+      // B3: top-left group with gap-2
+      expect(html).toContain("flex flex-col items-start gap-2");
     });
   });
 

@@ -251,7 +251,7 @@ def test_render_slides_html_structure(synthetic_workspace):
     assert len(titles) == 10, f"Expected 10 h1 titles, found {len(titles)}"
 
     expected_keywords = [
-        "ATALAYA",
+        "Riesgo",
         "Problema",
         "Datos",
         "Hallazgos",
@@ -622,5 +622,13 @@ def test_slides_branding_and_logo_svg(synthetic_workspace):
     assert "Atalaya Electoral" in content
     assert "<svg" in content
     assert re.search(r'>\s*ATALAYA\s*<', content) is None
+    # D1: unescaped styles CSS with literal font-family without HTML entities
+    assert "font-family: Montserrat, 'Segoe UI'" in content
+    assert "&#39;Segoe UI&#39;" not in content
+    # D2: light logo in hero cover
+    assert 'aria-label="Atalaya Electoral"' in content
+    assert "aell-bg" in content  # id in atalaya-electoral-logo-light.svg
+    # D3: yellow text in #9a6b00
+    assert "color: #9a6b00;" in content
 
 

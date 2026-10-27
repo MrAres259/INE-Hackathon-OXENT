@@ -276,25 +276,28 @@
     </div>
   </div>
 
-  <div class="brand-logo-portada" style="margin: 4px 0 8px 0; width: 220px;">
-    {% if brand_logo_svg %}{{ brand_logo_svg | safe }}{% else %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" width="220" role="img" aria-label="Atalaya Electoral"><defs><linearGradient id="ael-bg-rep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c21f77"/><stop offset="1" stop-color="#8e1456"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#ael-bg-rep)"/><path d="M15.5 25.5a17 17 0 0 1 5.5-9.5M48.5 25.5a17 17 0 0 0-5.5-9.5" fill="none" stroke="#ffffff" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/><path d="M21 23.5 32 12.5l11 11z" fill="#ffffff"/><rect x="23.5" y="25" width="17" height="9.5" rx="2" fill="#ffffff"/><circle cx="32" cy="29.75" r="2.9" fill="#f2bf3a"/><path d="M25.5 36.5h13l3.6 15h-20.2z" fill="#ffffff"/><path d="M27.4 39.5l9.2 8M36.6 39.5l-9.2 8" stroke="#a8186a" stroke-width="2.2" stroke-linecap="round"/><rect x="16.5" y="51.5" width="31" height="3.6" rx="1.8" fill="#ffffff"/><text x="80" y="35" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="30" font-weight="800" fill="#4a2a48" letter-spacing="0.5">Atalaya</text><text x="81" y="55" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="13" font-weight="700" fill="#b5186b" letter-spacing="5.2">ELECTORAL</text></svg>{% endif %}
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 4px 0;">
+    <div>
+      <h1 class="report-title">Atalaya Electoral: Reporte Metodológico y Preventivo</h1>
+      <div class="report-subtitle" style="margin-bottom: 0;">Riesgo de abstención · Elección federal 2027 — Marco Analítico Predictivo y Priorización Territorial</div>
+    </div>
+    <div style="width: 155px; flex-shrink: 0;">
+      {% if brand_logo_svg %}{{ brand_logo_svg | safe }}{% else %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" width="155" role="img" aria-label="Atalaya Electoral"><defs><linearGradient id="ael-bg-rep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c21f77"/><stop offset="1" stop-color="#8e1456"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#ael-bg-rep)"/><path d="M15.5 25.5a17 17 0 0 1 5.5-9.5M48.5 25.5a17 17 0 0 0-5.5-9.5" fill="none" stroke="#ffffff" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/><path d="M21 23.5 32 12.5l11 11z" fill="#ffffff"/><rect x="23.5" y="25" width="17" height="9.5" rx="2" fill="#ffffff"/><circle cx="32" cy="29.75" r="2.9" fill="#f2bf3a"/><path d="M25.5 36.5h13l3.6 15h-20.2z" fill="#ffffff"/><path d="M27.4 39.5l9.2 8M36.6 39.5l-9.2 8" stroke="#a8186a" stroke-width="2.2" stroke-linecap="round"/><rect x="16.5" y="51.5" width="31" height="3.6" rx="1.8" fill="#ffffff"/><text x="80" y="35" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="30" font-weight="800" fill="#4a2a48" letter-spacing="0.5">Atalaya</text><text x="81" y="55" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="13" font-weight="700" fill="#b5186b" letter-spacing="5.2">ELECTORAL</text></svg>{% endif %}
+    </div>
   </div>
 
-  <h1 class="report-title">Atalaya Electoral: Reporte Metodológico y Preventivo</h1>
-  <div class="report-subtitle">Riesgo de abstención · Elección federal 2027 — Marco Analítico Predictivo y Priorización Territorial</div>
-
-  <div class="callout-box">
+  <div class="callout-box" style="margin: 3px 0; padding: 4px 8px;">
     <strong>Convocatoria:</strong> Hackathon INE 2026 · Reto 2 | <strong>Equipo:</strong> {{ stats.team }} (propuesta del equipo)<br>
     <strong>Eje Temático:</strong> Predicción y escenarios de riesgo de abstención<br>
     <strong>Fecha de generación:</strong> 20 de octubre de 2026 | <strong>Objetivo:</strong> Anticipar zonas de abstención y priorizar recursos institucionales hacia 2027.
   </div>
 
-  <h2>1. Resumen Ejecutivo</h2>
+  <h2 style="margin-top: 5px; margin-bottom: 3px;">1. Resumen Ejecutivo</h2>
   <p>
     El proyecto <strong>Atalaya Electoral</strong> constituye una plataforma integral de analítica predictiva diseñada para anticipar el riesgo de abstención electoral en los <strong>{{ stats.n_mun }} municipios</strong> de México hacia la elección federal intermedia de 2027. Desarrollado a partir de los <em>Conteos Censales de Participación Ciudadana (CCPC 2009–2024)</em> del INE, el Censo 2020 de INEGI y el Grado de Marginación de CONAPO, Atalaya Electoral combina inercia temporal y vulnerabilidad estructural en un semáforo territorial explicable de cuatro categorías: Verde, Amarillo, Naranja y Rojo.
   </p>
 
-  <div class="stat-grid">
+  <div class="stat-grid" style="margin: 4px 0; gap: 4px;">
     <div class="stat-card">
       <div class="stat-card-num">{{ stats.categories.base.rojo.n }}</div>
       <div class="stat-card-desc">{{ stats.rojo_stat_desc }}</div>
@@ -313,8 +316,8 @@
     </div>
   </div>
 
-  <p><strong>Principales Hallazgos Cuantitativos:</strong></p>
-  <ul>
+  <p style="margin-bottom: 3px;"><strong>Principales Hallazgos Cuantitativos:</strong></p>
+  <ul style="margin-bottom: 0;">
     <li><strong>Concentración del riesgo crítico:</strong> El modelo identifica <strong>{{ stats.categories.base.rojo.n }} municipios en nivel Rojo</strong> ({{ stats.categories.base.rojo.pct_n_label }}; {{ stats.categories.base.rojo.ln_m_fmt }} electores, {{ stats.categories.base.rojo.pct_ln_label }}) y <strong>{{ stats.categories.base.naranja.n }} municipios en Naranja</strong> ({{ stats.categories.base.naranja.pct_n_label }}; {{ stats.categories.base.naranja.ln_m_fmt }} electores, {{ stats.categories.base.naranja.pct_ln_label }}). En conjunto, el <strong>{{ stats.ln_risk.base.pct_fmt }} de la Lista Nominal (LN) ({{ stats.ln_risk.base.millones_fmt }})</strong> habita en municipios en riesgo alto o muy alto (Naranja y Rojo, {{ stats.ln_risk.base.pct_mun_label }}). Asimismo, el {{ stats.ln_risk.base.arn_pct_fmt }} de la LN habita en riesgo moderado a muy alto (Amarillo, Naranja y Rojo).</li>
     <li><strong>Focos territoriales:</strong> Las entidades federativas con mayor porcentaje de su Lista Nominal en riesgo alto o muy alto son <strong>{{ stats.state_extremes.top_state_1 }} ({{ stats.state_extremes.top_state_1_pct }}% de su LN)</strong>, <strong>{{ stats.state_extremes.top_state_2 }} ({{ stats.state_extremes.top_state_2_pct }}% de su LN)</strong> y <strong>{{ stats.state_extremes.top_state_3 }} ({{ stats.state_extremes.top_state_3_pct }}% de su LN)</strong>.</li>
     <li><strong>Impacto de la intervención:</strong> En el escenario preventivo, se estima una movilización neta de <strong>+{{ stats.votes.intervencion.votos_fmt }} votos adicionales</strong>, reduciendo en un {{ stats.transitions.pct_rojo_reduction_fmt }} el número de municipios en categoría Roja ({{ stats.transitions.rojo_net_reduction }} municipios dejan la alerta roja neta: {{ stats.transitions.rojo_salidas }} municipios desescalan de Rojo).</li>
@@ -616,7 +619,7 @@
         <th>Entidad Federativa</th>
         <th class="text-right">Muns</th>
         <th class="text-center" style="color: #3f9a5b;">Verde</th>
-        <th class="text-center" style="color: #7c5e0b;">Amarillo</th>
+        <th class="text-center" style="color: #9a6b00;">Amarillo</th>
         <th class="text-center" style="color: #ec7a2c;">Naranja</th>
         <th class="text-center" style="color: #c8352f;">Rojo</th>
         <th class="text-right">Lista Nominal Total</th>
@@ -660,7 +663,7 @@
       <tr>
         <th>Escenario</th>
         <th class="text-center" style="color: #3f9a5b;">Verde</th>
-        <th class="text-center" style="color: #7c5e0b;">Amarillo</th>
+        <th class="text-center" style="color: #9a6b00;">Amarillo</th>
         <th class="text-center" style="color: #ec7a2c;">Naranja</th>
         <th class="text-center" style="color: #c8352f;">Rojo (municipios)</th>
         <th class="text-right">LN en Riesgo Crítico</th>

@@ -143,6 +143,68 @@ export function Sparkline({
   }
   const descriptiveLabel = `Serie histórica de participación: ${summaryPoints.join(", ")}`;
 
+  // Collision-free axis labels (min distance 30px)
+  // Priority order: 2027* (3) > DIP_FED federal years (2) > 2025 PJ (1)
+  interface AxisLabelCandidate {
+    key: string;
+    x: number;
+    priority: number;
+    color: string;
+    fontWeight?: string;
+    fontSize?: string;
+    line1: string;
+    line2?: string;
+  }
+
+  const labelCandidates: AxisLabelCandidate[] = [];
+
+  if (predParticipation !== undefined && predParticipation !== null) {
+    labelCandidates.push({
+      key: "target-2027",
+      x: getX(targetYear),
+      priority: 3,
+      color: "#b5186b",
+      fontWeight: "bold",
+      fontSize: "10",
+      line1: `${targetYear}*`,
+    });
+  }
+
+  for (const p of dipFedPoints) {
+    const isNull = p.participation === null || p.participation === undefined;
+    labelCandidates.push({
+      key: `dip-${p.year}`,
+      x: getX(p.year),
+      priority: 2,
+      color: isNull ? "#c8352f" : "#6f6270",
+      fontSize: "10",
+      line1: String(p.year),
+    });
+  }
+
+  for (const p of pjfPoints) {
+    labelCandidates.push({
+      key: `pjf-${p.year}`,
+      x: getX(p.year),
+      priority: 1,
+      color: "#6f6270",
+      fontWeight: "bold",
+      fontSize: "9",
+      line1: String(p.year),
+      line2: "PJ",
+    });
+  }
+
+  const sortedCandidates = [...labelCandidates].sort((a, b) => b.priority - a.priority);
+  const acceptedLabels: AxisLabelCandidate[] = [];
+
+  for (const cand of sortedCandidates) {
+    const collides = acceptedLabels.some((acc) => Math.abs(acc.x - cand.x) < 30);
+    if (!collides) {
+      acceptedLabels.push(cand);
+    }
+  }
+
   return (
     <div className="relative w-full overflow-hidden space-y-2">
       <svg
@@ -273,16 +335,6 @@ export function Sparkline({
                   strokeWidth="1"
                 />
               )}
-              <text
-                x={cx}
-                y={height - 6}
-                fill={isNull ? "#c8352f" : "#6f6270"}
-                fontSize="10"
-                fontFamily="inherit"
-                textAnchor="middle"
-              >
-                {p.year}
-              </text>
             </g>
           );
         })}
@@ -361,17 +413,6 @@ export function Sparkline({
                   strokeWidth="1"
                 />
               )}
-              <text
-                x={cx}
-                y={height - 6}
-                fill="#6f6270"
-                fontSize="9"
-                fontWeight="bold"
-                fontFamily="inherit"
-                textAnchor="middle"
-              >
-                2025 PJ
-              </text>
             </g>
           );
         })}
@@ -387,19 +428,55 @@ export function Sparkline({
               stroke="#ffffff"
               strokeWidth="1"
             />
-            <text
-              x={getX(targetYear)}
-              y={height - 6}
-              fill="#b5186b"
-              fontWeight="bold"
-              fontSize="10"
-              fontFamily="inherit"
-              textAnchor="middle"
-            >
-              2027*
-            </text>
           </g>
         )}
+
+        {/* Collision-free X-axis labels */}
+        {acceptedLabels.map((lbl) => {
+          if (lbl.line2) {
+            return (
+              <g key={lbl.key} className="select-none pointer-events-none">
+                <text
+                  x={lbl.x}
+                  y={height - 12}
+                  fill={lbl.color}
+                  fontSize={lbl.fontSize || "9"}
+                  fontWeight={lbl.fontWeight}
+                  fontFamily="inherit"
+                  textAnchor="middle"
+                >
+                  {lbl.line1}
+                </text>
+                <text
+                  x={lbl.x}
+                  y={height - 3}
+                  fill={lbl.color}
+                  fontSize="8"
+                  fontWeight={lbl.fontWeight}
+                  fontFamily="inherit"
+                  textAnchor="middle"
+                >
+                  {lbl.line2}
+                </text>
+              </g>
+            );
+          }
+          return (
+            <text
+              key={lbl.key}
+              x={lbl.x}
+              y={height - 6}
+              fill={lbl.color}
+              fontSize={lbl.fontSize || "10"}
+              fontWeight={lbl.fontWeight}
+              fontFamily="inherit"
+              textAnchor="middle"
+              className="select-none pointer-events-none"
+            >
+              {lbl.line1}
+            </text>
+          );
+        })}
       </svg>
 
       {/* Hover tooltip in clear theme */}

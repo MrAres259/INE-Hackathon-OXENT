@@ -433,5 +433,9 @@ def test_report_branding_and_logo_svg(synthetic_workspace):
     assert "Atalaya Electoral" in content
     assert "<svg" in content
     assert re.search(r'>\s*ATALAYA\s*<', content) is None
+    # D3: yellow table header text in #9a6b00
+    assert "color: #9a6b00;" in content
+    # D4: compact logo inline with title
+    assert 'width: 155px;' in content
 
 

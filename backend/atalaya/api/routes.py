@@ -28,7 +28,7 @@ from atalaya.store import StoreError, get_store, _clean_error_message
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["ATALAYA"])
+router = APIRouter(prefix="/api", tags=["Atalaya Electoral"])
 
 CATEGORIES = [
     {"id": "verde", "label": "Riesgo bajo", "color": "#3f9a5b", "rule": "verde: < 35"},

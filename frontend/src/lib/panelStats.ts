@@ -102,19 +102,27 @@ export function computeNationalStats(items: RiskItem[]): {
   counts: Record<Category, number>;
 } {
   const totalZones = items.length;
-  let abstSum = 0;
-  let abstCount = 0;
+  let totalLn = 0;
   let totalExpected = 0;
 
   for (const item of items) {
-    if (item.pred_abstention !== null && item.pred_abstention !== undefined && !isNaN(item.pred_abstention)) {
-      abstSum += item.pred_abstention;
-      abstCount++;
+    const ln = item.lista_nominal;
+    const hasLn = typeof ln === "number" && ln > 0 && !isNaN(ln);
+    if (hasLn) {
+      totalLn += ln;
     }
-    totalExpected += getAbstencionEsperada(item);
+
+    const exp =
+      item.abstencion_esperada !== undefined && item.abstencion_esperada !== null
+        ? item.abstencion_esperada
+        : item.pred_abstention !== null && item.pred_abstention !== undefined && hasLn
+        ? item.pred_abstention * ln
+        : 0;
+
+    totalExpected += Math.round(exp);
   }
 
-  const avgAbstention = abstCount > 0 ? abstSum / abstCount : null;
+  const avgAbstention = totalLn > 0 ? totalExpected / totalLn : null;
   const counts = getCategoryCounts(items);
 
   return {

@@ -188,20 +188,22 @@ export function RiskMap() {
 
       {/* Overlays Layer (pointer-events-none container with pointer-events-auto children) */}
       <div className="absolute inset-0 pointer-events-none p-3">
-        {/* Top Left: Breadcrumb + MapLayerSwitcher */}
-        <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2 pointer-events-auto">
-          <Breadcrumb />
-          <MapLayerSwitcher data={data} />
+        {/* Top Left group: Breadcrumb, MapLayerSwitcher, and on compact (<1024) Legend in column with gap-2 */}
+        <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2 pointer-events-none lg:static">
+          <div className="flex flex-col items-start gap-2 pointer-events-auto z-20 lg:absolute lg:top-3 lg:left-3">
+            <Breadcrumb />
+            <MapLayerSwitcher data={data} />
+          </div>
+
+          {/* Legend: in compact follows MapLayerSwitcher with gap-2; on PC (>=1024) positioned at bottom-left */}
+          <div className="pointer-events-auto z-20 lg:absolute lg:left-3 lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)]">
+            <Legend data={data} />
+          </div>
         </div>
 
-        {/* Tools: top-right on compact (<1024), bottom-right on PC (>=1024) leaving top-right free for panel toggle */}
-        <div className="absolute right-3 top-3 lg:top-auto lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)] z-20 pointer-events-auto">
+        {/* Tools: top-right on compact (<1024), top-right below panel collapse button (top: 56px, right: 12px) on PC (>=1024) */}
+        <div className="absolute right-3 top-3 lg:top-[56px] z-20 pointer-events-auto">
           <MapToolbar data={data} onExportPng={handleExportPng} />
-        </div>
-
-        {/* Legend: below LayerSwitcher on compact (<1024), bottom-left open on PC (>=1024) */}
-        <div className="absolute left-3 top-[92px] lg:top-auto lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)] z-20 pointer-events-auto">
-          <Legend data={data} />
         </div>
 
         {/* Status notice (loading scenario or error): top-center on compact, bottom-center on PC */}

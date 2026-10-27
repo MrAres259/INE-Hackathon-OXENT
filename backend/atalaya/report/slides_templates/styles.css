@@ -80,7 +80,7 @@ section.slide.hero {
 
 .hero-title {
   font-family: Montserrat, 'Segoe UI', Arial, sans-serif;
-  font-size: 46pt;
+  font-size: 38pt;
   font-weight: 900;
   letter-spacing: -0.02em;
   margin: 0 0 8px 0;
@@ -258,36 +258,36 @@ section.slide.hero {
 .card-rojo {
   border-left: 8px solid #c8352f;
   background: #fdf2f2;
-  padding: 0.07in 0.12in;
+  padding: 0.05in 0.12in;
 }
 
 .card-naranja {
   border-left: 8px solid #ec7a2c;
   background: #fef7f0;
-  padding: 0.07in 0.12in;
+  padding: 0.05in 0.12in;
 }
 
 .card-amarillo {
   border-left: 8px solid #f2bf3a;
   background: #fefcf0;
   color: #2e2430;
-  padding: 0.07in 0.12in;
+  padding: 0.05in 0.12in;
 }
 
 .card-verde {
   border-left: 8px solid #3f9a5b;
   background: #f2f9f4;
-  padding: 0.07in 0.12in;
+  padding: 0.05in 0.12in;
 }
 
 .card-rojo .card-title, .card-naranja .card-title, .card-amarillo .card-title, .card-verde .card-title {
-  font-size: 13.5pt;
+  font-size: 12.5pt;
   margin-bottom: 2px;
 }
 
 .card-rojo .card-text, .card-naranja .card-text, .card-amarillo .card-text, .card-verde .card-text {
-  font-size: 11pt;
-  line-height: 1.22;
+  font-size: 10.5pt;
+  line-height: 1.20;
 }
 
 .metric-highlight {
@@ -318,7 +318,7 @@ section.slide.hero {
 
 .badge-amarillo {
   background: #fef9c3;
-  color: #7c5e0b;
+  color: #9a6b00;
 }
 
 .badge-verde {

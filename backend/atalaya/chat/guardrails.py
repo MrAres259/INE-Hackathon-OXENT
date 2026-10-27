@@ -37,13 +37,13 @@ SEVERITIES = ("bajo", "medio", "alto", "critico")
 _SEV_RANK = {s: i for i, s in enumerate(SEVERITIES)}
 
 REJECTION_PERSONAL_DATA = (
-    "Por razones de privacidad y protección de datos personales, ATALAYA no almacena, "
+    "Por razones de privacidad y protección de datos personales, Atalaya Electoral no almacena, "
     "gestiona ni procesa información individual, nominal ni datos personales de la ciudadanía. "
     "La plataforma opera exclusivamente con estadísticas e indicadores agregados a nivel municipal y estatal."
 )
 
 REJECTION_POLITICAL = (
-    "ATALAYA es una herramienta de análisis predictivo enfocada exclusivamente en la participación "
+    "Atalaya Electoral es una herramienta de análisis predictivo enfocada exclusivamente en la participación "
     "ciudadana y el riesgo de abstención. No registra ni pronostica preferencias políticas, "
     "intención de voto, partidos ni candidaturas."
 )
@@ -303,7 +303,7 @@ _DOMAIN_STRONG_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"\b(?:pron[oó]stico|predicci[oó]n|proyecci[oó]n)(?:es)?\s+electoral(?:es)?\b", re.I),
     re.compile(r"\b(?:ccpc|inegi|conapo)\b", re.I),
     re.compile(r"\b(?:marginaci[oó]n|escolaridad)\b", re.I),
-    re.compile(r"\batalaya\b", re.I),
+    re.compile(r"\batalaya(?:\s+electoral)?\b", re.I),
     re.compile(r"\bmetodolog[ií]a(?:s)?\b", re.I),
     re.compile(r"\b(?:zona[s]?\s+)?(?:roja[s]?|naranja[s]?|amarilla[s]?|verde[s]?)\s+zona[s]?\b|\bzonas?\s+(?:rojas?|naranjas?|amarillas?|verdes?)\b", re.I),
     re.compile(r"\b(?:privacidad|datos\s+personales)\b", re.I),
@@ -423,7 +423,7 @@ _JAILBREAK_HARD: tuple[tuple[str, str], ...] = (
     (r"<\|\s*im_(start|end)\s*\|>|<\|\s*(system|assistant|user)\s*\|>|"
      r"\[/?INST\]|<<SYS>>|###\s*(system|instruction)\b|^\s*system\s*:",
      "andamiaje_de_chat"),
-    (r"\b(olvida\s+que\s+eres\s+atalaya|ya\s+no\s+eres\s+atalaya)\b", "olvida_atalaya"),
+    (r"\b(olvida\s+que\s+eres\s+atalaya(?:\s+electoral)?|ya\s+no\s+eres\s+atalaya(?:\s+electoral)?)\b", "olvida_atalaya"),
     (r"\b(responde\s+como\s+(?:chatgpt|gemini|claude|un\s+asistente\s+general))\b", "asistente_general"),
     (r"\b(ignora\s+(?:el\s+contexto\s+de\s+ine|al\s+ine|las\s+reglas\s+del\s+ine))\b", "ignora_ine"),
     (r"\b(eres|actua\w*|hazte\s+pasar\s+por|ahora\s+eres|pretend|act\s+as)\b[^.\n]{0,25}"
@@ -999,11 +999,11 @@ def topic_gate(text: str, *, history: list[dict] | None = None) -> Verdict:
         from atalaya import llm
 
         prompt = (
-            "Eres la compuerta de seguridad y pertinencia para ATALAYA, asistente analítico sobre "
+            "Eres la compuerta de seguridad y pertinencia para Atalaya Electoral, asistente analítico sobre "
             "participación ciudadana y riesgo de abstención electoral en México (INE).\n"
             "Evalúa la consulta del usuario y responde EXACTAMENTE CON UNA PALABRA:\n"
             "- REJECT : consultas completamente ajenas al análisis electoral, participación ciudadana, "
-            "abstención, demografía, o ATALAYA (por ejemplo: recetas, deportes, programación general, "
+            "abstención, demografía, o Atalaya Electoral (por ejemplo: recetas, deportes, programación general, "
             "matemáticas escolares, chistes, entretenimiento, consejos personales, etc.).\n"
             "- VALID : cualquier consulta sobre elecciones, participación, abstención, municipios, estados, "
             "indicadores demográficos o preguntas sobre el funcionamiento del sistema.\n"

@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 TEMPLATES_DIR = Path(__file__).parent / "slides_templates"
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 LOGO_SVG_PATH = ASSETS_DIR / "atalaya-electoral-logo.svg"
+LOGO_LIGHT_SVG_PATH = ASSETS_DIR / "atalaya-electoral-logo-light.svg"
 MARK_SVG_PATH = ASSETS_DIR / "atalaya-electoral-mark.svg"
 
 
@@ -581,6 +582,7 @@ def render_slides_html(
     template = env.get_template("presentation.html")
 
     brand_logo_svg = LOGO_SVG_PATH.read_text(encoding="utf-8") if LOGO_SVG_PATH.is_file() else ""
+    brand_logo_light_svg = LOGO_LIGHT_SVG_PATH.read_text(encoding="utf-8") if LOGO_LIGHT_SVG_PATH.is_file() else ""
     brand_mark_svg = MARK_SVG_PATH.read_text(encoding="utf-8") if MARK_SVG_PATH.is_file() else ""
 
     context = {
@@ -589,6 +591,7 @@ def render_slides_html(
         "repo_url": repo_url,
         "app_url": app_url,
         "brand_logo_svg": brand_logo_svg,
+        "brand_logo_light_svg": brand_logo_light_svg,
         "brand_mark_svg": brand_mark_svg,
         "stats": stats,
         "chart_history": chart_history,

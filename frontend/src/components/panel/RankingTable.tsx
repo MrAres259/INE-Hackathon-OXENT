@@ -245,61 +245,69 @@ export function RankingTable() {
               <th className="py-2.5 pl-3 pr-2 w-7">#</th>
               <th className="py-2.5 px-2">Zona</th>
               <th className="py-2.5 px-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => handleSortClick("abst")}
-                  className={`inline-flex items-center justify-end gap-1 hover:text-primary cursor-pointer ${
-                    sortBy === "abst" ? "text-primary font-bold" : ""
-                  }`}
-                >
-                  <span>Abst. 2027</span>
-                  {sortBy === "abst" && <span className="text-xs">↓</span>}
-                  <InfoTip term="pred_abstention" size="xs" />
-                </button>
-              </th>
-              {scenario !== "base" && (
-                <th className="py-2.5 px-2 text-right">
+                <div className="inline-flex items-center justify-end gap-1">
                   <button
                     type="button"
-                    onClick={() => handleSortClick("delta")}
-                    className={`inline-flex items-center justify-end gap-0.5 hover:text-primary cursor-pointer ${
-                      sortBy === "delta" ? "text-primary font-bold" : ""
+                    onClick={() => handleSortClick("abst")}
+                    className={`inline-flex items-center gap-0.5 hover:text-primary cursor-pointer ${
+                      sortBy === "abst" ? "text-primary font-bold" : ""
                     }`}
                   >
-                    <span>Δ</span>
-                    {sortBy === "delta" && <span className="text-xs">↓</span>}
-                    <InfoTip term="modo.delta" size="xs" />
+                    <span>Abst. 2027</span>
+                    {sortBy === "abst" && <span className="text-xs">↓</span>}
                   </button>
+                  <InfoTip term="pred_abstention" size="xs" />
+                </div>
+              </th>
+              {scenario !== "base" && (
+                <th className="hidden sm:table-cell py-2.5 px-2 text-right">
+                  <div className="inline-flex items-center justify-end gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => handleSortClick("delta")}
+                      className={`inline-flex items-center gap-0.5 hover:text-primary cursor-pointer ${
+                        sortBy === "delta" ? "text-primary font-bold" : ""
+                      }`}
+                    >
+                      <span>Δ</span>
+                      {sortBy === "delta" && <span className="text-xs">↓</span>}
+                    </button>
+                    <InfoTip term="modo.delta" size="xs" />
+                  </div>
                 </th>
               )}
               <th className="hidden sm:table-cell py-2.5 px-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => handleSortClick("abstencion_esperada")}
-                  className={`inline-flex items-center justify-end gap-1 hover:text-primary cursor-pointer ${
-                    sortBy === "abstencion_esperada" ? "text-primary font-bold" : ""
-                  }`}
-                >
-                  <span>Esperada</span>
-                  {sortBy === "abstencion_esperada" && <span className="text-xs">↓</span>}
+                <div className="inline-flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSortClick("abstencion_esperada")}
+                    className={`inline-flex items-center gap-0.5 hover:text-primary cursor-pointer ${
+                      sortBy === "abstencion_esperada" ? "text-primary font-bold" : ""
+                    }`}
+                  >
+                    <span>Esperada</span>
+                    {sortBy === "abstencion_esperada" && <span className="text-xs">↓</span>}
+                  </button>
                   <InfoTip term="abstencion_esperada" size="xs" />
-                </button>
+                </div>
               </th>
               <th className="py-2.5 px-2 text-right">
-                <button
-                  type="button"
-                  onClick={() => handleSortClick("risk")}
-                  className={`inline-flex items-center justify-end gap-1 hover:text-primary cursor-pointer ${
-                    sortBy === "risk" ? "text-primary font-bold" : ""
-                  }`}
-                >
-                  <span>Riesgo</span>
-                  {sortBy === "risk" && <span className="text-xs">↓</span>}
+                <div className="inline-flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSortClick("risk")}
+                    className={`inline-flex items-center gap-0.5 hover:text-primary cursor-pointer ${
+                      sortBy === "risk" ? "text-primary font-bold" : ""
+                    }`}
+                  >
+                    <span>Riesgo</span>
+                    {sortBy === "risk" && <span className="text-xs">↓</span>}
+                  </button>
                   <InfoTip term="risk_score" size="xs" />
-                </button>
+                </div>
               </th>
-              <th className="hidden min-[480px]:table-cell py-2.5 pr-3 pl-2 text-right">
-                <div className="flex items-center justify-end gap-1">
+              <th className="hidden sm:table-cell py-2.5 pr-3 pl-2 text-right">
+                <div className="inline-flex items-center justify-end gap-1">
                   <span>Semáforo</span>
                   <InfoTip term="semaforo" size="xs" />
                 </div>
@@ -371,7 +379,7 @@ export function RankingTable() {
                       )}
                     </td>
                     {scenario !== "base" && (
-                      <td className="py-2.5 px-2 text-right font-mono text-xs font-semibold tnum">
+                      <td className="hidden sm:table-cell py-2.5 px-2 text-right font-mono text-xs font-semibold tnum">
                         {item.delta_vs_base_pp !== undefined && item.delta_vs_base_pp !== null ? (
                           <span
                             className={
@@ -392,7 +400,7 @@ export function RankingTable() {
                     <td className="py-2.5 px-2 text-right font-display font-bold text-foreground text-sm tnum">
                       {item.risk_score ?? "—"}
                     </td>
-                    <td className="hidden min-[480px]:table-cell py-2.5 pr-3 pl-2 text-right">
+                    <td className="hidden sm:table-cell py-2.5 pr-3 pl-2 text-right">
                       <span
                         className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${style.badgeClass}`}
                       >

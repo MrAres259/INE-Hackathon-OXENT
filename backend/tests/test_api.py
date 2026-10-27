@@ -803,4 +803,15 @@ def test_metrics_passthrough_w4a_keys(tmp_path: Path, monkeypatch):
         assert m["calibration_pp"] == -0.70
 
 
+def test_api_title_and_tags():
+    """Verify FastAPI application title is 'Atalaya Electoral API' and router tag is 'Atalaya Electoral'."""
+    from atalaya.api.main import app
+    from atalaya.api.routes import router
+
+    assert app.title == "Atalaya Electoral API"
+    assert "Atalaya Electoral" in router.tags
+    assert "ATALAYA" not in router.tags
+
+
+
 

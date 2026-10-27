@@ -246,6 +246,147 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
       expect(html).toBe("");
     });
 
+    it("con dos anclas iguales (una oculta), el paso usa la visible", () => {
+      const hiddenAnchor = {
+        style: { display: "none" },
+        getBoundingClientRect: () => ({
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: 0,
+          height: 0,
+        }),
+      };
+      const visibleAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({
+          top: 12,
+          left: 120,
+          right: 280,
+          bottom: 44,
+          width: 160,
+          height: 32,
+        }),
+      };
+
+      const mockDoc = {
+        querySelectorAll: vi.fn((sel: string) => {
+          if (sel === '[data-tour="escenario"]') {
+            return [hiddenAnchor, visibleAnchor];
+          }
+          return [];
+        }),
+        querySelector: vi.fn((sel: string) => {
+          if (sel === '[data-tour="escenario"]') {
+            return hiddenAnchor;
+          }
+          return null;
+        }),
+      };
+
+      const match = getValidStepAndRect(0, mockDoc);
+      expect(match).not.toBeNull();
+      expect(match?.index).toBe(0); // 'escenario' is step 0
+      expect(match?.rect.width).toBe(160);
+      expect(match?.rect.left).toBe(120);
+    });
+
+    it("aplica position fixed y z-index 70 en el anillo y el globo", () => {
+      const mockStorage: Record<string, string> = {};
+      const mockWindow = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: {
+          getItem: (k: string) => mockStorage[k] ?? null,
+          setItem: (k: string, v: string) => {
+            mockStorage[k] = v;
+          },
+        },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+
+      const visibleAnchor = {
+        style: { display: "inline-flex" },
+        getBoundingClientRect: () => ({
+          top: 10,
+          bottom: 40,
+          left: 10,
+          right: 150,
+          width: 140,
+          height: 30,
+        }),
+      };
+
+      (globalThis as any).window = mockWindow;
+      (globalThis as any).document = {
+        querySelectorAll: vi.fn((sel: string) => {
+          if (sel === '[data-tour="escenario"]') return [visibleAnchor];
+          return [];
+        }),
+        querySelector: vi.fn((sel: string) => {
+          if (sel === '[data-tour="escenario"]') return visibleAnchor;
+          return null;
+        }),
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(MapGuide, { open: true })
+      );
+
+      // Verify both spotlight ring and balloon have z-[70] and z-index: 70
+      expect(html).toContain("z-[70]");
+      expect(html).toContain("z-index:70");
+      expect(html).toContain("position:fixed");
+    });
+
+    it("coloca el globo arriba cuando el ancla está en la mitad inferior de la pantalla", () => {
+      const mockWindow = {
+        innerWidth: 1024,
+        innerHeight: 768, // Half is 384
+        localStorage: {
+          getItem: () => null,
+          setItem: () => {},
+        },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+
+      // Anchor located near bottom: top: 600, height: 40 (center: 620 > 384)
+      const bottomAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({
+          top: 600,
+          bottom: 640,
+          left: 200,
+          right: 350,
+          width: 150,
+          height: 40,
+        }),
+      };
+
+      (globalThis as any).window = mockWindow;
+      (globalThis as any).document = {
+        querySelectorAll: vi.fn((sel: string) => {
+          if (sel === '[data-tour="escenario"]') return [bottomAnchor];
+          return [];
+        }),
+        querySelector: vi.fn((sel: string) => {
+          if (sel === '[data-tour="escenario"]') return bottomAnchor;
+          return null;
+        }),
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(MapGuide, { open: true })
+      );
+
+      // Balloon should be placed above the anchor (top < 600)
+      // Estimate: 600 - 160 - 10 = 430px
+      expect(html).toContain("top:430px");
+    });
+
     it("no renderiza nada cuando open=false", () => {
       const html = renderToStaticMarkup(
         React.createElement(MapGuide, { open: false })
@@ -254,3 +395,4 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
     });
   });
 });
+

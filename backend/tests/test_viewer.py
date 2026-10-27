@@ -191,6 +191,10 @@ def test_build_viewer_synthetic(synthetic_geojsons, tmp_path: Path):
     assert "<svg" in html_content
     assert re.search(r'>\s*ATALAYA\s*<', html_content) is None
 
+    # 5. D5: Active buttons in primary #b5186b and mobile 2x2 grid
+    assert "background: #b5186b;" in html_content
+    assert "grid-template-columns: 1fr 1fr;" in html_content
+
 
 def test_size_warning(synthetic_geojsons, tmp_path: Path, capsys):
     out_html = tmp_path / "visor_warning.html"

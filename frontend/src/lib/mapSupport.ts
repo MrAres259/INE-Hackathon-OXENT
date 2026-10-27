@@ -159,3 +159,41 @@ export function createTileErrorTracker(
     },
   };
 }
+
+export interface FitPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * Calculates fitBounds padding incorporating an extra bottom inset (e.g. from a mobile bottom sheet).
+ * Limits extra padding to max(0, containerHeight * 0.6 - base), and falls back to 0 for non-numeric values.
+ */
+export function fitPaddingWithInset(
+  base: number,
+  containerHeight: number,
+  extraBottom: number
+): FitPadding {
+  const safeBase = typeof base === "number" && !Number.isNaN(base) ? base : 0;
+  const safeHeight =
+    typeof containerHeight === "number" && !Number.isNaN(containerHeight)
+      ? containerHeight
+      : 0;
+  const rawExtra =
+    typeof extraBottom === "number" && !Number.isNaN(extraBottom)
+      ? extraBottom
+      : 0;
+
+  const maxExtra = Math.max(0, safeHeight * 0.6 - safeBase);
+  const extra = Math.min(Math.max(0, rawExtra), maxExtra);
+
+  return {
+    top: safeBase,
+    right: safeBase,
+    left: safeBase,
+    bottom: safeBase + extra,
+  };
+}
+

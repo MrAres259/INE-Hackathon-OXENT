@@ -81,12 +81,74 @@ export const TOUR_STEPS: TourStep[] = [
 ];
 
 /**
- * Helper to find the next valid step anchor element with positive dimensions.
- * Skips missing or zero-width anchors.
+ * Determines whether a DOM element is visible (width > 0, height > 0, and not display:none).
+ */
+export function isElementVisible(el: any): boolean {
+  if (!el) return false;
+  if (el.style && el.style.display === "none") return false;
+  try {
+    if (typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
+      const style = window.getComputedStyle(el);
+      if (style && style.display === "none") return false;
+    }
+  } catch {}
+  if (typeof el.getBoundingClientRect === "function") {
+    const r = el.getBoundingClientRect();
+    if (!r || r.width <= 0 || r.height <= 0) return false;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Finds the first visible anchor element for the tour step selector.
+ * Uses querySelectorAll and falls back to querySelector.
+ */
+export function findVisibleAnchor(
+  sel: string,
+  doc?: any
+): { el: any; rect: DOMRect } | null {
+  const documentRef =
+    doc !== undefined
+      ? doc
+      : typeof document !== "undefined"
+      ? document
+      : null;
+  if (!documentRef) return null;
+
+  const selector = `[data-tour="${sel}"]`;
+
+  if (typeof documentRef.querySelectorAll === "function") {
+    try {
+      const nodes = documentRef.querySelectorAll(selector);
+      const list = Array.from(nodes || []);
+      for (const node of list) {
+        if (isElementVisible(node)) {
+          return { el: node, rect: (node as any).getBoundingClientRect() };
+        }
+      }
+    } catch {}
+  }
+
+  if (typeof documentRef.querySelector === "function") {
+    try {
+      const el = documentRef.querySelector(selector);
+      if (isElementVisible(el)) {
+        return { el, rect: el.getBoundingClientRect() };
+      }
+    } catch {}
+  }
+
+  return null;
+}
+
+/**
+ * Helper to find the next valid step anchor element with positive dimensions and visibility.
+ * Skips missing, zero-dimension, or display:none anchors.
  */
 export function getValidStepAndRect(
   fromIndex = 0,
-  doc?: { querySelector: (sel: string) => any } | null
+  doc?: any
 ): { index: number; rect: DOMRect } | null {
   const documentRef =
     doc !== undefined
@@ -97,12 +159,9 @@ export function getValidStepAndRect(
   if (!documentRef) return null;
 
   for (let idx = fromIndex; idx < TOUR_STEPS.length; idx++) {
-    const el = documentRef.querySelector(`[data-tour="${TOUR_STEPS[idx].sel}"]`);
-    if (el) {
-      const r = el.getBoundingClientRect();
-      if (r && r.width > 0 && r.height > 0) {
-        return { index: idx, rect: r };
-      }
+    const match = findVisibleAnchor(TOUR_STEPS[idx].sel, documentRef);
+    if (match) {
+      return { index: idx, rect: match.rect };
     }
   }
   return null;
@@ -193,13 +252,10 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
 
     const handleReposition = () => {
       const currentSel = TOUR_STEPS[i]?.sel;
-      const el = currentSel ? document.querySelector(`[data-tour="${currentSel}"]`) : null;
-      if (el) {
-        const r = el.getBoundingClientRect();
-        if (r && r.width > 0 && r.height > 0) {
-          setRect(r);
-          return;
-        }
+      const match = currentSel ? findVisibleAnchor(currentSel, document) : null;
+      if (match) {
+        setRect(match.rect);
+        return;
       }
       // If current anchor vanished, advance to next valid
       const nextMatch = getValidStepAndRect(i + 1);
@@ -258,19 +314,28 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
 
   const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
   const vh = typeof window !== "undefined" ? window.innerHeight : 768;
-  const w = Math.min(280, vw - 24);
+  const margin = 12;
+  const w = Math.min(280, Math.max(200, vw - margin * 2));
 
-  const spaceBelow = vh - currentRect.bottom;
   const balloonHeightEstimate = 160;
-  const placeBelow = spaceBelow >= balloonHeightEstimate || currentRect.top < balloonHeightEstimate + 20;
+  // If the anchor center is in the bottom half of the viewport, place the balloon above the anchor
+  const anchorCenterY = currentRect.top + currentRect.height / 2;
+  const isBottomHalf = anchorCenterY > vh / 2;
 
+  // Horizontal position centered on anchor, clamped to screen with 12px margins
   const left = Math.min(
-    Math.max(12, currentRect.left + currentRect.width / 2 - w / 2),
-    vw - w - 12
+    Math.max(margin, currentRect.left + currentRect.width / 2 - w / 2),
+    Math.max(margin, vw - w - margin)
   );
-  const top = placeBelow
-    ? Math.min(currentRect.bottom + 10, vh - balloonHeightEstimate - 12)
-    : Math.max(12, currentRect.top - balloonHeightEstimate - 10);
+
+  // Vertical position: above if anchor is in bottom half, below if anchor is in top half
+  let top = isBottomHalf
+    ? currentRect.top - balloonHeightEstimate - 10
+    : currentRect.bottom + 10;
+
+  // Clamp vertical position with 12px margin so balloon never leaves screen
+  const maxTop = Math.max(margin, vh - balloonHeightEstimate - margin);
+  top = Math.min(Math.max(margin, top), maxTop);
 
   const hasMoreSteps = getValidStepAndRect(activeMatch.index + 1) !== null;
 
@@ -278,8 +343,10 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
     <>
       {/* Spotlight ring surrounding targeted anchor */}
       <div
-        className="pointer-events-none fixed z-[60] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
+        className="pointer-events-none fixed z-[70] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
         style={{
+          position: "fixed",
+          zIndex: 70,
           left: Math.max(0, currentRect.left - 4),
           top: Math.max(0, currentRect.top - 4),
           width: currentRect.width + 8,
@@ -291,8 +358,14 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
       <div
         role="region"
         aria-label="Guía interactiva del mapa"
-        className={`fixed z-[61] float-panel p-3.5 shadow-float text-foreground ${className}`}
-        style={{ left, top, width: w }}
+        className={`fixed z-[70] float-panel p-3.5 shadow-float text-foreground ${className}`}
+        style={{
+          position: "fixed",
+          zIndex: 70,
+          left,
+          top,
+          width: w,
+        }}
       >
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-display text-sm font-bold text-foreground truncate">

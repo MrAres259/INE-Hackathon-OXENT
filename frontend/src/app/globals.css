@@ -107,6 +107,11 @@
 }
 
 /* MapLibre controls light theme */
+.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-bottom-left {
+  margin-bottom: var(--map-inset-bottom, 0px);
+}
+
 .maplibregl-ctrl-group {
   background: var(--card);
   border: 1px solid var(--border);

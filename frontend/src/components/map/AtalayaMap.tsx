@@ -17,6 +17,7 @@ import {
   featureTarget,
   levelOfFeature,
   createTileErrorTracker,
+  fitPaddingWithInset,
   type GeometryMode,
 } from "@/lib/mapSupport";
 import { resolveFocusEnt, entFromFeature } from "@/lib/focus";
@@ -977,12 +978,23 @@ function AtalayaMapImpl({
         const geoItem = geoIndexRef.current.get(selectedEnt);
         if (geoItem?.bbox) {
           const [minLon, minLat, maxLon, maxLat] = geoItem.bbox;
+          const container = map.getContainer();
+          const valor = container
+            ? parseFloat(
+                getComputedStyle(container).getPropertyValue("--map-fit-bottom")
+              )
+            : 0;
+          const padding = fitPaddingWithInset(
+            48,
+            container?.clientHeight ?? 0,
+            valor
+          );
           map.fitBounds(
             [
               [minLon, minLat],
               [maxLon, maxLat],
             ],
-            { padding: 48, duration }
+            { padding, duration }
           );
         }
       } else if (level === "state") {

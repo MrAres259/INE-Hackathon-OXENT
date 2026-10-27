@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="ATALAYA API", lifespan=lifespan)
+app = FastAPI(title="Atalaya Electoral API", lifespan=lifespan)
 
 # Allow CORS for Next.js frontend (default port 3000)
 app.add_middleware(

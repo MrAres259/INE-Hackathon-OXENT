@@ -278,6 +278,7 @@ export function CompareSwipe({
               <span className="w-2 h-2 rounded-full bg-good shrink-0" />
               <span className="tnum">
                 Rojo: {summary.rojoBase} → {summary.rojoAlt} municipios · {summary.improved} mejoran
+                <span className="hidden sm:inline"> de categoría</span>
               </span>
             </div>
             {altLabel && (

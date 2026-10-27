@@ -333,7 +333,7 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
           )}
 
           <div className="pt-1 text-[10px] text-muted-foreground border-t border-border">
-            Escenario: {scenarioLabel} · Puntos = municipios
+            Escenario: {scenarioLabel}
           </div>
         </div>
       )}

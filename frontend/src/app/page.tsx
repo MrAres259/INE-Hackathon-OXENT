@@ -151,9 +151,33 @@ export default function DashboardPage() {
     }
   };
 
+  // Viewport height tracking for contract C10 (--map-fit-bottom)
+  const [viewportHeight, setViewportHeight] = useState<number>(800);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setViewportHeight(window.innerHeight);
+      const onResize = () => {
+        setViewportHeight(window.innerHeight);
+      };
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }
+  }, []);
+
+  // Stable callback for panel tab changes (switches peek to half on compact)
+  const handlePanelTabChange = useCallback((_tab?: string) => {
+    setSnap((current) => (current === "peek" ? "half" : current));
+  }, []);
+
   // Contract C2: --map-inset-bottom reflects peek height on compact, 0px on PC
   const mapInsetBottom = isCompact
     ? "calc(132px + env(safe-area-inset-bottom, 0px))"
+    : "0px";
+
+  // Contract C10: --map-fit-bottom reflects half sheet height on compact, 0px on PC
+  const mapFitBottom = isCompact
+    ? `${Math.round(0.52 * viewportHeight)}px`
     : "0px";
 
   const sheetHeightStyle =
@@ -170,7 +194,12 @@ export default function DashboardPage() {
       {/* Map Section */}
       <section
         className="relative flex min-w-0 flex-1 flex-col overflow-hidden h-full"
-        style={{ "--map-inset-bottom": mapInsetBottom } as React.CSSProperties}
+        style={
+          {
+            "--map-inset-bottom": mapInsetBottom,
+            "--map-fit-bottom": mapFitBottom,
+          } as React.CSSProperties
+        }
       >
         <RiskMap />
 
@@ -200,46 +229,39 @@ export default function DashboardPage() {
             )}
           </button>
         </div>
-
-        {/* Compact bottom sheet (< 1024px) */}
-        {isCompact && (
-          <aside
-            className={`absolute inset-x-0 bottom-0 z-20 flex flex-col rounded-t-2xl border-t border-border bg-card shadow-float ${
-              isDraggingSheet ? "" : "transition-[height] duration-300 ease-out"
-            } overflow-hidden`}
-            style={{ height: sheetHeightStyle }}
-            data-tour="panel"
-          >
-            {/* Grab Handle */}
-            <button
-              type="button"
-              onPointerDown={handleStartDrag}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              className="flex shrink-0 justify-center pb-1 pt-2 w-full touch-none cursor-pointer select-none"
-              aria-label="Expandir o contraer panel"
-            >
-              <span className="h-1.5 w-10 rounded-full bg-border" />
-            </button>
-
-            <SidePanelTabs
-              onTabChange={() => {
-                if (snap === "peek") setSnap("half");
-              }}
-            />
-          </aside>
-        )}
       </section>
 
-      {/* Desktop Side Panel (>= 1024px) */}
-      {!isCompact && panelOpen && (
-        <aside
-          className="relative flex shrink-0 flex-col border-l border-border bg-card h-full"
-          style={{ width: panelWidth }}
-          data-tour="panel"
-        >
-          {/* Resize handle (left edge, 8px clickable zone, pointer events) */}
+      {/* Single instance of Panel / Sheet (preserves state across mobile/desktop transitions) */}
+      <aside
+        data-tour="panel"
+        className={
+          isCompact
+            ? `absolute inset-x-0 bottom-0 z-20 flex flex-col rounded-t-2xl border-t border-border bg-card shadow-float overflow-hidden ${
+                isDraggingSheet ? "" : "transition-[height] duration-300 ease-out"
+              }`
+            : `relative flex shrink-0 flex-col border-l border-border bg-card h-full ${
+                !panelOpen ? "hidden" : ""
+              }`
+        }
+        style={isCompact ? { height: sheetHeightStyle } : { width: panelWidth }}
+      >
+        {/* Compact Grab Handle */}
+        {isCompact && (
+          <button
+            type="button"
+            onPointerDown={handleStartDrag}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            className="flex shrink-0 justify-center pb-1 pt-2 w-full touch-none cursor-pointer select-none"
+            aria-label="Expandir o contraer panel"
+          >
+            <span className="h-1.5 w-10 rounded-full bg-border" />
+          </button>
+        )}
+
+        {/* Desktop Resize handle (left edge, 8px clickable zone, pointer events) */}
+        {!isCompact && (
           <div
             onPointerDown={(e) => {
               if (e.button === 0) {
@@ -250,10 +272,10 @@ export default function DashboardPage() {
             className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize hover:bg-primary/20 transition-colors"
             title="Arrastra para redimensionar (320-640px), doble clic para restaurar"
           />
+        )}
 
-          <SidePanelTabs />
-        </aside>
-      )}
+        <SidePanelTabs onTabChange={handlePanelTabChange} />
+      </aside>
     </div>
   );
 }
