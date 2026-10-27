@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
+import React, { useState, useEffect, useCallback, useLayoutEffect } from "react";
 
 export const GUIDE_STORAGE_KEY = "atalaya.guide.v1";
 
@@ -42,110 +41,289 @@ export function dismissGuide(
   }
 }
 
+export interface TourStep {
+  sel: string;
+  title: string;
+  text: string;
+}
+
+export const TOUR_STEPS: TourStep[] = [
+  {
+    sel: "escenario",
+    title: "1 · Elige un escenario",
+    text: "Base sigue la tendencia actual; Intervención y Pesimista simulan el impacto ante acciones preventivas o caídas de participación.",
+  },
+  {
+    sel: "capas",
+    title: "2 · Cambia la vista del mapa",
+    text: "Semáforo muestra el nivel de riesgo 2027; Cambio Δ muestra la diferencia contra la base y Comparar ofrece una cortina interactiva.",
+  },
+  {
+    sel: "panel",
+    title: "3 · Explora el detalle territorial",
+    text: "Consulta el diagnóstico completo, factores sociodemográficos, recomendaciones operativas y ranking para cualquier estado o municipio.",
+  },
+  {
+    sel: "buscar",
+    title: "4 · Búsqueda rápida",
+    text: "Presiona / o escribe en el buscador para localizar cualquier estado o municipio de México al instante.",
+  },
+  {
+    sel: "herramientas",
+    title: "5 · Herramientas y vista 3D",
+    text: "Activa la vista 3D para apreciar la altura según el riesgo, exporta el mapa a imagen PNG o reabre esta guía en cualquier momento.",
+  },
+  {
+    sel: "leyenda",
+    title: "6 · Consulta la leyenda",
+    text: "Identifica los cuatro niveles del semáforo, el conteo de municipios y la proporción de lista nominal representada en cada categoría.",
+  },
+];
+
+/**
+ * Helper to find the next valid step anchor element with positive dimensions.
+ * Skips missing or zero-width anchors.
+ */
+export function getValidStepAndRect(
+  fromIndex = 0,
+  doc?: { querySelector: (sel: string) => any } | null
+): { index: number; rect: DOMRect } | null {
+  const documentRef =
+    doc !== undefined
+      ? doc
+      : typeof document !== "undefined"
+      ? document
+      : null;
+  if (!documentRef) return null;
+
+  for (let idx = fromIndex; idx < TOUR_STEPS.length; idx++) {
+    const el = documentRef.querySelector(`[data-tour="${TOUR_STEPS[idx].sel}"]`);
+    if (el) {
+      const r = el.getBoundingClientRect();
+      if (r && r.width > 0 && r.height > 0) {
+        return { index: idx, rect: r };
+      }
+    }
+  }
+  return null;
+}
+
 export interface MapGuideProps {
-  open: boolean;
-  onClose: () => void;
+  open?: boolean;
+  onClose?: () => void;
   className?: string;
 }
 
-export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
-  if (!open) return null;
+// Safe useLayoutEffect fallback for SSR
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
-  const handleDismiss = () => {
+export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
+  const isControlled = open !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const effectiveOpen = isControlled ? Boolean(open) : internalOpen;
+
+  const [i, setI] = useState(0);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  const handleClose = useCallback(() => {
     if (typeof window !== "undefined") {
       dismissGuide(window.localStorage);
     }
-    onClose();
+    setRect(null);
+    if (!isControlled) {
+      setInternalOpen(false);
+    }
+    onClose?.();
+  }, [isControlled, onClose]);
+
+  // First-visit auto-open with ~900ms delay if uncontrolled
+  useEffect(() => {
+    if (isControlled) return;
+    if (typeof window !== "undefined" && shouldShowGuide(window.localStorage)) {
+      const timer = setTimeout(() => {
+        if (shouldShowGuide(window.localStorage)) {
+          setInternalOpen(true);
+          setI(0);
+        }
+      }, 900);
+      return () => clearTimeout(timer);
+    }
+  }, [isControlled]);
+
+  // Contract C1: listen for atalaya:open-guide CustomEvent
+  useEffect(() => {
+    const handleOpenEvent = () => {
+      setI(0);
+      if (!isControlled) {
+        setInternalOpen(true);
+      }
+    };
+    window.addEventListener("atalaya:open-guide", handleOpenEvent);
+    return () => window.removeEventListener("atalaya:open-guide", handleOpenEvent);
+  }, [isControlled]);
+
+  // Reset index when opened
+  useEffect(() => {
+    if (effectiveOpen) {
+      setI(0);
+    } else {
+      setRect(null);
+    }
+  }, [effectiveOpen]);
+
+  // Layout effect to position spotlight on current anchor or skip if missing/zero-width
+  useIsomorphicLayoutEffect(() => {
+    if (!effectiveOpen) return;
+    const match = getValidStepAndRect(i);
+    if (!match) {
+      // No remaining valid steps found: close tour
+      handleClose();
+      return;
+    }
+    if (match.index !== i) {
+      setI(match.index);
+    }
+    setRect(match.rect);
+  }, [effectiveOpen, i, handleClose]);
+
+  // Reposition on window resize and scroll
+  useEffect(() => {
+    if (!effectiveOpen) return;
+
+    const handleReposition = () => {
+      const currentSel = TOUR_STEPS[i]?.sel;
+      const el = currentSel ? document.querySelector(`[data-tour="${currentSel}"]`) : null;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r && r.width > 0 && r.height > 0) {
+          setRect(r);
+          return;
+        }
+      }
+      // If current anchor vanished, advance to next valid
+      const nextMatch = getValidStepAndRect(i + 1);
+      if (nextMatch) {
+        setI(nextMatch.index);
+        setRect(nextMatch.rect);
+      } else {
+        handleClose();
+      }
+    };
+
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [effectiveOpen, i, handleClose]);
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!effectiveOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [effectiveOpen, handleClose]);
+
+  const handleNext = () => {
+    const nextMatch = getValidStepAndRect(i + 1);
+    if (nextMatch) {
+      setI(nextMatch.index);
+      setRect(nextMatch.rect);
+    } else {
+      handleClose();
+    }
   };
 
+  // Determine current active anchor step and rect
+  const activeMatch = rect
+    ? { index: i, rect }
+    : effectiveOpen
+    ? getValidStepAndRect(i)
+    : null;
+
+  if (!effectiveOpen || !activeMatch) {
+    return null;
+  }
+
+  const currentStep = TOUR_STEPS[activeMatch.index];
+  if (!currentStep) return null;
+  const currentRect = activeMatch.rect;
+
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+  const w = Math.min(280, vw - 24);
+
+  const spaceBelow = vh - currentRect.bottom;
+  const balloonHeightEstimate = 160;
+  const placeBelow = spaceBelow >= balloonHeightEstimate || currentRect.top < balloonHeightEstimate + 20;
+
+  const left = Math.min(
+    Math.max(12, currentRect.left + currentRect.width / 2 - w / 2),
+    vw - w - 12
+  );
+  const top = placeBelow
+    ? Math.min(currentRect.bottom + 10, vh - balloonHeightEstimate - 12)
+    : Math.max(12, currentRect.top - balloonHeightEstimate - 10);
+
+  const hasMoreSteps = getValidStepAndRect(activeMatch.index + 1) !== null;
+
   return (
-    <div
-      role="region"
-      aria-label="Guía de lectura del mapa"
-      className={`bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-3 shadow-2xl text-white max-w-[340px] w-full pointer-events-auto z-30 transition-all ${className}`}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2 mb-2.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <svg
-            className="w-4 h-4 text-emerald-400 shrink-0"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              fillRule="evenodd"
-              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-              clipRule="evenodd"
-            />
-          </svg>
-          <h3 className="font-bold text-xs text-white truncate">
-            ¿Cómo leer este mapa?
+    <>
+      {/* Spotlight ring surrounding targeted anchor */}
+      <div
+        className="pointer-events-none fixed z-[60] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
+        style={{
+          left: Math.max(0, currentRect.left - 4),
+          top: Math.max(0, currentRect.top - 4),
+          width: currentRect.width + 8,
+          height: Math.min(currentRect.height + 8, 160),
+        }}
+      />
+
+      {/* Floating guided tour balloon */}
+      <div
+        role="region"
+        aria-label="Guía interactiva del mapa"
+        className={`fixed z-[61] float-panel p-3.5 shadow-float text-foreground ${className}`}
+        style={{ left, top, width: w }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-display text-sm font-bold text-foreground truncate">
+            {currentStep.title}
           </h3>
+          <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+            {activeMatch.index + 1}/{TOUR_STEPS.length}
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={handleDismiss}
-          aria-label="Cerrar guía"
-          className="text-slate-400 hover:text-white text-xs p-0.5 rounded transition-colors"
-          title="Cerrar guía"
-        >
-          ✕
-        </button>
-      </div>
 
-      {/* 4 Steps */}
-      <ol className="space-y-2 text-[11px] text-slate-200 mb-3">
-        <li className="flex items-center gap-2">
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[10px] border border-emerald-500/40">
-            1
-          </span>
-          <span className="leading-tight">
-            El color es el riesgo de abstención 2027 (semáforo).
-          </span>
-        </li>
-        <li className="flex items-center gap-2">
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[10px] border border-emerald-500/40">
-            2
-          </span>
-          <span className="leading-tight">
-            Haz clic en un estado y luego en un municipio para ver su diagnóstico.
-          </span>
-        </li>
-        <li className="flex items-center gap-2">
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[10px] border border-emerald-500/40">
-            3
-          </span>
-          <span className="leading-tight">
-            Cambia el escenario arriba para simular una intervención o un caso pesimista.
-          </span>
-        </li>
-        <li className="flex items-center gap-2">
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[10px] border border-emerald-500/40">
-            4
-          </span>
-          <span className="leading-tight">
-            El asistente responde preguntas sobre estos datos.
-          </span>
-        </li>
-      </ol>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          {currentStep.text}
+        </p>
 
-      {/* Actions */}
-      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800">
-        <Link
-          href="/metodologia"
-          className="text-[11px] text-slate-400 hover:text-emerald-300 transition-colors underline underline-offset-2"
-        >
-          Ver metodología
-        </Link>
-        <button
-          type="button"
-          onClick={handleDismiss}
-          className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-2.5 py-1 rounded-md transition-colors shadow-xs"
-        >
-          Entendido
-        </button>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={handleClose}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            Omitir
+          </button>
+          <button
+            type="button"
+            onClick={handleNext}
+            className="h-7 px-3 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs cursor-pointer"
+          >
+            {hasMoreSteps ? "Siguiente" : "Listo"}
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -402,9 +402,9 @@ def check_connectivity(app_url: str) -> CheckResult:
 def build_enlaces_text(team: str, app_url: str, repo_url: str) -> str:
     """Genera el contenido de ENLACES.txt incluido en la raíz del paquete."""
     return f"""================================================================================
-ATALAYA · HACKATHON INE 2026 · RETO 2
-Eje: Predicción y escenarios de riesgo de abstención
-Equipo: {team}
+Atalaya Electoral · Hackathon INE 2026 · Reto 2
+Riesgo de abstención · Elección federal 2027
+Propuesta del equipo: {team}
 ================================================================================
 
 1. APLICACIÓN PÚBLICA (TABLERO DINÁMICO)

@@ -1,15 +1,14 @@
-# ATALAYA — Riesgo y Escenarios de Abstención Electoral en México
+# Atalaya Electoral — Riesgo y Escenarios de Abstención Electoral en México
 
-> **INE Hackathon · Reto 2: Predicción y escenarios de riesgo de abstención**  
-> Documento técnico completo y arquitectura en [explanation.md](explanation.md).
+> **INE Hackathon 2026 · Reto 2: Predicción y escenarios de riesgo de abstención**  
+> **Tablero público desplegado:** [http://46.250.172.193:8080](http://46.250.172.193:8080)  
+> **Documento técnico completo y arquitectura:** [explanation.md](explanation.md) (fuente de verdad técnica).
 
 ---
 
-## 1. Qué es ATALAYA
+## 1. Qué es Atalaya Electoral
 
-**ATALAYA** es una plataforma de analítica predictiva y visualización estratégica diseñada para que el Instituto Nacional Electoral (INE) identifique de manera anticipada los municipios y entidades con mayor propensión a la abstención en las elecciones federales de **2027** (diputaciones federales).
-
-A partir de los microdatos de la **Plataforma de Conteos Censales de Participación Ciudadana (CCPC) 2009–2024** y la **Elección Judicial 2025**, combinados con indicadores sociodemográficos del **INEGI Censo 2020** y del **Índice de Marginación CONAPO 2020**, ATALAYA:
+**Atalaya Electoral** es una plataforma de analítica predictiva y visualización estratégica desarrollada para el Hackathon INE 2026 (Reto 2: Predicción y escenarios de riesgo de abstención). A partir de la serie histórica oficial de **Conteos Censales de Participación Ciudadana (CCPC 2009–2024)** y la **Elección Judicial 2025**, combinados con indicadores sociodemográficos del **INEGI Censo 2020** y del **Índice de Marginación CONAPO 2020**, Atalaya Electoral identifica de forma anticipada los municipios y entidades con mayor riesgo de abstención para la elección federal **2027**, permitiendo al INE planear y priorizar recursos institucionales sin utilizar datos personales:
 
 1. **Pronostica** la participación y abstención de los 2,478 municipios del Marco Geoestadístico 2024 mediante un modelo transparente de persistencia relativa con selección honesta entre candidatos y backtest en los cortes electorales 2021 y 2024.
 2. **Clasifica** cada zona territorial en un semáforo de riesgo de cuatro niveles (🟢 Verde, 🟡 Amarillo, 🟠 Naranja, 🔴 Rojo) ponderando abstención esperada, vulnerabilidad sociodemográfica estructural, tendencia histórica y volatilidad electoral.
@@ -289,7 +288,7 @@ Las variables de configuración se gestionan mediante el archivo `backend/.env` 
 
 ## 11. Política de privacidad y control estadístico de revelación
 
-ATALAYA está diseñado bajo principios estrictos de **confidencialidad estadística y privacidad por diseño**:
+Atalaya Electoral está diseñado bajo principios estrictos de **confidencialidad estadística y privacidad por diseño**:
 
 - **Cero datos personales nominativos**: No se recopila, almacena ni procesa ningún dato de identificación individual, nombres, domicilios, CURP ni claves de elector.
 - **Supresión de celdas pequeñas (k-anonimato / thresholding)**: Para evitar cualquier riesgo de re-identificación indirecta en municipios de baja densidad demográfica, toda celda demográfica (edad × sexo × municipio) con una Lista Nominal menor a 10 personas (`LN < 10`) tiene sus conteos y tasas suprimidos (retornando `null` en API y `N/D` en interfaz/chat, con marca explícita `suprimido: true`).
@@ -300,7 +299,7 @@ ATALAYA está diseñado bajo principios estrictos de **confidencialidad estadís
 
 ## 12. Licencia de datos públicos y créditos
 
-El desarrollo de ATALAYA utiliza exclusivamente fuentes abiertas de carácter público gubernamental:
+El desarrollo de Atalaya Electoral utiliza exclusivamente fuentes abiertas de carácter público gubernamental:
 - **Instituto Nacional Electoral (INE)**: Plataforma de Conteos Censales de Participación Ciudadana (CCPC 2009–2024), Elección Judicial Extraordinaria 2025 y Sistema de Consulta de la Estadística de las Elecciones (SICEE).
 - **Instituto Nacional de Estadística y Geografía (INEGI)**: Censo de Población y Vivienda 2020 (ITER) y Marco Geoestadístico Nacional 2024.
 - **Consejo Nacional de Población (CONAPO)**: Índice de Marginación por Municipio 2020.

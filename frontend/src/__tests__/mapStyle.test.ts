@@ -44,7 +44,7 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(TILESET_MANIFEST).toBe("/geo/tiles.json");
     expect(MEXICO_BOUNDS).toEqual([[-118.6, 14.3], [-86.5, 32.8]]);
     expect(MAX_BOUNDS).toEqual([[-130, 5], [-75, 40]]);
-    expect(BASEMAP.background).toBe("#060a13");
+    expect(BASEMAP.background).toBe("#eef0f3");
     expect(BASEMAP.base).toContain("server.arcgisonline.com");
     expect(BASEMAP.base).toContain("{z}/{y}/{x}");
     expect(BASEMAP.labels).toContain("server.arcgisonline.com");
@@ -71,10 +71,10 @@ describe("mapStyle Logic & Expressions Tests", () => {
     expect(deltaColor(-1.0)).toBe("#92c5de");
     expect(deltaColor(-0.5)).toBe("#92c5de");
 
-    // (-0.5, 0.5) -> #3b4252
-    expect(deltaColor(-0.2)).toBe("#3b4252");
-    expect(deltaColor(0)).toBe("#3b4252");
-    expect(deltaColor(0.2)).toBe("#3b4252");
+    // (-0.5, 0.5) -> #e6e1e4
+    expect(deltaColor(-0.2)).toBe("#e6e1e4");
+    expect(deltaColor(0)).toBe("#e6e1e4");
+    expect(deltaColor(0.2)).toBe("#e6e1e4");
 
     // [0.5, 1.5) -> #f4a582
     expect(deltaColor(0.5)).toBe("#f4a582");

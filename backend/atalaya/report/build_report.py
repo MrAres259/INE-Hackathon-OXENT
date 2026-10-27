@@ -37,6 +37,14 @@ except ImportError:
 
 DELIVERABLES_DIR = REPO_DIR / "deliverables"
 GEO_DIR = REPO_DIR / "frontend" / "public" / "geo"
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+
+
+def _load_asset_svg(name: str) -> str:
+    path = ASSETS_DIR / name
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return ""
 
 
 def _fmt_pct(val: Any, decimals: int = 1) -> str:
@@ -203,13 +211,13 @@ def generate_report(
 
             cat_base = base_cat_map.get(r.get("id"), "sin_dato")
             if cat_base == "rojo" and cat != "rojo":
-                fill_mun_diff[mid] = "#4caf50"  # desescaló de rojo
+                fill_mun_diff[mid] = "#2f7d4b"  # desescaló de rojo (mejora)
             elif cat_base == "naranja" and cat in ("amarillo", "verde"):
-                fill_mun_diff[mid] = "#8bc34a"  # desescaló de naranja
+                fill_mun_diff[mid] = "#3f9a5b"  # desescaló de naranja
             elif cat == "rojo":
-                fill_mun_diff[mid] = "#c62828"  # rojo persistente
+                fill_mun_diff[mid] = CATEGORY_COLORS.get("rojo", "#c8352f")  # rojo persistente
             else:
-                fill_mun_diff[mid] = "#e0e0e0"  # sin cambio relevante
+                fill_mun_diff[mid] = "#e6e1e4"  # sin cambio relevante
 
     def _add_map_figure_class(svg_str: str) -> str:
         if "<svg " in svg_str and 'class=' not in svg_str:
@@ -344,7 +352,16 @@ def generate_report(
         "map_mun_diff": rendered_maps["mun_diff"],
     }
 
-    rendered_html = template.render(stats=stats, charts=charts, map_engines=map_engines)
+    brand_logo_svg = _load_asset_svg("atalaya-electoral-logo.svg")
+    brand_mark_svg = _load_asset_svg("atalaya-electoral-mark.svg")
+
+    rendered_html = template.render(
+        stats=stats,
+        charts=charts,
+        map_engines=map_engines,
+        brand_logo_svg=brand_logo_svg,
+        brand_mark_svg=brand_mark_svg,
+    )
     html_out = o_dir / "reporte_metodologico.html"
     html_out.write_text(rendered_html, encoding="utf-8")
 

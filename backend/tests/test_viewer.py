@@ -186,6 +186,11 @@ def test_build_viewer_synthetic(synthetic_geojsons, tmp_path: Path):
         matches = pattern.findall(html_content)
         assert len(matches) == 0, f"Found external resource request: {matches}"
 
+    # 4. Check branding
+    assert "Atalaya Electoral" in html_content
+    assert "<svg" in html_content
+    assert re.search(r'>\s*ATALAYA\s*<', html_content) is None
+
 
 def test_size_warning(synthetic_geojsons, tmp_path: Path, capsys):
     out_html = tmp_path / "visor_warning.html"

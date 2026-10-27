@@ -45,6 +45,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "slides_templates"
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+LOGO_SVG_PATH = ASSETS_DIR / "atalaya-electoral-logo.svg"
+MARK_SVG_PATH = ASSETS_DIR / "atalaya-electoral-mark.svg"
 
 
 class BuildSlidesResult(tuple):
@@ -447,7 +450,7 @@ def render_slides_html(
         height=330,
         horizontal=True,
         value_fmt="{:.1f}%",
-        color="#1565c0",
+        color="#b5186b",
     )
 
     # Base map choropleth
@@ -577,11 +580,16 @@ def render_slides_html(
     env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)), autoescape=True)
     template = env.get_template("presentation.html")
 
+    brand_logo_svg = LOGO_SVG_PATH.read_text(encoding="utf-8") if LOGO_SVG_PATH.is_file() else ""
+    brand_mark_svg = MARK_SVG_PATH.read_text(encoding="utf-8") if MARK_SVG_PATH.is_file() else ""
+
     context = {
         "styles_css": styles_css,
         "team_name": team_name,
         "repo_url": repo_url,
         "app_url": app_url,
+        "brand_logo_svg": brand_logo_svg,
+        "brand_mark_svg": brand_mark_svg,
         "stats": stats,
         "chart_history": chart_history,
         "chart_age_gap": chart_age_gap,

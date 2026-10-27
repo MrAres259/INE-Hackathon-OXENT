@@ -2,10 +2,10 @@
 import type { Category, RiskItem, Driver } from "./types";
 
 export const CATEGORY_COLORS: Record<Category, string> = {
-  verde: "#2e7d32",
-  amarillo: "#f9a825",
-  naranja: "#ef6c00",
-  rojo: "#c62828",
+  verde: "#3f9a5b",
+  amarillo: "#f2bf3a",
+  naranja: "#ec7a2c",
+  rojo: "#c8352f",
   sin_dato: "#bdbdbd",
 };
 
@@ -58,8 +58,8 @@ export function formatSignedVotes(val: number | null | undefined): string {
 }
 
 export function getVotesColorClass(val: number | null | undefined): string {
-  if (val === null || val === undefined || isNaN(val)) return "text-slate-400";
-  return val < 0 ? "text-rose-400" : "text-emerald-400";
+  if (val === null || val === undefined || isNaN(val)) return "text-muted-foreground";
+  return val < 0 ? "text-bad" : "text-good";
 }
 
 export const MEAN_DELTA_LABEL = "Cambio promedio en abstención";
@@ -72,17 +72,17 @@ export function formatDeltaPp(val: number | null | undefined, decimals = 1): str
 }
 
 export function getDeltaAbstentionColorClass(val: number | null | undefined): string {
-  if (val === null || val === undefined || isNaN(val)) return "text-slate-400";
-  if (val < 0) return "text-emerald-400";
-  if (val > 0) return "text-rose-400";
-  return "text-slate-200";
+  if (val === null || val === undefined || isNaN(val)) return "text-muted-foreground";
+  if (val < 0) return "text-good";
+  if (val > 0) return "text-bad";
+  return "text-foreground";
 }
 
 export function getDeltaAbstentionHex(val: number | null | undefined): string {
-  if (val === null || val === undefined || isNaN(val)) return "#94a3b8";
-  if (val < 0) return "#10b981";
-  if (val > 0) return "#f43f5e";
-  return "#e2e8f0";
+  if (val === null || val === undefined || isNaN(val)) return "#bdbdbd";
+  if (val < 0) return "#2f7d4b";
+  if (val > 0) return "#c0392b";
+  return "#e6e1e4";
 }
 
 export function hasProminentDrivers(

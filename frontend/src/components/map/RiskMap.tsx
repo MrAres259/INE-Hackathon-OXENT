@@ -6,20 +6,20 @@ import { useAtalaya } from "@/lib/state";
 import { useMapRisk } from "@/lib/useMapRisk";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { Breadcrumb } from "./Breadcrumb";
-import { MapToolbar } from "./MapToolbar";
-import { RegionSearch } from "./RegionSearch";
+import { MapToolbar, MapLayerSwitcher } from "./MapToolbar";
 import { Legend } from "./Legend";
 import { MapTooltip } from "./MapTooltip";
 import type { HoverInfo } from "./AtalayaMap";
 import { MapErrorBoundary } from "./MapErrorBoundary";
 
 const MapLoading = () => (
-  <div className="absolute inset-0 bg-[#060a13] flex flex-col items-center justify-center text-slate-400 gap-3">
+  <div className="absolute inset-0 bg-[#eef0f3] flex flex-col items-center justify-center text-muted-foreground gap-3">
     <svg
-      className="animate-spin h-8 w-8 text-emerald-500"
+      className="animate-spin h-8 w-8 text-primary"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <circle
         className="opacity-25"
@@ -35,7 +35,7 @@ const MapLoading = () => (
         d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
       />
     </svg>
-    <span className="text-xs font-medium text-slate-300">
+    <span className="text-xs font-medium text-foreground">
       Cargando visualización del mapa interactivo...
     </span>
   </div>
@@ -122,6 +122,7 @@ export function RiskMap() {
 
     map.triggerRepaint();
   }, [mapMode, scenario]);
+
   const [containerRect, setContainerRect] = useState<{ width: number; height: number }>({
     width: 800,
     height: 520,
@@ -146,7 +147,7 @@ export function RiskMap() {
   return (
     <div
       ref={wrapperRef}
-      className="relative h-full w-full min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-[#060a13]"
+      className="relative h-full w-full min-h-0 flex-1 overflow-hidden bg-[#eef0f3]"
     >
       {/* Map View Rendering inside dedicated absolute inset-0 container */}
       <div className="absolute inset-0 [&_.maplibregl-map]:h-full [&_.maplibregl-map]:w-full">
@@ -185,41 +186,43 @@ export function RiskMap() {
         )}
       </div>
 
-      {/* Overlays (z-20 above canvas, pointer-events only on cards) */}
-      {/* Top Left: Breadcrumb + MapToolbar */}
-      <div className="absolute top-3 left-3 z-20 flex flex-col gap-2 pointer-events-none">
-        <Breadcrumb />
-        <MapToolbar data={data} onExportPng={handleExportPng} />
-      </div>
-
-      {/* Top Right: RegionSearch */}
-      <div className="absolute top-3 right-3 z-20 pointer-events-none">
-        <RegionSearch />
-      </div>
-
-      {/* Bottom Left: Legend */}
-      <div className="absolute bottom-3 left-3 z-20 pointer-events-none">
-        <Legend data={data} />
-      </div>
-
-      {/* Bottom Right: Status Indicator (Loading scenario or Error) */}
-      {(data.loading || data.error) && (
-        <div className="absolute bottom-3 right-3 z-20 pointer-events-none">
-          {data.loading && (
-            <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-full text-xs text-slate-300 shadow-xl flex items-center gap-2">
-              <span className="animate-spin h-3.5 w-3.5 border-2 border-emerald-400 border-t-transparent rounded-full" />
-              <span>Calculando escenario…</span>
-            </div>
-          )}
-          {data.error && (
-            <div className="bg-rose-950/90 backdrop-blur-md border border-rose-800/80 px-3 py-1.5 rounded-xl text-xs text-rose-200 shadow-xl">
-              <span>Error: {data.error}</span>
-            </div>
-          )}
+      {/* Overlays Layer (pointer-events-none container with pointer-events-auto children) */}
+      <div className="absolute inset-0 pointer-events-none p-3">
+        {/* Top Left: Breadcrumb + MapLayerSwitcher */}
+        <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2 pointer-events-auto">
+          <Breadcrumb />
+          <MapLayerSwitcher data={data} />
         </div>
-      )}
 
-      {/* Hover Tooltip following cursor */}
+        {/* Tools: top-right on compact (<1024), bottom-right on PC (>=1024) leaving top-right free for panel toggle */}
+        <div className="absolute right-3 top-3 lg:top-auto lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)] z-20 pointer-events-auto">
+          <MapToolbar data={data} onExportPng={handleExportPng} />
+        </div>
+
+        {/* Legend: below LayerSwitcher on compact (<1024), bottom-left open on PC (>=1024) */}
+        <div className="absolute left-3 top-[92px] lg:top-auto lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)] z-20 pointer-events-auto">
+          <Legend data={data} />
+        </div>
+
+        {/* Status notice (loading scenario or error): top-center on compact, bottom-center on PC */}
+        {(data.loading || data.error) && (
+          <div className="absolute left-1/2 -translate-x-1/2 top-14 lg:top-auto lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)] z-20 pointer-events-auto">
+            {data.loading && (
+              <div className="float-panel px-3.5 py-1.5 text-xs text-foreground shadow-float flex items-center gap-2">
+                <span className="animate-spin size-3.5 border-2 border-primary border-t-transparent rounded-full shrink-0" />
+                <span>Calculando escenario…</span>
+              </div>
+            )}
+            {data.error && (
+              <div className="float-panel px-3.5 py-1.5 text-xs text-destructive border-destructive/40 shadow-float">
+                <span>Error: {data.error}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Hover Tooltip following cursor (hidden on non-hover devices) */}
       <MapTooltip
         hover={hover}
         containerWidth={containerRect.width}

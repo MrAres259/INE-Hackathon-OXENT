@@ -41,10 +41,10 @@ export const MOCK_META: Meta = {
   years: [2009, 2012, 2015, 2018, 2021, 2024],
   states: MOCK_STATES,
   categories: [
-    { id: "verde", label: "Riesgo Bajo", color: "#2e7d32", rule: "Índice de riesgo < 35" },
-    { id: "amarillo", label: "Riesgo Moderado", color: "#f9a825", rule: "Índice de riesgo 35 - 54" },
-    { id: "naranja", label: "Riesgo Alto", color: "#ef6c00", rule: "Índice de riesgo 55 - 74" },
-    { id: "rojo", label: "Riesgo Crítico", color: "#c62828", rule: "Índice de riesgo ≥ 75" },
+    { id: "verde", label: "Riesgo Bajo", color: "#3f9a5b", rule: "Índice de riesgo < 35" },
+    { id: "amarillo", label: "Riesgo Moderado", color: "#f2bf3a", rule: "Índice de riesgo 35 - 54" },
+    { id: "naranja", label: "Riesgo Alto", color: "#ec7a2c", rule: "Índice de riesgo 55 - 74" },
+    { id: "rojo", label: "Riesgo Crítico", color: "#c8352f", rule: "Índice de riesgo ≥ 75" },
     { id: "sin_dato", label: "Sin dato", color: "#bdbdbd", rule: "Sin información histórica suficiente" },
   ],
   scenarios: [

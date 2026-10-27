@@ -209,7 +209,7 @@ export function buildDataLayers(
       ...munLayerProp,
       minzoom: 5,
       paint: {
-        "line-color": "rgba(226,232,240,1)",
+        "line-color": "rgba(255,255,255,0.7)",
         "line-opacity": [
           "interpolate",
           ["linear"],
@@ -242,7 +242,7 @@ export function buildDataLayers(
       source: stateSource,
       ...stateLayerProp,
       paint: {
-        "line-color": "rgba(226,232,240,0.55)",
+        "line-color": "#ffffff",
         "line-width": [
           "interpolate",
           ["linear"],
@@ -296,7 +296,7 @@ export function buildDataLayers(
       source: stateSource,
       ...stateLayerProp,
       paint: {
-        "line-color": "#ffffff",
+        "line-color": "#4a2a48",
         "line-width": [
           "case",
           ["boolean", ["feature-state", "hover"], false],
@@ -311,7 +311,7 @@ export function buildDataLayers(
       source: munSource,
       ...munLayerProp,
       paint: {
-        "line-color": "#ffffff",
+        "line-color": "#4a2a48",
         "line-width": [
           "case",
           ["boolean", ["feature-state", "hover"], false],
@@ -326,7 +326,7 @@ export function buildDataLayers(
       source: munSource,
       ...munLayerProp,
       paint: {
-        "line-color": "#ffffff",
+        "line-color": "#b5186b",
         "line-width": [
           "case",
           ["boolean", ["feature-state", "selected"], false],
@@ -342,7 +342,7 @@ export function buildDataLayers(
       source: stateSource,
       ...stateLayerProp,
       paint: {
-        "line-color": "#ffffff",
+        "line-color": "#b5186b",
         "line-width": [
           "case",
           ["boolean", ["feature-state", "selected"], false],

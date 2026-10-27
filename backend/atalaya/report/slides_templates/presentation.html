@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>ATALAYA — Presentación Ejecutiva</title>
+  <title>Atalaya Electoral — Presentación Ejecutiva</title>
   <style>
 {{ styles_css }}
   .map-figure {
@@ -20,9 +20,12 @@
   <!-- SLIDE 1: PORTADA -->
   <section class="slide hero" id="slide-1">
     <div>
+      <div class="hero-logo" style="width: 260px; margin-bottom: 8px;">
+        {% if brand_logo_svg %}{{ brand_logo_svg | safe }}{% else %}<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" width="260" role="img" aria-label="Atalaya Electoral"><defs><linearGradient id="ael-bg-sl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c21f77"/><stop offset="1" stop-color="#8e1456"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="url(#ael-bg-sl)"/><path d="M15.5 25.5a17 17 0 0 1 5.5-9.5M48.5 25.5a17 17 0 0 0-5.5-9.5" fill="none" stroke="#ffffff" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/><path d="M21 23.5 32 12.5l11 11z" fill="#ffffff"/><rect x="23.5" y="25" width="17" height="9.5" rx="2" fill="#ffffff"/><circle cx="32" cy="29.75" r="2.9" fill="#f2bf3a"/><path d="M25.5 36.5h13l3.6 15h-20.2z" fill="#ffffff"/><path d="M27.4 39.5l9.2 8M36.6 39.5l-9.2 8" stroke="#a8186a" stroke-width="2.2" stroke-linecap="round"/><rect x="16.5" y="51.5" width="31" height="3.6" rx="1.8" fill="#ffffff"/><text x="80" y="35" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="30" font-weight="800" fill="#ffffff" letter-spacing="0.5">Atalaya</text><text x="81" y="55" font-family="Montserrat, 'Segoe UI', Arial, sans-serif" font-size="13" font-weight="700" fill="#f2bf3a" letter-spacing="5.2">ELECTORAL</text></svg>{% endif %}
+      </div>
       <div class="hero-kicker">Hackathon INE 2026 · «Hackea la Participación»</div>
-      <h1 class="hero-title">ATALAYA</h1>
-      <div class="hero-subtitle">Anticipar dónde puede caer la participación en 2027</div>
+      <h1 class="hero-title">Atalaya Electoral</h1>
+      <div class="hero-subtitle">Riesgo de abstención · Elección federal 2027</div>
       <div class="hero-badge">Reto 2: Predicción y escenarios de riesgo de abstención</div>
       <div class="hero-pillars">
         <div class="hero-pillar-card">
@@ -47,6 +50,7 @@
 
   <!-- SLIDE 2: EL PROBLEMA -->
   <section class="slide" id="slide-2">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">02 / Análisis Histórico y Diagnóstico</div>
       <h1 class="slide-title">El Problema: La Caída en Elecciones Intermedias</h1>
@@ -79,6 +83,7 @@
 
   <!-- SLIDE 3: LOS DATOS (CCPC) -->
   <section class="slide" id="slide-3">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">03 / Fuentes Oficiales y Privacidad</div>
       <h1 class="slide-title">Los Datos: Plataforma CCPC e Integración Territorial</h1>
@@ -125,6 +130,7 @@
 
   <!-- SLIDE 4: HALLAZGOS EMPÍRICOS -->
   <section class="slide" id="slide-4">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">04 / Diagnóstico Empírico</div>
       <h1 class="slide-title">Hallazgos: Brecha Juvenil, de Género y Territorial</h1>
@@ -157,6 +163,7 @@
 
   <!-- SLIDE 5: EL MODELO -->
   <section class="slide" id="slide-5">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">05 / Metodología Analítica</div>
       <h1 class="slide-title">El Modelo: Simple, Explicable y Rigurosamente Validado</h1>
@@ -230,6 +237,7 @@
 
   <!-- SLIDE 6: SEMÁFORO 2027 -->
   <section class="slide" id="slide-6">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">06 / Resultados Territoriales</div>
       <h1 class="slide-title">Semáforo Territorial 2027: Dónde Puede Caer el Voto</h1>
@@ -238,23 +246,23 @@
     <div class="slide-body">
       <div class="col-left">
         {{ chart_map_base | safe }}
-        <div style="font-size: 0.11in; font-weight: 600; color: #455a64; margin-top: 0.04in;">{{ stats.chart_territorial_title }}</div>
+        <div style="font-size: 0.11in; font-weight: 600; color: #6f6270; margin-top: 0.04in;">{{ stats.chart_territorial_title }}</div>
       </div>
       <div class="col-right">
         <div class="card card-rojo">
-          <div class="card-title" style="color: #c62828;">Rojo: {{ stats.categories.base.rojo.n_fmt }} municipios ({{ stats.categories.base.rojo.both_pct_label }})</div>
+          <div class="card-title" style="color: #c8352f;">Rojo: {{ stats.categories.base.rojo.n_fmt }} municipios ({{ stats.categories.base.rojo.both_pct_label }})</div>
           <div class="card-text">Riesgo Muy Alto (Score ≥ 75). Zonas críticas con abstención severa y vulnerabilidad sociodemográfica. Máxima prioridad institucional.</div>
         </div>
         <div class="card card-naranja">
-          <div class="card-title" style="color: #ef6c00;">Naranja: {{ stats.categories.base.naranja.n_fmt }} municipios ({{ stats.categories.base.naranja.both_pct_label }})</div>
+          <div class="card-title" style="color: #ec7a2c;">Naranja: {{ stats.categories.base.naranja.n_fmt }} municipios ({{ stats.categories.base.naranja.both_pct_label }})</div>
           <div class="card-text">Riesgo Alto (Score 55–74). Municipios con tendencias declinantes o rezago estructural. Requieren atención preventiva focalizada.</div>
         </div>
         <div class="card card-amarillo">
-          <div class="card-title" style="color: #f9a825;">Amarillo: {{ stats.categories.base.amarillo.n_fmt }} municipios ({{ stats.categories.base.amarillo.both_pct_label }})</div>
+          <div class="card-title" style="color: #f2bf3a;">Amarillo: {{ stats.categories.base.amarillo.n_fmt }} municipios ({{ stats.categories.base.amarillo.both_pct_label }})</div>
           <div class="card-text">Riesgo Moderado (Score 35–54). Niveles de participación estables cercanos al promedio nacional. Monitoreo regular.</div>
         </div>
         <div class="card card-verde">
-          <div class="card-title" style="color: #2e7d32;">Verde: {{ stats.categories.base.verde.n_fmt }} municipios ({{ stats.categories.base.verde.both_pct_label }})</div>
+          <div class="card-title" style="color: #3f9a5b;">Verde: {{ stats.categories.base.verde.n_fmt }} municipios ({{ stats.categories.base.verde.both_pct_label }})</div>
           <div class="card-text">Riesgo Bajo (Score &lt; 35). Comunidades con sólida cultura cívica y participación consolidada.</div>
         </div>
       </div>
@@ -267,6 +275,7 @@
 
   <!-- SLIDE 7: ESCENARIOS -->
   <section class="slide" id="slide-7">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">07 / Analítica Prescriptiva</div>
       <h1 class="slide-title">Simulación de Escenarios: Con vs. Sin Intervención</h1>
@@ -274,7 +283,7 @@
     </div>
     <div class="slide-body">
       <div class="col-left">
-        <div style="font-size: 0.12in; font-weight: 600; color: #37474f; margin-bottom: 0.04in;">{{ stats.chart_scenarios_title }}</div>
+        <div style="font-size: 0.12in; font-weight: 600; color: #6f6270; margin-bottom: 0.04in;">{{ stats.chart_scenarios_title }}</div>
         {{ chart_scenarios | safe }}
       </div>
       <div class="col-right">
@@ -293,13 +302,14 @@
       </div>
     </div>
     <div class="slide-footer">
-      <div>Simulador paramétrico integrado en ATALAYA para diseño de metas operativas</div>
+      <div>Simulador paramétrico integrado en Atalaya Electoral para diseño de metas operativas</div>
       <div class="footer-counter">07 / 10</div>
     </div>
   </section>
 
   <!-- SLIDE 8: RECOMENDACIONES Y PRIORIZACIÓN -->
   <section class="slide" id="slide-8">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">08 / Plan de Acción Preventivo</div>
       <h1 class="slide-title">Priorización de Recursos y Recomendaciones</h1>
@@ -362,6 +372,7 @@
 
   <!-- SLIDE 9: IMPLEMENTACIÓN EN EL INE -->
   <section class="slide" id="slide-9">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">09 / Viabilidad Institucional</div>
       <h1 class="slide-title">Implementación en el INE: Solución Operable</h1>
@@ -370,7 +381,7 @@
     <div class="slide-body">
       <div class="col-half">
         <div class="card" style="height: 100%;">
-          <div class="card-title">Ecosistema Tecnológico ATALAYA</div>
+          <div class="card-title">Ecosistema Tecnológico Atalaya Electoral</div>
           <div class="card-text" style="margin-top: 0.08in;">
             • <strong>Tablero WebGL</strong>: Visualización interactiva con comparador base | intervención y vista 3D.<br><br>
             • <strong>Asistente IA</strong>: Consultas en lenguaje natural con respaldo determinista offline.<br><br>
@@ -398,10 +409,11 @@
 
   <!-- SLIDE 10: CIERRE Y ENTREGABLES -->
   <section class="slide" id="slide-10">
+    <div class="slide-corner-mark">{% if brand_mark_svg %}{{ brand_mark_svg | safe }}{% endif %}</div>
     <div class="slide-header">
       <div class="slide-kicker">10 / Conclusiones y Entregables</div>
       <h1 class="slide-title">Cierre: Datos que Construyen Democracia</h1>
-      <div class="slide-subtitle">ATALAYA transforma los datos censales del INE en decisiones preventivas oportunas, auditables y con impacto real.</div>
+      <div class="slide-subtitle">Atalaya Electoral transforma los datos censales del INE en decisiones preventivas oportunas, auditables y con impacto real.</div>
     </div>
     <div class="slide-body">
       <div class="col-half">

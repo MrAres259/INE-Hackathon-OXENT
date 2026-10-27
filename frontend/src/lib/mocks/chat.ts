@@ -44,7 +44,7 @@ export async function streamMockChat(
       [req.region_id ? "Referencia Estatal" : "Oaxaca", "54.8%", "56.1%", "47.2%", "Amarillo"],
       ["Mediana Nacional", "52.7%", "60.9%", "46.5%", "Verde"],
     ],
-    source: "INE Cómputos Distritales 2009-2024 & Modelo ATALAYA Ridge 2027",
+    source: "INE Cómputos Distritales 2009-2024 & Modelo Atalaya Electoral Ridge 2027",
   };
   handlers.onData?.(data);
   await sleep(200, signal);

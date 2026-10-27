@@ -121,7 +121,7 @@ export const GLOSSARY = {
   },
   pred_abstention: {
     title: "Abstención Pronosticada 2027",
-    body: "Porcentaje de la lista nominal que se espera que no acuda a votar en la elección federal de 2027 según el modelo estadístico de ATALAYA.",
+    body: "Porcentaje de la lista nominal que se espera que no acuda a votar en la elección federal de 2027 según el modelo estadístico de Atalaya Electoral.",
   },
   intervalo: {
     title: "Intervalo de Confianza (~90 %)",
@@ -225,8 +225,8 @@ export const GLOSSARY = {
     body: "Fuente de datos activa: OpenSearch (búsqueda indexada en la nube) o memoria local (respaldo de alta velocidad en el servidor). Ambos entregan exactamente los mismos resultados.",
   },
   asistente: {
-    title: "Asistente Virtual ATALAYA",
-    body: "Asistente enfocado exclusivamente en participación y abstención ciudadana con los datos oficiales de ATALAYA. Cada cifra proviene de los cálculos del sistema; no emite opiniones partidistas ni genera código.",
+    title: "Asistente de Atalaya Electoral",
+    body: "Asistente enfocado exclusivamente en participación y abstención ciudadana con los datos oficiales de Atalaya Electoral. Cada cifra proviene de los cálculos del sistema; no emite opiniones partidistas ni genera código.",
   },
   "ranking.orden": {
     title: "Criterio de ordenación",
@@ -262,11 +262,11 @@ export const GLOSSARY = {
   },
   "asistente.alcance": {
     title: "Alcance del asistente",
-    body: "El asistente responde preguntas sobre participación ciudadana, abstención y semáforo 2027 con datos de ATALAYA. Por diseño no genera código ni scripts, no opina sobre partidos o candidaturas, ni procesa datos personales.",
+    body: "El asistente responde preguntas sobre participación ciudadana, abstención y semáforo 2027 con datos de Atalaya Electoral. Por diseño no genera código ni scripts, no opina sobre partidos o candidaturas, ni procesa datos personales.",
   },
   guia: {
     title: "Guía de uso del tablero",
-    body: "1. Explora el mapa nacional y su semáforo. 2. Elige un estado para ver municipios críticos. 3. Consulta el diagnóstico territorial con factores y recomendaciones. 4. Simula intervenciones en Escenarios para estimar votos recuperables.",
+    body: "1. Explora el mapa nacional y su semáforo con capas arriba a la izquierda. 2. Elige un estado o busca en la barra superior. 3. Consulta el diagnóstico territorial en el panel lateral. 4. Simula intervenciones con Ajustar en la barra superior.",
   },
 } as const satisfies Record<string, GlossaryEntry>;
 

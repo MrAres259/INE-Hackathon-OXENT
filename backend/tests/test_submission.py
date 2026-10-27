@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 
 from atalaya.submission import (
+    build_enlaces_text,
     check_connectivity,
     check_database,
     check_letters,
@@ -352,3 +353,13 @@ def test_geojson_feature_count_validation(tmp_path: Path):
     res = check_scenarios_map(deliv_dir)
     assert res.status == "FALTA"
     assert "2,478" in res.detail
+
+
+def test_enlaces_branding():
+    """Verifies that ENLACES.txt header lockup uses Atalaya Electoral branding."""
+    txt = build_enlaces_text(team="OXENT", app_url="http://46.250.172.193:8080", repo_url="https://github.com/oxent/atalaya")
+    assert "Atalaya Electoral · Hackathon INE 2026 · Reto 2" in txt
+    assert "Riesgo de abstención · Elección federal 2027" in txt
+    assert "Propuesta del equipo: OXENT" in txt
+    assert "http://46.250.172.193:8080" in txt
+

@@ -419,3 +419,19 @@ def test_report_page_count_validation_exits_2(monkeypatch):
     monkeypatch.setattr(build_report, "generate_report", lambda **kwargs: {"html_path": Path("dummy.html"), "pdf_path": Path("dummy.pdf"), "pages": 14})
     build_report.main()
 
+
+def test_report_branding_and_logo_svg(synthetic_workspace):
+    """Verifies that the report HTML contains 'Atalaya Electoral', inline SVG logo, and no bare 'ATALAYA' heading."""
+    res = generate_report(
+        build_dir=synthetic_workspace["build_dir"],
+        deliverables_dir=synthetic_workspace["deliverables_dir"],
+        out_dir=synthetic_workspace["out_dir"],
+        team="OXENT",
+    )
+    content = res["html_path"].read_text(encoding="utf-8")
+
+    assert "Atalaya Electoral" in content
+    assert "<svg" in content
+    assert re.search(r'>\s*ATALAYA\s*<', content) is None
+
+

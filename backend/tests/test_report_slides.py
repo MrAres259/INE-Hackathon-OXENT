@@ -604,3 +604,23 @@ def test_slides_app_url_and_deliverables(synthetic_workspace):
     sections = re.findall(r'<section\b', content)
     assert len(sections) == 10
 
+
+def test_slides_branding_and_logo_svg(synthetic_workspace):
+    """Verifies that the presentation slides HTML contains 'Atalaya Electoral', inline SVG logos, and no bare 'ATALAYA' heading."""
+    b_dir = synthetic_workspace["build_dir"]
+    g_dir = synthetic_workspace["geo_dir"]
+    o_dir = synthetic_workspace["out_dir"]
+
+    html_p, _ = build_slides(
+        build_dir=b_dir,
+        geo_dir=g_dir,
+        out_dir=o_dir,
+        make_pdf=False,
+    )
+    content = html_p.read_text(encoding="utf-8")
+
+    assert "Atalaya Electoral" in content
+    assert "<svg" in content
+    assert re.search(r'>\s*ATALAYA\s*<', content) is None
+
+

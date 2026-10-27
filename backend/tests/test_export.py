@@ -7,7 +7,11 @@ import openpyxl
 import pandas as pd
 import pytest
 
-from atalaya.export import export_deliverables
+from atalaya.export import (
+    create_dictionary_dataframe,
+    create_leeme_dataframe,
+    export_deliverables,
+)
 from atalaya.ingest.common import write_parquet
 
 
@@ -881,3 +885,22 @@ def test_export_new_model_columns(tmp_path):
     assert r_01001["prioridad"] == 1
     assert r_01001["vulnerability_pp"] == -1.2
     assert r_01001["r_abs"] == 0.6
+
+
+def test_export_dictionary_and_leeme_branding():
+    """Verify Atalaya Electoral branding in LEEME and dictionary dataframes."""
+    df_leeme = create_leeme_dataframe({})
+    proj_row = df_leeme[df_leeme["seccion"] == "PROYECTO"]
+    assert len(proj_row) == 1
+    assert "Atalaya Electoral" in proj_row.iloc[0]["contenido"]
+
+    df_dic = create_dictionary_dataframe()
+    fuentes = df_dic["fuente"].tolist()
+    assert "Atalaya Electoral · Modelo" in fuentes
+    assert "Atalaya Electoral · Priorización" in fuentes
+    assert "Atalaya Electoral · Reglas" in fuentes
+    # Old bare ATALAYA prefixes should not be present
+    assert "ATALAYA" not in fuentes
+    assert "ATALAYA Modelo" not in fuentes
+    assert "ATALAYA Priorización" not in fuentes
+

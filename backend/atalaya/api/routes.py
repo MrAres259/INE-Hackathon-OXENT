@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["ATALAYA"])
 
 CATEGORIES = [
-    {"id": "verde", "label": "Riesgo bajo", "color": "#2e7d32", "rule": "verde: < 35"},
-    {"id": "amarillo", "label": "Riesgo medio", "color": "#f9a825", "rule": "amarillo: 35–54.9"},
-    {"id": "naranja", "label": "Riesgo alto", "color": "#ef6c00", "rule": "naranja: 55–74.9"},
-    {"id": "rojo", "label": "Riesgo muy alto", "color": "#c62828", "rule": "rojo: índice ≥ 75"},
+    {"id": "verde", "label": "Riesgo bajo", "color": "#3f9a5b", "rule": "verde: < 35"},
+    {"id": "amarillo", "label": "Riesgo medio", "color": "#f2bf3a", "rule": "amarillo: 35–54.9"},
+    {"id": "naranja", "label": "Riesgo alto", "color": "#ec7a2c", "rule": "naranja: 55–74.9"},
+    {"id": "rojo", "label": "Riesgo muy alto", "color": "#c8352f", "rule": "rojo: índice ≥ 75"},
     {"id": "sin_dato", "label": "Sin dato", "color": "#bdbdbd", "rule": "sin_dato: sin información suficiente"},
 ]
 

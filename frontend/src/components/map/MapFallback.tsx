@@ -19,18 +19,19 @@ export function MapFallback({
     <div
       role="alert"
       aria-live="assertive"
-      className={`absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-[#060a13]/95 backdrop-blur-sm text-center select-none ${className}`}
+      className={`absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-background/80 backdrop-blur-sm text-center select-none ${className}`}
     >
-      <div className="max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col items-center gap-3">
+      <div className="max-w-md bg-card border border-border rounded-2xl p-6 shadow-float flex flex-col items-center gap-3 text-foreground">
         {reason === "unsupported" && (
           <>
-            <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-1">
+            <div className="size-12 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-600 mb-1">
               <svg
-                className="w-6 h-6"
+                className="size-6"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={2}
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -39,8 +40,8 @@ export function MapFallback({
                 />
               </svg>
             </div>
-            <h3 className="text-sm font-bold text-white">WebGL no disponible</h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <h3 className="font-display text-sm font-bold text-foreground">WebGL no disponible</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
               Tu navegador no tiene WebGL activo; el ranking y el panel de detalle siguen disponibles.
             </p>
           </>
@@ -48,13 +49,14 @@ export function MapFallback({
 
         {reason === "error" && (
           <>
-            <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-1">
+            <div className="size-12 rounded-full bg-destructive/10 border border-destructive/30 flex items-center justify-center text-destructive mb-1">
               <svg
-                className="w-6 h-6"
+                className="size-6"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={2}
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -63,15 +65,15 @@ export function MapFallback({
                 />
               </svg>
             </div>
-            <h3 className="text-sm font-bold text-white">Error de carga</h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
+            <h3 className="font-display text-sm font-bold text-foreground">Error de carga</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
               No se pudo cargar el mapa.
             </p>
             {onRetry && (
               <button
                 type="button"
                 onClick={onRetry}
-                className="mt-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm cursor-pointer"
+                className="mt-2 px-4 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold rounded-lg transition-colors shadow-xs cursor-pointer"
               >
                 Reintentar
               </button>
@@ -81,12 +83,13 @@ export function MapFallback({
 
         {reason === "context-lost" && (
           <>
-            <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-1">
+            <div className="size-12 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center text-primary mb-1">
               <svg
-                className="animate-spin h-6 w-6 text-emerald-400"
+                className="animate-spin size-6 text-primary"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <circle
                   className="opacity-25"
@@ -103,8 +106,8 @@ export function MapFallback({
                 />
               </svg>
             </div>
-            <h3 className="text-sm font-bold text-white">Recuperando mapa…</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <h3 className="font-display text-sm font-bold text-foreground">Recuperando mapa…</h3>
+            <p className="text-xs text-muted-foreground leading-relaxed">
               Reiniciando contexto gráfico WebGL...
             </p>
           </>

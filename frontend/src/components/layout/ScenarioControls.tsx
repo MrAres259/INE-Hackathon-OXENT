@@ -3,14 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { useAtalaya } from "@/lib/state";
 import {
-  formatInt,
-  formatPp,
   formatSignedVotes,
   getVotesLabel,
-  getVotesColorClass,
   formatDeltaPp,
-  getDeltaAbstentionColorClass,
-  CATEGORY_COLORS,
   CATEGORY_LABELS,
 } from "@/lib/format";
 import { ApiError } from "@/lib/api";
@@ -38,6 +33,18 @@ export function ScenarioControls() {
     setLocalParams(scenarioParams);
   }, [scenarioParams]);
 
+  // Close sheet on Escape key
+  useEffect(() => {
+    if (!isScenarioModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsScenarioModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isScenarioModalOpen, setIsScenarioModalOpen]);
+
   if (!isScenarioModalOpen) return null;
 
   // Find scenario definition dynamically from meta
@@ -58,9 +65,9 @@ export function ScenarioControls() {
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 422) {
         const errors: Record<string, string> = {};
-        const data = err.data as any;
+        const data = err.data as Record<string, unknown>;
         if (Array.isArray(data?.detail)) {
-          for (const item of data.detail) {
+          for (const item of data.detail as Array<{ loc?: string[]; msg?: string }>) {
             const key = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : "general";
             errors[key] = item.msg || "Parámetro inválido";
           }
@@ -78,64 +85,95 @@ export function ScenarioControls() {
     }
   };
 
+  const title =
+    scenarioDef?.id === "pesimista"
+      ? "Ajustar escenario pesimista"
+      : scenarioDef?.label
+      ? `Ajustar: ${scenarioDef.label}`
+      : "Ajustar intervención";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 text-white shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                {scenarioDef?.label ? `Ajustar: ${scenarioDef.label}` : "Ajustar Escenario de Intervención"}
-              </h2>
-              <InfoTip
-                term={scenarioDef?.id === "pesimista" ? "escenario.pesimista" : "escenario.intervencion"}
-                size="sm"
-              />
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {scenarioDef?.description ??
-                "Parametriza palancas operativas y simula el impacto en el riesgo electoral 2027."}
-            </p>
+    <div className="absolute inset-x-2 bottom-2 z-30 flex max-h-[78%] flex-col overflow-hidden float-panel animate-in fade-in duration-200 lg:inset-x-auto lg:inset-y-3 lg:left-3 lg:max-h-none lg:w-[360px] select-none">
+      {/* Header */}
+      <div className="flex items-start justify-between border-b border-border px-4 py-3 shrink-0">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="font-display text-sm font-bold text-foreground">
+              {title}
+            </h3>
+            <InfoTip
+              term={scenarioDef?.id === "pesimista" ? "escenario.pesimista" : "escenario.intervencion"}
+              size="xs"
+            />
           </div>
-          <button
-            type="button"
-            onClick={() => setIsScenarioModalOpen(false)}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {scenarioDef?.description ??
+              "Parametriza palancas operativas y simula el impacto en el riesgo electoral 2027."}
+          </p>
         </div>
 
-        {generalError && (
-          <div className="mb-4 p-3 bg-rose-950/80 border border-rose-800 rounded-xl text-xs text-rose-300">
-            {generalError}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => setIsScenarioModalOpen(false)}
+          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+          aria-label="Cerrar hoja de parámetros"
+        >
+          <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
-        {/* Dynamic Controls generated from Meta.scenarios[].params */}
-        <div className="space-y-4">
-          {paramsList.length === 0 ? (
-            <p className="text-xs text-slate-400 py-4 text-center">
-              No se encontraron parámetros configurables para este escenario.
-            </p>
-          ) : (
-            paramsList.map((p) => {
-              const currentVal = localParams[p.key] ?? p.default;
-              const hasError = !!paramErrors[p.key];
+      {generalError && (
+        <div className="m-3 p-2.5 bg-destructive/10 border border-destructive/20 text-destructive text-xs rounded-md">
+          {generalError}
+        </div>
+      )}
 
-              if (p.type === "select") {
-                return (
-                  <div key={p.key}>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <label className="block text-xs font-semibold text-slate-300">
-                        {p.label}
-                      </label>
+      {/* Dynamic Controls generated from meta */}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {paramsList.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">
+            No se encontraron parámetros configurables para este escenario.
+          </p>
+        ) : (
+          paramsList.map((p) => {
+            const currentVal = localParams[p.key] ?? p.default;
+            const hasError = !!paramErrors[p.key];
+
+            if (p.type === "select") {
+              const isSegmented = p.options && p.options.length <= 3;
+
+              return (
+                <div key={p.key} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                    <span className="flex items-center gap-1">
+                      {p.label}
                       {PARAM_TERM[p.key] && <InfoTip term={PARAM_TERM[p.key]} size="xs" />}
+                    </span>
+                  </div>
+
+                  {isSegmented ? (
+                    <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-0.5 text-xs">
+                      {p.options?.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            setLocalParams((prev) => ({ ...prev, [p.key]: opt.value }));
+                            setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                          }}
+                          className={`rounded px-1.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                            String(currentVal) === String(opt.value)
+                              ? "bg-card text-primary shadow-xs"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
+                  ) : (
                     <select
                       value={String(currentVal)}
                       onChange={(e) => {
@@ -143,9 +181,9 @@ export function ScenarioControls() {
                         setLocalParams((prev) => ({ ...prev, [p.key]: val }));
                         setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
                       }}
-                      className={`w-full bg-slate-800 border ${
-                        hasError ? "border-rose-500" : "border-slate-700"
-                      } rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+                      className={`h-9 w-full rounded-md border ${
+                        hasError ? "border-destructive" : "border-border"
+                      } bg-background px-3 text-xs text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/20 cursor-pointer`}
                     >
                       {p.options?.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -153,90 +191,91 @@ export function ScenarioControls() {
                         </option>
                       ))}
                     </select>
-                    {(() => {
-                      const optKey = optionTerm(p.key, String(currentVal));
-                      const optEntry = optKey ? glossaryFor(optKey) : undefined;
-                      if (!optEntry) return null;
-                      return (
-                        <p className="text-[11px] text-slate-400 mt-1 line-clamp-2" title={optEntry.body}>
-                          {optEntry.body}
-                        </p>
-                      );
-                    })()}
-                    {hasError && (
-                      <p className="text-xs text-rose-400 mt-1 font-medium">{paramErrors[p.key]}</p>
-                    )}
+                  )}
+
+                  {(() => {
+                    const optKey = optionTerm(p.key, String(currentVal));
+                    const optEntry = optKey ? glossaryFor(optKey) : undefined;
+                    if (!optEntry) return null;
+                    return (
+                      <p className="text-[11px] text-muted-foreground line-clamp-2" title={optEntry.body}>
+                        {optEntry.body}
+                      </p>
+                    );
+                  })()}
+                  {hasError && (
+                    <p className="text-xs text-destructive font-medium">{paramErrors[p.key]}</p>
+                  )}
+                </div>
+              );
+            }
+
+            if (p.type === "number") {
+              const numVal = Number(currentVal);
+              const min = p.min ?? 0;
+              const max = p.max ?? 10;
+              const step = p.step ?? 0.1;
+
+              return (
+                <div key={p.key} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                    <span className="flex items-center gap-1">
+                      {p.label}
+                      {PARAM_TERM[p.key] && <InfoTip term={PARAM_TERM[p.key]} size="xs" />}
+                    </span>
+                    <span className="tnum rounded bg-primary-soft px-1.5 py-0.5 text-xs font-semibold text-accent-foreground">
+                      {p.unit === "%"
+                        ? `${Math.round(numVal)}%`
+                        : p.unit === "pp"
+                        ? `${numVal >= 0 ? "+" : ""}${numVal.toFixed(1)} pp`
+                        : `${numVal} ${p.unit ?? ""}`}
+                    </span>
                   </div>
-                );
-              }
 
-              if (p.type === "number") {
-                const numVal = Number(currentVal);
-                const min = p.min ?? 0;
-                const max = p.max ?? 10;
-                const step = p.step ?? 0.1;
-
-                return (
-                  <div key={p.key}>
-                    <div className="flex justify-between items-center mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <label className="text-xs font-semibold text-slate-300">
-                          {p.label}
-                        </label>
-                        {PARAM_TERM[p.key] && <InfoTip term={PARAM_TERM[p.key]} size="xs" />}
-                      </div>
-                      <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                        {p.unit === "%"
-                          ? `${Math.round(numVal)}%`
-                          : p.unit === "pp"
-                          ? `+${numVal.toFixed(1)} pp`
-                          : `${numVal} ${p.unit ?? ""}`}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="range"
-                        min={min}
-                        max={max}
-                        step={step}
-                        value={isNaN(numVal) ? min : numVal}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          setLocalParams((prev) => ({ ...prev, [p.key]: val }));
-                          setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
-                        }}
-                        className="flex-1 accent-emerald-500 cursor-pointer"
-                      />
-                      <input
-                        type="number"
-                        min={min}
-                        max={max}
-                        step={step}
-                        value={isNaN(numVal) ? "" : numVal}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          setLocalParams((prev) => ({
-                            ...prev,
-                            [p.key]: isNaN(val) ? 0 : val,
-                          }));
-                          setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
-                        }}
-                        className={`w-20 bg-slate-800 border ${
-                          hasError ? "border-rose-500" : "border-slate-700"
-                        } rounded-lg px-2 py-1 text-xs text-white text-right font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500`}
-                      />
-                    </div>
-                    {hasError && (
-                      <p className="text-xs text-rose-400 mt-1 font-medium">{paramErrors[p.key]}</p>
-                    )}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={isNaN(numVal) ? min : numVal}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setLocalParams((prev) => ({ ...prev, [p.key]: val }));
+                        setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                      }}
+                      className="flex-1 cursor-pointer"
+                      style={{ accentColor: "var(--primary)" }}
+                    />
+                    <input
+                      type="number"
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={isNaN(numVal) ? "" : numVal}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setLocalParams((prev) => ({
+                          ...prev,
+                          [p.key]: isNaN(val) ? 0 : val,
+                        }));
+                        setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                      }}
+                      className={`h-8 w-16 rounded-md border ${
+                        hasError ? "border-destructive" : "border-border"
+                      } bg-background px-2 text-xs text-foreground text-right tnum font-mono outline-none focus:border-primary`}
+                    />
                   </div>
-                );
-              }
+                  {hasError && (
+                    <p className="text-xs text-destructive font-medium">{paramErrors[p.key]}</p>
+                  )}
+                </div>
+              );
+            }
 
-              return null;
-            })
-          )}
-        </div>
+            return null;
+          })
+        )}
 
         {/* Live Formula Box */}
         {scenarioDef?.id === "intervencion" && (() => {
@@ -257,19 +296,17 @@ export function ScenarioControls() {
           }
 
           return (
-            <div className="mt-4 p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 text-xs text-slate-300">
-              <p className="leading-relaxed">
-                Efecto real en un municipio con peso 1×:{" "}
-                <strong className="text-emerald-400 font-mono">
-                  {effect.toFixed(2)} pp × {Math.round(covPct)} % = {resultado.toFixed(2)} pp
-                </strong>
-                .
+            <div className="p-2.5 rounded-md bg-muted text-[11px] text-muted-foreground leading-relaxed">
+              <p>
+                Efecto real: {effect.toFixed(1)} pp × {Math.round(covPct)}% ={" "}
+                <strong className="text-foreground tnum">{resultado.toFixed(2)} pp</strong>
                 {variableLabel && lever !== "campana_general" ? (
                   <span>
-                    {" "}Los municipios con más {variableLabel} reciben hasta 1.5× (máx.{" "}
-                    <span className="font-mono text-emerald-400 font-semibold">{maxResultado.toFixed(2)} pp</span>).
+                    , hasta 1.5× ({maxResultado.toFixed(2)} pp) donde {variableLabel} es mayor.
                   </span>
-                ) : null}
+                ) : (
+                  "."
+                )}
               </p>
             </div>
           );
@@ -281,131 +318,170 @@ export function ScenarioControls() {
           const trendPct = rawTrend;
 
           return (
-            <div className="mt-4 p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 text-xs text-slate-300">
-              <p className="leading-relaxed">
-                Todos los municipios bajan{" "}
-                <strong className="text-amber-400 font-mono">{shock.toFixed(2)} pp</strong>
-                ; los que vienen cayendo, además,{" "}
-                <strong className="text-amber-400 font-mono">{Math.round(trendPct)} %</strong>{" "}
-                de su caída histórica.
+            <div className="p-2.5 rounded-md bg-muted text-[11px] text-muted-foreground leading-relaxed">
+              <p>
+                Todos los municipios caen{" "}
+                <strong className="text-foreground tnum">{shock.toFixed(2)} pp</strong>; los que
+                vienen cayendo, además,{" "}
+                <strong className="text-foreground tnum">{Math.round(trendPct)}%</strong> de su caída
+                histórica.
               </p>
             </div>
           );
         })()}
 
-        {/* Simulation Summary: counts by category vs base, additional votes, mean delta pp */}
+        {/* Simulation Summary Result */}
         {simulationResult && (
-          <div className="mt-5 p-4 bg-slate-800/90 rounded-xl border border-slate-700/80 space-y-3 text-xs">
-            <div className="font-semibold text-slate-200 flex items-center justify-between">
-              <span>Resumen del Escenario Simulado</span>
-              <span className="text-[10px] text-slate-400 font-mono">
+          <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold text-foreground">
+              <span>Resultado simulado</span>
+              <span className="text-[10px] text-muted-foreground tnum font-mono">
                 {simulationResult.summary.n_units} zonas evaluadas
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                    {getVotesLabel(simulationResult.summary.votos_adicionales)}
-                  </span>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-md bg-muted/60 p-2 border border-border/50">
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground uppercase tracking-wider">
+                  <span>{getVotesLabel(simulationResult.summary.votos_adicionales)}</span>
                   <InfoTip term="simulacion.votos" size="xs" />
                 </div>
                 <span
-                  className={`text-base font-bold font-mono ${getVotesColorClass(
-                    simulationResult.summary.votos_adicionales
-                  )} mt-0.5 block`}
+                  className={`text-sm sm:text-base font-bold tnum font-mono ${
+                    simulationResult.summary.votos_adicionales >= 0 ? "text-good" : "text-bad"
+                  } block mt-0.5`}
                 >
                   {formatSignedVotes(simulationResult.summary.votos_adicionales)}
                 </span>
               </div>
-              <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">
-                  Cambio promedio en abstención
+              <div className="rounded-md bg-muted/60 p-2 border border-border/50">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">
+                  Cambio en abstención
                 </span>
                 <span
-                  className={`text-base font-bold font-mono ${getDeltaAbstentionColorClass(
-                    simulationResult.summary.mean_delta_pp
-                  )} mt-0.5 block`}
+                  className={`text-sm sm:text-base font-bold tnum font-mono ${
+                    simulationResult.summary.mean_delta_pp <= 0 ? "text-good" : "text-bad"
+                  } block mt-0.5`}
                 >
                   {formatDeltaPp(simulationResult.summary.mean_delta_pp)}
                 </span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">
-                  (negativo = menos abstención)
-                </span>
               </div>
             </div>
 
-            {/* Counts by category vs base */}
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1.5">
-                Distribución por Semáforo: Simulado vs Base
-              </span>
-              <div className="grid grid-cols-4 gap-1.5 text-center font-mono">
-                {(["verde", "amarillo", "naranja", "rojo"] as const).map((cat) => {
-                  const simCount = simulationResult.summary.by_category?.[cat] ?? 0;
-                  const baseCount = simulationResult.summary.by_category_base?.[cat] ?? 0;
-                  const diff = simCount - baseCount;
-
-                  return (
+            {/* Stacked bar of risk distribution */}
+            {(() => {
+              const total = (["verde", "amarillo", "naranja", "rojo"] as const).reduce(
+                (sum, c) => sum + (simulationResult.summary.by_category?.[c] ?? 0),
+                0
+              );
+              if (total === 0) return null;
+              return (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">
+                    Distribución por semáforo
+                  </span>
+                  <div className="h-2 rounded-full overflow-hidden flex bg-muted w-full">
                     <div
-                      key={cat}
-                      className="p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex flex-col items-center"
-                    >
-                      <div className="flex items-center gap-1 text-[10px] text-slate-300 capitalize mb-0.5">
-                        <span
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: CATEGORY_COLORS[cat] }}
-                        />
-                        <span>{CATEGORY_LABELS[cat]}</span>
-                      </div>
-                      <div className="text-sm font-bold text-white">
-                        {simCount}
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        base: {baseCount}{" "}
-                        {diff !== 0 && (
-                          <span className={diff > 0 ? "text-emerald-400" : "text-amber-400"}>
-                            ({diff > 0 ? `+${diff}` : diff})
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+                      style={{
+                        width: `${((simulationResult.summary.by_category?.verde ?? 0) / total) * 100}%`,
+                      }}
+                      className="bg-risk-low h-full"
+                      title={CATEGORY_LABELS.verde}
+                    />
+                    <div
+                      style={{
+                        width: `${((simulationResult.summary.by_category?.amarillo ?? 0) / total) * 100}%`,
+                      }}
+                      className="bg-risk-mid h-full"
+                      title={CATEGORY_LABELS.amarillo}
+                    />
+                    <div
+                      style={{
+                        width: `${((simulationResult.summary.by_category?.naranja ?? 0) / total) * 100}%`,
+                      }}
+                      className="bg-risk-high h-full"
+                      title={CATEGORY_LABELS.naranja}
+                    />
+                    <div
+                      style={{
+                        width: `${((simulationResult.summary.by_category?.rojo ?? 0) / total) * 100}%`,
+                      }}
+                      className="bg-risk-crit h-full"
+                      title={CATEGORY_LABELS.rojo}
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 text-center font-mono text-[11px]">
+                    {(["verde", "amarillo", "naranja", "rojo"] as const).map((cat) => {
+                      const simCount = simulationResult.summary.by_category?.[cat] ?? 0;
+                      const baseCount = simulationResult.summary.by_category_base?.[cat] ?? 0;
+                      const diff = simCount - baseCount;
+                      return (
+                        <div key={cat} className="p-1 rounded bg-muted/40 border border-border/40">
+                          <span className="text-foreground font-bold">{simCount}</span>
+                          {diff !== 0 && (
+                            <span
+                              className={`block text-[10px] ${
+                                diff > 0
+                                  ? cat === "verde"
+                                    ? "text-good"
+                                    : "text-bad"
+                                  : cat === "verde"
+                                  ? "text-bad"
+                                  : "text-good"
+                              }`}
+                            >
+                              {diff > 0 ? `+${diff}` : diff}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
+      </div>
 
-        {/* Actions */}
-        <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-800 pt-4">
-          <button
-            type="button"
-            onClick={() => setIsScenarioModalOpen(false)}
-            className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
-          >
-            Cerrar
-          </button>
-          <button
-            type="button"
-            onClick={handleSimulate}
-            disabled={isSimulating}
-            className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 rounded-lg transition-colors flex items-center gap-2 shadow-sm"
-          >
-            {isSimulating ? (
-              <>
-                <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                </svg>
-                <span>Simulando...</span>
-              </>
-            ) : (
-              <span>Simular</span>
-            )}
-          </button>
-        </div>
+      {/* Footer Actions */}
+      <div className="flex items-center justify-end gap-2 border-t border-border p-3 shrink-0">
+        <button
+          type="button"
+          onClick={() => setIsScenarioModalOpen(false)}
+          className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        >
+          Cerrar
+        </button>
+        <button
+          type="button"
+          onClick={handleSimulate}
+          disabled={isSimulating}
+          className="px-4 py-1.5 text-xs font-semibold text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-md transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+        >
+          {isSimulating ? (
+            <>
+              <svg className="animate-spin size-3.5" viewBox="0 0 24 24" fill="none">
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                />
+              </svg>
+              <span>Simulando...</span>
+            </>
+          ) : (
+            <span>Aplicar</span>
+          )}
+        </button>
       </div>
     </div>
   );

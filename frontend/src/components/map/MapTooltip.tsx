@@ -73,27 +73,31 @@ export function MapTooltip({
   return (
     <div
       data-map-tooltip=""
-      className="absolute pointer-events-none z-50 transition-opacity duration-75"
+      className="absolute pointer-events-none z-50 transition-opacity duration-75 [@media(hover:none)]:hidden"
       style={{
         left,
         top,
         transform: transform || undefined,
       }}
     >
-      <div className="w-68 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl p-3 shadow-2xl text-white text-xs space-y-2">
+      <div className="w-68 float-panel p-3 text-xs space-y-2 shadow-float text-foreground">
         {/* Header: Name, state, category chip */}
-        <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-2">
+        <div className="flex items-start justify-between gap-2 border-b border-border pb-2">
           <div className="min-w-0">
-            <h4 className="font-bold text-white text-sm leading-tight truncate" title={hover.name}>
+            <h4
+              className="font-display font-bold text-foreground text-sm leading-tight truncate"
+              title={hover.name}
+            >
               {hover.name}
             </h4>
-            <div className="text-[10px] text-slate-400 truncate">{stateName}</div>
+            <div className="text-[10px] text-muted-foreground truncate">{stateName}</div>
           </div>
-          <span
-            className="shrink-0 px-2 py-0.5 rounded text-[10px] font-semibold text-white shadow-xs"
-            style={{ backgroundColor: catColor }}
-          >
-            {catLabel}
+          <span className="inline-flex items-center gap-1.5 shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-foreground border border-border">
+            <span
+              className="size-2 rounded-full shrink-0"
+              style={{ backgroundColor: catColor }}
+            />
+            <span>{catLabel}</span>
           </span>
         </div>
 
@@ -102,8 +106,8 @@ export function MapTooltip({
           {isReliable && item?.pred_abstention !== null && item?.pred_abstention !== undefined ? (
             <div>
               <div className="flex items-baseline justify-between">
-                <span className="text-slate-300">Abstención 2027 (pronóstico):</span>
-                <span className="font-bold text-white text-sm font-mono">
+                <span className="text-muted-foreground">Abstención 2027 (pronóstico):</span>
+                <span className="tnum font-bold text-foreground text-sm font-mono">
                   {formatPct(item.pred_abstention)}
                 </span>
               </div>
@@ -111,27 +115,27 @@ export function MapTooltip({
                 item.pred_low !== undefined &&
                 item.pred_high !== null &&
                 item.pred_high !== undefined && (
-                  <div className="text-[10px] text-right font-mono mt-0.5">
-                    <div className="text-slate-400">
+                  <div className="tnum text-[10px] text-right font-mono mt-0.5">
+                    <div className="text-muted-foreground">
                       intervalo {formatPct(item.pred_low)} – {formatPct(item.pred_high)}
                     </div>
-                    <div className="text-[9px] text-slate-500 font-sans">
+                    <div className="text-[9px] text-muted-foreground/75 font-sans">
                       rango probable
                     </div>
                   </div>
                 )}
             </div>
           ) : (
-            <div className="text-slate-400 italic text-[11px]">
+            <div className="text-muted-foreground italic text-[11px]">
               Sin información confiable
             </div>
           )}
 
           {/* Abstención esperada en personas */}
           {abstEsperada > 0 && (
-            <div className="flex items-baseline justify-between text-slate-300 pt-0.5">
+            <div className="flex items-baseline justify-between text-muted-foreground pt-0.5">
               <span>Personas que no votarían:</span>
-              <span className="font-medium text-slate-100 font-mono">
+              <span className="tnum font-medium text-foreground font-mono">
                 {formatInt(abstEsperada)} pers.
               </span>
             </div>
@@ -139,25 +143,25 @@ export function MapTooltip({
 
           {/* Alternate scenario (Intervención / Pesimista) */}
           {hasAlt && hover.alt && hover.alt.pred_abstention !== null && (
-            <div className="pt-1 mt-1 border-t border-slate-800/80 space-y-0.5">
+            <div className="pt-1 mt-1 border-t border-border space-y-0.5">
               <div className="flex items-baseline justify-between">
-                <span className="text-slate-300">Con intervención:</span>
-                <span className="font-bold text-emerald-300 font-mono">
+                <span className="text-muted-foreground">Con intervención:</span>
+                <span className="tnum font-bold text-primary font-mono">
                   {formatPct(hover.alt.pred_abstention)}
                 </span>
               </div>
               {deltaPp !== null && (
-                <div className="text-[10px] text-right font-mono">
+                <div className="tnum text-[10px] text-right font-mono">
                   {deltaPp < -0.01 ? (
-                    <span className="text-emerald-400 font-medium">
+                    <span className="text-good font-medium">
                       {formatDeltaPp(deltaPp)} = menos abstención
                     </span>
                   ) : deltaPp > 0.01 ? (
-                    <span className="text-rose-400 font-medium">
+                    <span className="text-bad font-medium">
                       {formatDeltaPp(deltaPp)} = más abstención
                     </span>
                   ) : (
-                    <span className="text-slate-400 font-medium">
+                    <span className="text-muted-foreground font-medium">
                       {formatDeltaPp(deltaPp)} = sin cambio
                     </span>
                   )}
@@ -168,7 +172,7 @@ export function MapTooltip({
 
           {/* High NS warning */}
           {isHighNs && (
-            <div className="mt-1 text-[10px] text-amber-300/90 flex items-center gap-1.5 bg-amber-950/50 border border-amber-800/60 rounded px-2 py-1">
+            <div className="mt-1 text-[10px] text-foreground flex items-center gap-1.5 bg-muted border border-border rounded px-2 py-1">
               <span>⚠️</span>
               <span>
                 Alta tasa de cuadernillos no disponibles ({Math.round((item!.ns_rate ?? 0) * 100)}%)
@@ -178,10 +182,10 @@ export function MapTooltip({
         </div>
 
         {/* Footer click hint */}
-        <div className="pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 flex items-center justify-between gap-1">
-          <span className="text-slate-500 font-mono shrink-0">Clave INEGI {hover.id}</span>
-          <span className="text-emerald-400/90 font-medium text-right">
-            Clic para ver el diagnóstico completo →
+        <div className="pt-1.5 border-t border-border text-[10px] text-muted-foreground flex items-center justify-between gap-1">
+          <span className="font-mono shrink-0">Clave {hover.id}</span>
+          <span className="text-primary font-medium text-right">
+            Clic para ver diagnóstico →
           </span>
         </div>
       </div>

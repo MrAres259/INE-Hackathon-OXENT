@@ -1,28 +1,32 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useAtalaya } from "@/lib/state";
 import { getRanking } from "@/lib/api";
-import type { RiskItem, Level } from "@/lib/types";
+import type { RiskItem, Level, Category } from "@/lib/types";
 import { InfoTip } from "@/components/ui/InfoTip";
 import {
   formatPct,
-  formatPp,
   formatInt,
   formatDeltaPp,
-  getDeltaAbstentionColorClass,
-  getCategoryColor,
-  getCategoryLabel,
   generateRankingCsv,
   sortRankingItems,
   getAbstencionEsperada,
   type RankingSortKey,
 } from "@/lib/format";
+import {
+  filterRankingBySemaforo,
+  CATEGORY_STYLES,
+  CATEGORY_ORDER,
+} from "@/lib/panelStats";
+
+type ExtendedSortKey = RankingSortKey | "abst" | "delta";
 
 export function RankingTable() {
   const {
     level: contextLevel,
     selectedEnt,
+    selectedRegionId,
     scenario,
     selectRegion,
     meta,
@@ -31,7 +35,8 @@ export function RankingTable() {
 
   const [level, setLevel] = useState<Level>(contextLevel);
   const [entFilter, setEntFilter] = useState<string>(selectedEnt ?? "");
-  const [sortBy, setSortBy] = useState<RankingSortKey>("risk");
+  const [sortBy, setSortBy] = useState<ExtendedSortKey>("risk");
+  const [filterCategory, setFilterCategory] = useState<Category | null>(null);
   const [items, setItems] = useState<RiskItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -65,7 +70,21 @@ export function RankingTable() {
       .finally(() => setLoading(false));
   }, [level, entFilter, scenario, simulationResult]);
 
-  const sortedItems = sortRankingItems(items, sortBy).slice(0, 20);
+  // Local filter by semaforo chips
+  const filteredItems = useMemo(() => {
+    return filterRankingBySemaforo(items, filterCategory);
+  }, [items, filterCategory]);
+
+  // Sort items
+  const sortedItems = useMemo(() => {
+    if (sortBy === "abst") {
+      return [...filteredItems].sort((a, b) => (b.pred_abstention ?? 0) - (a.pred_abstention ?? 0)).slice(0, 20);
+    }
+    if (sortBy === "delta") {
+      return [...filteredItems].sort((a, b) => (a.delta_vs_base_pp ?? 0) - (b.delta_vs_base_pp ?? 0)).slice(0, 20);
+    }
+    return sortRankingItems(filteredItems, sortBy as RankingSortKey).slice(0, 20);
+  }, [filteredItems, sortBy]);
 
   const handleExportCsv = () => {
     const csvContent = generateRankingCsv(sortedItems);
@@ -80,13 +99,17 @@ export function RankingTable() {
     URL.revokeObjectURL(url);
   };
 
+  const handleSortClick = (key: ExtendedSortKey) => {
+    setSortBy(key);
+  };
+
   return (
     <div className="space-y-4">
       {/* Header & Controls */}
       <div>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-base font-bold text-white">Ranking de Priorización 2027</h3>
+            <h3 className="font-display text-base font-bold text-foreground">Ranking de priorización</h3>
             <InfoTip term="prioridad" size="xs" />
           </div>
           <div className="flex items-center gap-1.5">
@@ -94,118 +117,188 @@ export function RankingTable() {
               type="button"
               onClick={handleExportCsv}
               disabled={sortedItems.length === 0}
-              className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              className="h-7 border border-border bg-card hover:bg-accent text-foreground text-xs px-2.5 rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
             >
-              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              <span>Exportar CSV</span>
+              <span>CSV</span>
             </button>
             <InfoTip term="ranking.csv" size="xs" />
           </div>
         </div>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Top 20 zonas con mayor índice de vulnerabilidad y abstención potencial. Clic en una fila para ubicarla en el mapa.
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Top 20 zonas con mayor índice de vulnerabilidad y abstención potencial. Toca o haz clic en una fila para ubicarla en el mapa.
         </p>
         {scenario !== "base" && (
-          <p className="text-[11px] text-slate-400 mt-1">
-            Cambio vs base: <span className="text-emerald-400 font-semibold">(negativo = menos abstención)</span>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Cambio vs base: <span className="text-good font-semibold">(negativo = menos abstención)</span>
           </p>
         )}
       </div>
 
       {/* Filter & Sort Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg p-0.5 bg-slate-800 border border-slate-700 text-xs">
-            <button
-              type="button"
-              onClick={() => setLevel("state")}
-              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-                level === "state"
-                  ? "bg-slate-700 text-white shadow-xs"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Estados
-            </button>
-            <button
-              type="button"
-              onClick={() => setLevel("mun")}
-              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-                level === "mun"
-                  ? "bg-slate-700 text-white shadow-xs"
-                  : "text-slate-400 hover:text-white"
-              }`}
-            >
-              Municipios
-            </button>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Level segmented control */}
+            <div className="inline-flex rounded-lg p-0.5 bg-muted border border-border text-xs">
+              <button
+                type="button"
+                onClick={() => setLevel("state")}
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                  level === "state"
+                    ? "bg-card text-primary shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Estados
+              </button>
+              <button
+                type="button"
+                onClick={() => setLevel("mun")}
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
+                  level === "mun"
+                    ? "bg-card text-primary shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Municipios
+              </button>
+            </div>
+
+            {/* State selector for municipalities */}
+            {level === "mun" && meta?.states && (
+              <select
+                value={entFilter}
+                onChange={(e) => setEntFilter(e.target.value)}
+                className="bg-card border border-border rounded-lg px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">Todas las entidades</option>
+                {meta.states.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {st.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
-          {level === "mun" && meta?.states && (
+          {/* Sort selector dropdown */}
+          <div className="flex items-center gap-1.5 text-xs text-foreground">
+            <span className="text-[11px] text-muted-foreground hidden sm:inline">Ordenar:</span>
             <select
-              value={entFilter}
-              onChange={(e) => setEntFilter(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as ExtendedSortKey)}
+              className="bg-card border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="">Todas las entidades</option>
-              {meta.states.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.name}
-                </option>
-              ))}
+              <option value="risk">Índice de riesgo</option>
+              <option value="abstencion_esperada">Abstención esperada</option>
+              <option value="abst">Abstención pronosticada</option>
+              {scenario !== "base" && <option value="delta">Cambio Δ vs base</option>}
+              <option value="prioridad">Prioridad estratégica</option>
             </select>
-          )}
+            <InfoTip term="ranking.orden" size="xs" />
+          </div>
         </div>
 
-        {/* Order Selector */}
-        <div className="flex items-center gap-1.5 text-xs text-slate-300">
-          <span className="text-[11px] text-slate-400 hidden sm:inline">Ordenar por:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as RankingSortKey)}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          >
-            <option value="risk">Índice de riesgo</option>
-            <option value="abstencion_esperada">Abstención esperada (personas)</option>
-            <option value="prioridad">Prioridad</option>
-          </select>
-          <InfoTip term="ranking.orden" size="xs" />
+        {/* Semáforo Filter Chips */}
+        <div className="flex flex-wrap items-center gap-1 pt-1">
+          <span className="text-[11px] text-muted-foreground mr-1">Filtrar:</span>
+          {CATEGORY_ORDER.map((cat) => {
+            const active = filterCategory === cat;
+            const style = CATEGORY_STYLES[cat];
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setFilterCategory(active ? null : cat)}
+                title={`Filtrar por semáforo ${style.label}`}
+                className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors cursor-pointer ${
+                  active
+                    ? "border-primary bg-primary-soft text-primary font-semibold shadow-xs"
+                    : "border-border text-muted-foreground hover:text-foreground bg-card"
+                }`}
+              >
+                <span className={`size-2 rounded-full ${style.dotClass}`} />
+                <span>{style.label}</span>
+              </button>
+            );
+          })}
+          {filterCategory && (
+            <button
+              type="button"
+              onClick={() => setFilterCategory(null)}
+              className="text-[11px] text-primary hover:underline ml-1 cursor-pointer"
+            >
+              Limpiar filtro
+            </button>
+          )}
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-800">
+      <div className="overflow-x-auto rounded-xl border border-border bg-card">
         <table className="w-full text-left text-xs">
-          <thead className="bg-slate-800/80 text-[10px] uppercase font-semibold text-slate-400 border-b border-slate-800">
+          <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur text-[10px] uppercase font-semibold text-muted-foreground border-b border-border">
             <tr>
-              <th className="py-2.5 pl-3 pr-2">#</th>
+              <th className="py-2.5 pl-3 pr-2 w-7">#</th>
               <th className="py-2.5 px-2">Zona</th>
               <th className="py-2.5 px-2 text-right">
-                <div className="flex items-center justify-end gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleSortClick("abst")}
+                  className={`inline-flex items-center justify-end gap-1 hover:text-primary cursor-pointer ${
+                    sortBy === "abst" ? "text-primary font-bold" : ""
+                  }`}
+                >
                   <span>Abst. 2027</span>
+                  {sortBy === "abst" && <span className="text-xs">↓</span>}
                   <InfoTip term="pred_abstention" size="xs" />
-                </div>
-                {scenario !== "base" && (
-                  <div className="flex items-center justify-end gap-0.5 text-[9px] lowercase font-normal text-slate-400">
-                    <span>(Δ vs base)</span>
+                </button>
+              </th>
+              {scenario !== "base" && (
+                <th className="py-2.5 px-2 text-right">
+                  <button
+                    type="button"
+                    onClick={() => handleSortClick("delta")}
+                    className={`inline-flex items-center justify-end gap-0.5 hover:text-primary cursor-pointer ${
+                      sortBy === "delta" ? "text-primary font-bold" : ""
+                    }`}
+                  >
+                    <span>Δ</span>
+                    {sortBy === "delta" && <span className="text-xs">↓</span>}
                     <InfoTip term="modo.delta" size="xs" />
-                  </div>
-                )}
-              </th>
-              <th className="py-2.5 px-2 text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <span>Abst. Esperada</span>
+                  </button>
+                </th>
+              )}
+              <th className="hidden sm:table-cell py-2.5 px-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => handleSortClick("abstencion_esperada")}
+                  className={`inline-flex items-center justify-end gap-1 hover:text-primary cursor-pointer ${
+                    sortBy === "abstencion_esperada" ? "text-primary font-bold" : ""
+                  }`}
+                >
+                  <span>Esperada</span>
+                  {sortBy === "abstencion_esperada" && <span className="text-xs">↓</span>}
                   <InfoTip term="abstencion_esperada" size="xs" />
-                </div>
+                </button>
               </th>
               <th className="py-2.5 px-2 text-right">
-                <div className="flex items-center justify-end gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleSortClick("risk")}
+                  className={`inline-flex items-center justify-end gap-1 hover:text-primary cursor-pointer ${
+                    sortBy === "risk" ? "text-primary font-bold" : ""
+                  }`}
+                >
                   <span>Riesgo</span>
+                  {sortBy === "risk" && <span className="text-xs">↓</span>}
                   <InfoTip term="risk_score" size="xs" />
-                </div>
+                </button>
               </th>
-              <th className="py-2.5 pr-3 pl-2 text-right">
+              <th className="hidden min-[480px]:table-cell py-2.5 pr-3 pl-2 text-right">
                 <div className="flex items-center justify-end gap-1">
                   <span>Semáforo</span>
                   <InfoTip term="semaforo" size="xs" />
@@ -213,70 +306,97 @@ export function RankingTable() {
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 bg-slate-900/60">
+          <tbody className="divide-y divide-border/60">
             {loading ? (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
-                  Cargando ranking...
+                <td colSpan={scenario !== "base" ? 7 : 6} className="py-8 text-center text-muted-foreground">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <svg className="animate-spin h-5 w-5 text-primary" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                    <span>Cargando ranking territorial...</span>
+                  </div>
                 </td>
               </tr>
             ) : sortedItems.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
-                  No se encontraron resultados
+                <td colSpan={scenario !== "base" ? 7 : 6} className="py-8 text-center text-muted-foreground">
+                  No se encontraron resultados para los filtros seleccionados
                 </td>
               </tr>
             ) : (
               sortedItems.map((item, idx) => {
-                const catColor = getCategoryColor(item.category);
-                const catLabel = getCategoryLabel(item.category);
                 const abstEsperada = getAbstencionEsperada(item);
+                const style = CATEGORY_STYLES[item.category] ?? CATEGORY_STYLES.sin_dato;
+                const isSelected = selectedRegionId === item.id;
 
                 return (
                   <tr
                     key={item.id}
                     onClick={() => selectRegion(item.id)}
-                    className="hover:bg-slate-800/80 cursor-pointer transition-colors group"
+                    className={`hover:bg-accent cursor-pointer transition-colors group ${
+                      isSelected ? "bg-accent/70" : ""
+                    }`}
                   >
-                    <td className="py-2 pl-3 pr-2 font-mono text-[11px] text-slate-400 group-hover:text-white">
+                    <td className="py-2.5 pl-3 pr-2 font-mono text-[11px] text-muted-foreground group-hover:text-foreground tnum">
                       {idx + 1}
                     </td>
-                    <td className="py-2 px-2">
-                      <div className="font-semibold text-slate-200 group-hover:text-emerald-400 transition-colors">
-                        {item.name}
-                      </div>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1.5">
-                        <span>Clave: {item.id}</span>
-                        {item.prioridad !== undefined && item.prioridad !== null && (
-                          <span className="text-emerald-400 font-semibold">· Prioridad #{item.prioridad}</span>
-                        )}
+                    <td className="py-2.5 px-2 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`size-2 shrink-0 rounded-full ${style.dotClass}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                            {item.name}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                            <span>Clave {item.id}</span>
+                            {item.prioridad !== undefined && item.prioridad !== null && (
+                              <span className="text-primary font-semibold">· Prioridad #{item.prioridad}</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </td>
-                    <td className="py-2 px-2 text-right font-mono font-bold text-white">
+                    <td className="py-2.5 px-2 text-right font-mono font-bold text-foreground tnum">
                       <div>{formatPct(item.pred_abstention)}</div>
                       {item.delta_vs_base_pp !== undefined && item.delta_vs_base_pp !== null && (
                         <div
-                          className={`text-[10px] font-normal ${getDeltaAbstentionColorClass(
-                            item.delta_vs_base_pp
-                          )}`}
+                          className={`text-[10px] font-normal ${
+                            item.delta_vs_base_pp < 0 ? "text-good" : item.delta_vs_base_pp > 0 ? "text-bad" : "text-muted-foreground"
+                          }`}
                         >
                           {formatDeltaPp(item.delta_vs_base_pp)}
                         </div>
                       )}
                     </td>
-                    <td className="py-2 px-2 text-right font-mono text-slate-300">
-                      <div>{formatInt(abstEsperada)}</div>
-                      <div className="text-[9px] text-slate-400 font-normal">pers.</div>
+                    {scenario !== "base" && (
+                      <td className="py-2.5 px-2 text-right font-mono text-xs font-semibold tnum">
+                        {item.delta_vs_base_pp !== undefined && item.delta_vs_base_pp !== null ? (
+                          <span
+                            className={
+                              item.delta_vs_base_pp < 0 ? "text-good" : item.delta_vs_base_pp > 0 ? "text-bad" : "text-muted-foreground"
+                            }
+                          >
+                            {formatDeltaPp(item.delta_vs_base_pp)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="hidden sm:table-cell py-2.5 px-2 text-right font-mono text-muted-foreground tnum">
+                      <div className="text-foreground">{formatInt(abstEsperada)}</div>
+                      <div className="text-[9px] text-muted-foreground font-normal">pers.</div>
                     </td>
-                    <td className="py-2 px-2 text-right font-mono font-bold text-white">
+                    <td className="py-2.5 px-2 text-right font-display font-bold text-foreground text-sm tnum">
                       {item.risk_score ?? "—"}
                     </td>
-                    <td className="py-2 pr-3 pl-2 text-right">
+                    <td className="hidden min-[480px]:table-cell py-2.5 pr-3 pl-2 text-right">
                       <span
-                        className="inline-block text-[10px] font-bold px-2 py-0.5 rounded text-white shadow-xs"
-                        style={{ backgroundColor: catColor }}
+                        className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${style.badgeClass}`}
                       >
-                        {catLabel}
+                        {style.label}
                       </span>
                     </td>
                   </tr>

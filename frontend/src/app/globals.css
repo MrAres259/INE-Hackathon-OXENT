@@ -1,87 +1,166 @@
 @import "tailwindcss";
 
+@theme inline {
+  --font-sans: var(--font-sans-src), "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-src), "Montserrat", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
+  --color-risk-low: var(--risk-low);
+  --color-risk-mid: var(--risk-mid);
+  --color-risk-high: var(--risk-high);
+  --color-risk-crit: var(--risk-crit);
+  --color-risk-none: var(--risk-none);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --shadow-float: var(--shadow-float);
+}
+
 :root {
-  --bg: #090d16;
-  --surface: #0f172a;
-  --surface-alt: #1e293b;
-  --text: #f8fafc;
-  --muted: #94a3b8;
-  --border: #334155;
-  --accent: #10b981;
+  --radius: 0.625rem;
+  /* INE: magenta institucional + gris carbón */
+  --background: oklch(0.975 0.004 340);
+  --foreground: oklch(0.27 0.02 330);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.27 0.02 330);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.27 0.02 330);
+  --primary: oklch(0.5 0.2 355);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-soft: oklch(0.95 0.03 355);
+  --secondary: oklch(0.955 0.006 340);
+  --secondary-foreground: oklch(0.3 0.03 330);
+  --muted: oklch(0.955 0.006 340);
+  --muted-foreground: oklch(0.52 0.02 330);
+  --accent: oklch(0.95 0.025 355);
+  --accent-foreground: oklch(0.42 0.17 355);
+  --destructive: oklch(0.56 0.21 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.91 0.008 340);
+  --input: oklch(0.89 0.01 340);
+  --ring: oklch(0.5 0.2 355);
+  --ink: oklch(0.33 0.07 320);
+  --ink-foreground: oklch(0.99 0 0);
+
+  /* Semáforo en hex exacto §4.2 */
+  --risk-low: #3f9a5b;
+  --risk-mid: #f2bf3a;
+  --risk-high: #ec7a2c;
+  --risk-crit: #c8352f;
+  --risk-none: #bdbdbd;
+
+  --good: #2f7d4b;
+  --bad: #c0392b;
+
+  --shadow-float: 0 1px 2px oklch(0.3 0.03 330 / 0.06), 0 6px 20px -6px oklch(0.3 0.03 330 / 0.18);
 }
 
-body {
-  background-color: var(--bg);
-  color: var(--text);
-  min-height: 100dvh;
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+  }
 }
 
-/* MapLibre controls dark theme */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility float-panel {
+  background-color: color-mix(in oklab, var(--card) 94%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+}
+
+/* MapLibre controls light theme */
 .maplibregl-ctrl-group {
-  background: #0f172a;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-float);
 }
 
 .maplibregl-ctrl-group button {
   background: transparent;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  border-bottom: 1px solid var(--border);
 }
 
 .maplibregl-ctrl-group button:last-child {
   border-bottom: none;
 }
 
-.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
-  filter: invert(1);
-}
-
 .maplibregl-ctrl-attrib {
   font-size: 10px;
-  color: #cbd5e1;
-  background-color: #0f172a;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: var(--muted-foreground);
+  background-color: color-mix(in oklab, var(--card) 90%, transparent);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 2px 6px;
 }
 
 .maplibregl-ctrl-attrib a {
-  color: #93c5fd;
+  color: var(--primary);
   text-decoration: underline;
 }
 
 .maplibregl-ctrl-attrib a:hover {
-  color: #bfdbfe;
+  opacity: 0.8;
 }
 
-/* Compact attribution dark theme overrides (higher specificity than MapLibre CSS) */
+/* Compact attribution light theme overrides */
 .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact,
 .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show {
-  background-color: #0f172a;
-  color: #cbd5e1;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  background-color: color-mix(in oklab, var(--card) 90%, transparent);
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
 }
 
 .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner,
 .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
-  color: #cbd5e1;
+  color: var(--muted-foreground);
 }
 
 .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact a,
 .maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show a {
-  color: #93c5fd;
-}
-
-.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact a:hover,
-.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact-show a:hover {
-  color: #bfdbfe;
+  color: var(--primary);
 }
 
 .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button,
 .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
   background-color: transparent;
-  filter: invert(1);
 }
-

@@ -247,7 +247,7 @@ export function InfoTip({
         onMouseLeave={handleMouseLeave}
         onFocus={handleFocus}
         onBlur={handleBlur}
-        className={`inline-flex items-center justify-center text-slate-400 hover:text-emerald-300 focus:text-emerald-300 focus:outline-none transition-colors cursor-pointer rounded-full ${
+        className={`inline-flex items-center justify-center text-muted-foreground/70 hover:text-primary focus:text-primary focus:outline-none transition-colors cursor-pointer rounded-full [@media(pointer:coarse)]:min-w-[32px] [@media(pointer:coarse)]:min-h-[32px] ${
           size === "xs" ? "p-0.5" : "p-1"
         } ${className ?? ""}`}
       >
@@ -279,31 +279,31 @@ export function InfoTip({
               position: "fixed",
               top: coords.top,
               left: coords.left,
-              maxWidth: "320px",
+              maxWidth: "min(18rem, calc(100vw - 24px))",
               zIndex: 70,
               visibility: hasPosition ? "visible" : "hidden",
             }}
-            className="bg-slate-900 border border-slate-700 rounded-xl p-3 shadow-2xl text-xs text-slate-200 pointer-events-auto select-text animate-in fade-in duration-100"
+            className="bg-popover text-popover-foreground border shadow-float rounded-lg p-3 text-xs pointer-events-auto select-text animate-in fade-in duration-100"
           >
             {finalTitle && (
-              <h4 className="font-bold text-white text-xs mb-1">
+              <h4 className="font-display font-bold text-foreground text-xs mb-1">
                 {finalTitle}
               </h4>
             )}
             {finalBody && (
-              <p className="text-slate-300 text-xs leading-relaxed whitespace-pre-line">
+              <p className="text-muted-foreground text-xs leading-relaxed whitespace-pre-line">
                 {finalBody}
               </p>
             )}
             {entry?.relation && (
-              <div className="mt-2 pt-2 border-t border-slate-800 text-[11px] text-slate-400">
-                <span className="font-semibold text-slate-300">Cómo se relaciona: </span>
+              <div className="mt-2 pt-2 border-t border-border text-[11px] text-muted-foreground">
+                <span className="font-semibold text-primary">Cómo se relaciona: </span>
                 {entry.relation}
               </div>
             )}
             {entry?.example && (
-              <div className="mt-1.5 text-[11px] text-emerald-400 font-mono">
-                <span className="font-semibold text-slate-300 font-sans">Ejemplo: </span>
+              <div className="mt-1.5 text-[11px] text-muted-foreground font-mono">
+                <span className="font-semibold text-primary font-sans">Ejemplo: </span>
                 {entry.example}
               </div>
             )}

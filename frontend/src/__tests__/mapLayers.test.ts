@@ -199,7 +199,7 @@ describe("mapLayers", () => {
         paint?: Record<string, unknown>;
       };
       expect(stateLine.type).toBe("line");
-      expect(stateLine.paint?.["line-color"]).toBe("#ffffff");
+      expect(stateLine.paint?.["line-color"]).toBe("#b5186b");
       expect(stateLine.paint?.["line-width"]).toEqual([
         "case",
         ["boolean", ["feature-state", "selected"], false],
@@ -275,7 +275,7 @@ describe("mapLayers", () => {
       expect(munLine).toBeDefined();
       expect(munLine.type).toBe("line");
       expect(munLine.minzoom).toBe(5);
-      expect(munLine.paint?.["line-color"]).toBe("rgba(226,232,240,1)");
+      expect(munLine.paint?.["line-color"]).toBe("rgba(255,255,255,0.7)");
       expect(munLine.paint?.["line-opacity"]).toEqual([
         "interpolate",
         ["linear"],

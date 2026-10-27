@@ -3,27 +3,28 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ATALAYA — Visor Autónomo de Escenarios de Abstención 2027</title>
+  <title>Atalaya Electoral — Visor de escenarios</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='ae' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23c21f77'/%3E%3Cstop offset='1' stop-color='%238e1456'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23ae)'/%3E%3Cpath d='M15.5 25.5a17 17 0 0 1 5.5-9.5M48.5 25.5a17 17 0 0 0-5.5-9.5' fill='none' stroke='%23ffffff' stroke-opacity='.6' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M21 23.5 32 12.5l11 11z' fill='%23ffffff'/%3E%3Crect x='23.5' y='25' width='17' height='9.5' rx='2' fill='%23ffffff'/%3E%3Ccircle cx='32' cy='29.75' r='2.9' fill='%23f2bf3a'/%3E%3Cpath d='M25.5 36.5h13l3.6 15h-20.2z' fill='%23ffffff'/%3E%3Cpath d='M27.4 39.5l9.2 8M36.6 39.5l-9.2 8' stroke='%23a8186a' stroke-width='2.2' stroke-linecap='round'/%3E%3Crect x='16.5' y='51.5' width='31' height='3.6' rx='1.8' fill='%23ffffff'/%3E%3C/svg%3E" />
   <style>
 /* __MAPLIBRE_CSS__ */
   </style>
   <style>
     :root {
-      --bg-dark: #090d16;
-      --bg-surface: #0f172a;
-      --bg-card: #1e293b;
-      --border-color: #334155;
-      --border-highlight: #475569;
-      --text-white: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-dim: #64748b;
-      --accent-emerald: #10b981;
-      --accent-emerald-subtle: rgba(16, 185, 129, 0.15);
-      --cat-verde: #2e7d32;
-      --cat-amarillo: #f9a825;
-      --cat-naranja: #ef6c00;
-      --cat-rojo: #c62828;
-      --cat-sin-dato: #64748b;
+      --bg-dark: #f8f5f7;
+      --bg-surface: #ffffff;
+      --bg-card: #ffffff;
+      --border-color: #e7e1e5;
+      --border-highlight: #b5186b;
+      --text-white: #2e2430;
+      --text-muted: #6f6270;
+      --text-dim: #9e8e9c;
+      --accent-emerald: #b5186b;
+      --accent-emerald-subtle: #f9e8f0;
+      --cat-verde: #3f9a5b;
+      --cat-amarillo: #f2bf3a;
+      --cat-naranja: #ec7a2c;
+      --cat-rojo: #c8352f;
+      --cat-sin-dato: #bdbdbd;
       --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
@@ -57,13 +58,14 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 58px;
-      padding: 0 16px;
+      min-height: 58px;
+      padding: 8px 16px;
       background-color: var(--bg-surface);
       border-bottom: 1px solid var(--border-color);
       z-index: 20;
       gap: 12px;
       flex-shrink: 0;
+      flex-wrap: wrap;
     }
 
     .brand-section {
@@ -72,15 +74,10 @@
       gap: 10px;
     }
 
-    .brand-badge {
-      font-size: 16px;
-      font-weight: 900;
-      letter-spacing: 1px;
-      color: var(--accent-emerald);
-      background: var(--accent-emerald-subtle);
-      border: 1px solid rgba(16, 185, 129, 0.4);
-      padding: 2px 8px;
-      border-radius: 6px;
+    .brand-logo-icon {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
     }
 
     .brand-titles {
@@ -89,8 +86,8 @@
     }
 
     .brand-title {
-      font-size: 13px;
-      font-weight: 700;
+      font-size: 14px;
+      font-weight: 800;
       color: var(--text-white);
       line-height: 1.2;
     }
@@ -103,14 +100,14 @@
     .controls-section {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
       flex-wrap: wrap;
     }
 
     .button-group {
       display: flex;
       align-items: center;
-      background: rgba(15, 23, 42, 0.8);
+      background: #f1ecf0;
       border: 1px solid var(--border-color);
       border-radius: 8px;
       padding: 3px;
@@ -123,7 +120,8 @@
       color: var(--text-muted);
       font-size: 12px;
       font-weight: 600;
-      padding: 5px 11px;
+      padding: 6px 12px;
+      min-height: 36px;
       border-radius: 6px;
       cursor: pointer;
       transition: all 0.15s ease;
@@ -132,19 +130,19 @@
 
     .ctrl-btn:hover {
       color: var(--text-white);
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(181, 24, 107, 0.08);
     }
 
     .ctrl-btn.active {
-      color: var(--text-white);
+      color: #ffffff;
       background: var(--cat-verde);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
     }
 
     .ctrl-btn.active-emerald {
       color: #ffffff;
-      background: #059669;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+      background: var(--accent-emerald);
+      box-shadow: 0 1px 3px rgba(181, 24, 107, 0.25);
     }
 
     /* SEARCH SECTION */
@@ -155,7 +153,7 @@
 
     .search-input {
       width: 100%;
-      background: #090d16;
+      background: #ffffff;
       border: 1px solid var(--border-color);
       border-radius: 8px;
       padding: 6px 12px 6px 30px;
@@ -163,6 +161,7 @@
       color: var(--text-white);
       outline: none;
       transition: border-color 0.2s;
+      min-height: 36px;
     }
 
     .search-input:focus {
@@ -192,14 +191,14 @@
       max-height: 240px;
       overflow-y: auto;
       z-index: 100;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
       display: none;
     }
 
     .search-item {
       padding: 8px 12px;
       font-size: 12px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid var(--border-color);
       cursor: pointer;
       display: flex;
       justify-content: space-between;
@@ -207,7 +206,7 @@
     }
 
     .search-item:hover {
-      background: rgba(16, 185, 129, 0.1);
+      background: var(--accent-emerald-subtle);
     }
 
     .search-item-info {
@@ -232,7 +231,7 @@
       width: 100%;
       height: calc(100% - 58px - 34px);
       overflow: hidden;
-      background: var(--bg-dark);
+      background: #eef0f3;
     }
 
     .map-container {
@@ -249,11 +248,11 @@
       top: 0;
       bottom: 0;
       width: 3px;
-      background: #ffffff;
+      background: var(--accent-emerald);
       z-index: 15;
       cursor: ew-resize;
       display: none;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.7);
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.25);
     }
 
     .slider-handle {
@@ -263,14 +262,14 @@
       transform: translate(-50%, -50%);
       width: 38px;
       height: 38px;
-      background: #1e293b;
-      border: 2px solid #ffffff;
+      background: #ffffff;
+      border: 2px solid var(--accent-emerald);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
-      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      color: var(--accent-emerald);
     }
 
     /* COMPARE BADGES */
@@ -278,7 +277,7 @@
       position: absolute;
       top: 14px;
       padding: 6px 14px;
-      background: rgba(15, 23, 42, 0.85);
+      background: rgba(255, 255, 255, 0.94);
       border: 1px solid var(--border-color);
       border-radius: 20px;
       font-size: 12px;
@@ -287,20 +286,20 @@
       backdrop-filter: blur(8px);
       z-index: 10;
       display: none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
     }
 
     #badge-base {
       left: 14px;
-      color: #94a3b8;
-      border-color: #64748b;
+      color: var(--text-muted);
+      border-color: #d1c9cf;
     }
 
     #badge-intervencion {
       right: 14px;
       color: var(--accent-emerald);
       border-color: var(--accent-emerald);
-      background: rgba(6, 78, 59, 0.7);
+      background: var(--accent-emerald-subtle);
     }
 
     /* FLOATING LEGEND CARD */
@@ -308,14 +307,14 @@
       position: absolute;
       bottom: 20px;
       left: 20px;
-      background: rgba(15, 23, 42, 0.9);
+      background: rgba(255, 255, 255, 0.94);
       border: 1px solid var(--border-color);
       border-radius: 12px;
       padding: 12px 16px;
       width: 250px;
       z-index: 10;
       backdrop-filter: blur(8px);
-      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+      box-shadow: 0 8px 24px rgba(46, 36, 48, 0.08);
     }
 
     .legend-title {
@@ -367,20 +366,20 @@
     #tooltip {
       position: absolute;
       display: none;
-      background: rgba(15, 23, 42, 0.95);
+      background: rgba(255, 255, 255, 0.97);
       border: 1px solid var(--border-color);
       border-radius: 10px;
       padding: 12px 14px;
       width: 280px;
       z-index: 100;
       pointer-events: none;
-      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 12px 30px rgba(46, 36, 48, 0.15);
       backdrop-filter: blur(10px);
     }
 
     .tooltip-header {
       margin-bottom: 8px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid var(--border-color);
       padding-bottom: 6px;
     }
 
@@ -432,8 +431,8 @@
     }
 
     .tooltip-reco {
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: #f8f5f7;
+      border: 1px solid var(--border-color);
       border-radius: 6px;
       padding: 6px 8px;
       font-size: 10px;
@@ -456,15 +455,16 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 34px;
-      padding: 0 16px;
+      min-height: 34px;
+      padding: 4px 16px;
       background-color: var(--bg-surface);
       border-top: 1px solid var(--border-color);
       font-size: 11px;
-      color: var(--text-dim);
+      color: var(--text-muted);
       z-index: 20;
       flex-shrink: 0;
       gap: 12px;
+      flex-wrap: wrap;
     }
 
     .footer-left {
@@ -483,9 +483,56 @@
 
     /* RESPONSIVE */
     @media (max-width: 900px) {
-      .brand-titles { display: none; }
-      .search-section { width: 160px; }
+      .brand-titles { display: flex; }
+      .search-section { width: 100%; max-width: 240px; }
       .footer-right { display: none; }
+    }
+
+    @media (max-width: 768px) {
+      header {
+        height: auto;
+        padding: 8px 12px;
+        gap: 8px;
+      }
+      .brand-section {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      .controls-section {
+        width: 100%;
+        gap: 8px;
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .button-group {
+        width: 100%;
+        justify-content: space-between;
+        overflow-x: auto;
+      }
+      .ctrl-btn {
+        min-height: 40px;
+        padding: 8px 10px;
+        font-size: 11px;
+        flex: 1;
+        text-align: center;
+      }
+      .search-section {
+        width: 100%;
+        max-width: 100%;
+      }
+      .search-input {
+        min-height: 40px;
+      }
+      #legend-card {
+        bottom: 10px;
+        left: 10px;
+        width: calc(100% - 20px);
+        max-width: 300px;
+        padding: 10px 12px;
+      }
+      #tooltip {
+        max-width: calc(100vw - 20px);
+      }
     }
   </style>
 </head>
@@ -494,10 +541,25 @@
     <!-- TOP TOOLBAR -->
     <header>
       <div class="brand-section">
-        <span class="brand-badge">ATALAYA</span>
+        <svg class="brand-logo-icon" width="32" height="32" viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <linearGradient id="ae-brand" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#c21f77"/>
+              <stop offset="1" stop-color="#8e1456"/>
+            </linearGradient>
+          </defs>
+          <rect width="64" height="64" rx="14" fill="url(#ae-brand)"/>
+          <path d="M15.5 25.5a17 17 0 0 1 5.5-9.5M48.5 25.5a17 17 0 0 0-5.5-9.5" fill="none" stroke="#ffffff" stroke-opacity=".6" stroke-width="3" stroke-linecap="round"/>
+          <path d="M21 23.5 32 12.5l11 11z" fill="#ffffff"/>
+          <rect x="23.5" y="25" width="17" height="9.5" rx="2" fill="#ffffff"/>
+          <circle cx="32" cy="29.75" r="2.9" fill="#f2bf3a"/>
+          <path d="M25.5 36.5h13l3.6 15h-20.2z" fill="#ffffff"/>
+          <path d="M27.4 39.5l9.2 8M36.6 39.5l-9.2 8" stroke="#a8186a" stroke-width="2.2" stroke-linecap="round"/>
+          <rect x="16.5" y="51.5" width="31" height="3.6" rx="1.8" fill="#ffffff"/>
+        </svg>
         <div class="brand-titles">
-          <span class="brand-title">Visor Autónomo de Escenarios</span>
-          <span class="brand-subtitle">Predicción de Abstención Electoral 2027</span>
+          <span class="brand-title">Atalaya Electoral</span>
+          <span class="brand-subtitle">Riesgo de abstención · Elección federal 2027</span>
         </div>
       </div>
 
@@ -562,7 +624,7 @@
     <!-- FOOTER -->
     <footer>
       <div class="footer-left">
-        Fuente: INE CCPC 2009–2024 · INEGI MG 2024 · CONAPO 2020 · ATALAYA, equipo OXENT
+        Fuente: INE CCPC 2009–2024 · INEGI MG 2024 · CONAPO 2020 · Atalaya Electoral, equipo OXENT
       </div>
       <div class="footer-right">
         Parámetros: Promoción del voto joven en zonas rojo/naranja · Efecto máx.: +3.0 pp · Cobertura: 100%
@@ -597,11 +659,11 @@
     };
 
     const CATEGORY_COLORS = {
-      verde: '#2e7d32',
-      amarillo: '#f9a825',
-      naranja: '#ef6c00',
-      rojo: '#c62828',
-      sin_dato: '#64748b'
+      verde: '#3f9a5b',
+      amarillo: '#f2bf3a',
+      naranja: '#ec7a2c',
+      rojo: '#c8352f',
+      sin_dato: '#bdbdbd'
     };
 
     const CATEGORY_LABELS = {
@@ -649,11 +711,11 @@
         return [
           'step',
           ['coalesce', ['get', 'delta_pp_intervencion'], 0],
-          '#047857', // <= -3.0 pp (Reducción alta)
-          -3.0, '#10b981', // -3.0 a -1.5 pp
-          -1.5, '#6ee7b7', // -1.5 a 0 pp
-          0.0, '#64748b', // 0 pp
-          0.01, '#f43f5e' // > 0 pp (Aumento de abstención)
+          '#2f7d4b', // <= -3.0 pp (Mejora alta)
+          -3.0, '#3f9a5b', // -3.0 a -1.5 pp
+          -1.5, '#7bc490', // -1.5 a 0 pp
+          0.0, '#e6e1e4', // 0 pp (Sin cambio)
+          0.01, '#c8352f' // > 0 pp (Aumento de abstención)
         ];
       }
       return CATEGORY_COLORS.sin_dato;
@@ -670,7 +732,7 @@
           {
             id: 'background',
             type: 'background',
-            paint: { 'background-color': '#090d16' }
+            paint: { 'background-color': '#eef0f3' }
           },
           {
             id: 'states-fill',
@@ -688,9 +750,9 @@
             source: 'states',
             layout: { visibility: currentLevel === 'states' ? 'visible' : 'none' },
             paint: {
-              'line-color': '#cbd5e1',
-              'line-width': 1.1,
-              'line-opacity': 0.75
+              'line-color': '#ffffff',
+              'line-width': 1.2,
+              'line-opacity': 0.95
             }
           },
           {
@@ -709,9 +771,9 @@
             source: 'mun',
             layout: { visibility: currentLevel === 'mun' ? 'visible' : 'none' },
             paint: {
-              'line-color': '#334155',
+              'line-color': 'rgba(255, 255, 255, 0.7)',
               'line-width': 0.35,
-              'line-opacity': 0.6
+              'line-opacity': 0.8
             }
           },
           {
@@ -720,8 +782,8 @@
             source: 'states',
             filter: ['==', 'id', ''],
             paint: {
-              'line-color': '#38bdf8',
-              'line-width': 2.4
+              'line-color': '#4a2a48',
+              'line-width': 2.0
             }
           },
           {
@@ -730,7 +792,7 @@
             source: 'mun',
             filter: ['==', 'id', ''],
             paint: {
-              'line-color': '#38bdf8',
+              'line-color': '#4a2a48',
               'line-width': 2.0
             }
           }
@@ -1017,24 +1079,24 @@
 
         itemsEl.innerHTML = `
           <div class="legend-item">
-            <span class="legend-item-left"><span class="legend-color-dot" style="background:#047857;"></span>≤ −3.0 pp (Alta)</span>
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#2f7d4b;"></span>≤ −3.0 pp (Alta)</span>
             <span class="legend-item-count">${counts.high_red}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-item-left"><span class="legend-color-dot" style="background:#10b981;"></span>−3.0 a −1.5 pp</span>
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#3f9a5b;"></span>−3.0 a −1.5 pp</span>
             <span class="legend-item-count">${counts.mod_red}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-item-left"><span class="legend-color-dot" style="background:#6ee7b7;"></span>−1.5 a 0.0 pp</span>
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#7bc490;"></span>−1.5 a 0.0 pp</span>
             <span class="legend-item-count">${counts.low_red}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-item-left"><span class="legend-color-dot" style="background:#64748b;"></span>0.0 pp (Sin cambio)</span>
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#e6e1e4;"></span>0.0 pp (Sin cambio)</span>
             <span class="legend-item-count">${counts.no_change}</span>
           </div>
           ${counts.inc > 0 ? `
           <div class="legend-item">
-            <span class="legend-item-left"><span class="legend-color-dot" style="background:#f43f5e;"></span>> 0.0 pp (Aumento)</span>
+            <span class="legend-item-left"><span class="legend-color-dot" style="background:#c8352f;"></span>> 0.0 pp (Aumento)</span>
             <span class="legend-item-count">${counts.inc}</span>
           </div>` : ''}
         `;
@@ -1051,7 +1113,7 @@
 
         const fmtDif = (diff) => diff > 0 ? `+${diff}` : `${diff}`;
         itemsEl.innerHTML = `
-          <div class="legend-item" style="font-weight:700; color:#94a3b8; border-bottom:1px solid #334155; padding-bottom:3px;">
+          <div class="legend-item" style="font-weight:700; color:#6f6270; border-bottom:1px solid #e7e1e5; padding-bottom:3px;">
             <span>Categoría</span>
             <span>Base | Interv. | Dif</span>
           </div>
@@ -1120,7 +1182,7 @@
           </div>
           <div class="tooltip-row">
             <span class="tooltip-label">Variación Δ:</span>
-            <span class="tooltip-val" style="color:${delta < 0 ? '#10b981' : delta > 0 ? '#f43f5e' : '#f8fafc'};">${formatPp(delta)}</span>
+            <span class="tooltip-val" style="color:${delta < 0 ? '#2f7d4b' : delta > 0 ? '#c8352f' : 'var(--text-white)'};">${formatPp(delta)}</span>
           </div>
           <div class="tooltip-row">
             <span class="tooltip-label">Abstención esperada:</span>

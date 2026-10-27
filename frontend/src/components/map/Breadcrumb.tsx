@@ -24,23 +24,37 @@ export function Breadcrumb() {
   const munName = isMun && selectedDetail ? selectedDetail.name : null;
 
   return (
-    <nav className="flex items-center gap-1.5 text-xs text-slate-300 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-3 py-1.5 rounded-xl shadow-xl pointer-events-auto">
+    <nav
+      aria-label="Migas de navegación territorial"
+      className="float-panel flex items-center gap-1 px-2.5 py-1 text-xs pointer-events-auto max-w-[calc(100vw-24px)] overflow-hidden"
+    >
       <button
         type="button"
         onClick={resetToNational}
-        className="font-medium hover:text-white hover:underline transition-colors flex items-center gap-1 text-slate-200"
+        className={`rounded px-1.5 py-0.5 font-semibold hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer ${
+          !selectedEnt ? "text-primary" : "text-foreground"
+        }`}
       >
-        <span>México (Nacional)</span>
+        México
       </button>
 
       {selectedEnt && (
         <>
-          <span className="text-slate-500">/</span>
+          <svg
+            className="size-3 text-muted-foreground shrink-0"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 12l4-4-4-4" />
+          </svg>
           <button
             type="button"
             onClick={() => selectState(selectedEnt)}
-            className={`font-medium hover:text-white transition-colors ${
-              !isMun ? "text-emerald-400 font-semibold" : "hover:underline text-slate-200"
+            className={`rounded px-1.5 py-0.5 font-semibold hover:bg-accent hover:text-accent-foreground transition-colors truncate max-w-[40vw] sm:max-w-none cursor-pointer ${
+              !isMun ? "text-primary" : "text-foreground"
             }`}
           >
             {stateName}
@@ -50,8 +64,19 @@ export function Breadcrumb() {
 
       {isMun && munName && (
         <>
-          <span className="text-slate-500">/</span>
-          <span className="font-semibold text-emerald-400">{munName}</span>
+          <svg
+            className="size-3 text-muted-foreground shrink-0"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 12l4-4-4-4" />
+          </svg>
+          <span className="px-1.5 py-0.5 font-semibold text-primary truncate max-w-[40vw] sm:max-w-none">
+            {munName}
+          </span>
         </>
       )}
 
@@ -59,14 +84,14 @@ export function Breadcrumb() {
         <button
           type="button"
           onClick={resetToNational}
-          className="ml-2 px-2 py-0.5 text-[10px] font-bold bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded transition-colors"
+          className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-muted hover:bg-accent text-foreground border border-border rounded transition-colors cursor-pointer"
           title="Regresar a vista nacional"
         >
           ← México
         </button>
       )}
 
-      <InfoTip term={"navegacion" as unknown as GlossaryKey} side="bottom" />
+      <InfoTip term={"navegacion" as unknown as GlossaryKey} size="xs" side="bottom" />
     </nav>
   );
 }

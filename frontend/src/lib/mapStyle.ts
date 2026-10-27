@@ -48,21 +48,21 @@ export const MAX_BOUNDS: [[number, number], [number, number]] = [
 ];
 
 export const BASEMAP = {
-  base: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-  labels: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+  base: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+  labels: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
   attribution: "Esri, HERE, Garmin, © OpenStreetMap contributors · INEGI MG 2024 · INE CCPC",
-  background: "#060a13",
-  land: "#0e1626",
+  background: "#eef0f3",
+  land: "#e4e1e3",
   maxzoom: 16,
 };
 
-export const DELTA_NODATA = "#4b5563";
+export const DELTA_NODATA = "#bdbdbd";
 
 export const DELTA_BINS: { min: number; max: number; color: string; label: string }[] = [
   { min: -Infinity, max: -3, color: "#2166ac", label: "≤ −3 pp" },
   { min: -3, max: -1.5, color: "#4393c3", label: "−3 a −1.5 pp" },
   { min: -1.5, max: -0.5, color: "#92c5de", label: "−1.5 a −0.5 pp" },
-  { min: -0.5, max: 0.5, color: "#3b4252", label: "Sin cambio" },
+  { min: -0.5, max: 0.5, color: "#e6e1e4", label: "Sin cambio" },
   { min: 0.5, max: 1.5, color: "#f4a582", label: "+0.5 a +1.5 pp" },
   { min: 1.5, max: 3, color: "#d6604d", label: "+1.5 a +3 pp" },
   { min: 3, max: Infinity, color: "#b2182b", label: "≥ +3 pp" },

@@ -10,10 +10,10 @@ import subprocess
 from typing import Any
 
 CATEGORY_COLORS: dict[str, str] = {
-    "verde": "#2e7d32",
-    "amarillo": "#f9a825",
-    "naranja": "#ef6c00",
-    "rojo": "#c62828",
+    "verde": "#3f9a5b",
+    "amarillo": "#f2bf3a",
+    "naranja": "#ec7a2c",
+    "rojo": "#c8352f",
     "sin_dato": "#bdbdbd",
 }
 
@@ -183,7 +183,7 @@ def svg_choropleth(
             )
 
     title_elem = (
-        f'<text x="{width / 2:.1f}" y="22" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#212121">{html.escape(title)}</text>'
+        f'<text x="{width / 2:.1f}" y="22" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#2e2430">{html.escape(title)}</text>'
         if title
         else ""
     )
@@ -197,10 +197,10 @@ def svg_choropleth(
         leg_y = height - 8.0
         for (lbl, col), iw in zip(legend, item_widths):
             legend_elems.append(
-                f'<rect x="{cur_x:.1f}" y="{leg_y - 9.0:.1f}" width="10" height="10" rx="2" fill="{col}" stroke="#757575" stroke-width="0.5" />'
+                f'<rect x="{cur_x:.1f}" y="{leg_y - 9.0:.1f}" width="10" height="10" rx="2" fill="{col}" stroke="#e7e1e5" stroke-width="0.5" />'
             )
             legend_elems.append(
-                f'<text x="{cur_x + 14.0:.1f}" y="{leg_y - 1.0:.1f}" font-family="Arial, sans-serif" font-size="8.5" fill="#37474f">{html.escape(lbl)}</text>'
+                f'<text x="{cur_x + 14.0:.1f}" y="{leg_y - 1.0:.1f}" font-family="Arial, sans-serif" font-size="8.5" fill="#6f6270">{html.escape(lbl)}</text>'
             )
             cur_x += iw + gap
 
@@ -281,15 +281,15 @@ def svg_line(
         tick_val = y_min_bound + (y_max_bound - y_min_bound) * (i / n_ticks)
         py = scale_y(tick_val)
         elements.append(
-            f'<line x1="{margin_left:.1f}" y1="{py:.1f}" x2="{margin_left + plot_w:.1f}" y2="{py:.1f}" stroke="#e0e0e0" stroke-width="1" stroke-dasharray="3,3" />'
+            f'<line x1="{margin_left:.1f}" y1="{py:.1f}" x2="{margin_left + plot_w:.1f}" y2="{py:.1f}" stroke="#e7e1e5" stroke-width="1" stroke-dasharray="3,3" />'
         )
         elements.append(
-            f'<text x="{margin_left - 8:.1f}" y="{py + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#616161">{html.escape(y_fmt.format(tick_val))}</text>'
+            f'<text x="{margin_left - 8:.1f}" y="{py + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#6f6270">{html.escape(y_fmt.format(tick_val))}</text>'
         )
 
     if y_label:
         elements.append(
-            f'<text x="{margin_left:.1f}" y="{margin_top - 12:.1f}" text-anchor="start" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#37474f">{html.escape(y_label)}</text>'
+            f'<text x="{margin_left:.1f}" y="{margin_top - 12:.1f}" text-anchor="start" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#2e2430">{html.escape(y_label)}</text>'
         )
 
     # X axis ticks
@@ -297,14 +297,14 @@ def svg_line(
     for x_val in unique_xs:
         px = scale_x(x_val)
         elements.append(
-            f'<line x1="{px:.1f}" y1="{margin_top + plot_h:.1f}" x2="{px:.1f}" y2="{margin_top + plot_h + 5:.1f}" stroke="#9e9e9e" stroke-width="1" />'
+            f'<line x1="{px:.1f}" y1="{margin_top + plot_h:.1f}" x2="{px:.1f}" y2="{margin_top + plot_h + 5:.1f}" stroke="#6f6270" stroke-width="1" />'
         )
         x_lbl = f"{int(x_val)}" if x_val.is_integer() else f"{x_val:.1f}"
         elements.append(
-            f'<text x="{px:.1f}" y="{margin_top + plot_h + 18:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#616161">{x_lbl}</text>'
+            f'<text x="{px:.1f}" y="{margin_top + plot_h + 18:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#6f6270">{x_lbl}</text>'
         )
 
-    palette = ["#1565c0", "#c62828", "#2e7d32", "#f57c00", "#6a1b9a", "#00838f", "#4e342e"]
+    palette = ["#b5186b", "#4a2a48", "#1f6fb2", "#ec7a2c", "#3f9a5b", "#8a7f89", "#c8352f"]
 
     # Series lines & markers
     legend_items: list[tuple[str, str]] = []
@@ -358,7 +358,7 @@ def svg_line(
             f'<circle cx="{cur_leg_x:.1f}" cy="{margin_top - 14:.1f}" r="4.5" fill="{color}" />'
         )
         elements.append(
-            f'<text x="{cur_leg_x + 8:.1f}" y="{margin_top - 10:.1f}" font-family="Arial, sans-serif" font-size="11" fill="#424242">{html.escape(s_name)}</text>'
+            f'<text x="{cur_leg_x + 8:.1f}" y="{margin_top - 10:.1f}" font-family="Arial, sans-serif" font-size="11" fill="#2e2430">{html.escape(s_name)}</text>'
         )
         cur_leg_x += len(s_name) * 7.5 + 30.0
 
@@ -376,7 +376,7 @@ def svg_bars(
     height: int | None = None,
     horizontal: bool = True,
     value_fmt: str = "{:.1f}",
-    color: str = "#455a64",
+    color: str = "#b5186b",
     colors: list[str] | None = None,
 ) -> str:
     """Renders a simple bar chart (horizontal or vertical) in SVG."""
@@ -418,14 +418,14 @@ def svg_bars(
                     f'<rect x="{x_base:.1f}" y="{bar_y:.1f}" width="{max(bar_w, 0.0):.1f}" height="{bar_h:.1f}" fill="{item_color}" rx="2" />'
                 )
                 elements.append(
-                    f'<text x="{x_base - 8:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#333333">{html.escape(str(lbl))}</text>'
+                    f'<text x="{x_base - 8:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#2e2430">{html.escape(str(lbl))}</text>'
                 )
                 formatted_val = value_fmt.format(v)
                 elements.append(
-                    f'<text x="{x_base + bar_w + 6:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="start" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#333333">{html.escape(formatted_val)}</text>'
+                    f'<text x="{x_base + bar_w + 6:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="start" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#2e2430">{html.escape(formatted_val)}</text>'
                 )
             elements.append(
-                f'<line x1="{x_base:.1f}" y1="{margin_top:.1f}" x2="{x_base:.1f}" y2="{margin_top + plot_h:.1f}" stroke="#9e9e9e" stroke-width="1" />'
+                f'<line x1="{x_base:.1f}" y1="{margin_top:.1f}" x2="{x_base:.1f}" y2="{margin_top + plot_h:.1f}" stroke="#6f6270" stroke-width="1" />'
             )
         else:
             val_span = max(max_val - min_val, 1e-6)
@@ -447,14 +447,14 @@ def svg_bars(
                     f'<rect x="{bx:.1f}" y="{bar_y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" fill="{item_color}" rx="2" />'
                 )
                 elements.append(
-                    f'<text x="{margin_left - 8:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#333333">{html.escape(str(lbl))}</text>'
+                    f'<text x="{margin_left - 8:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#2e2430">{html.escape(str(lbl))}</text>'
                 )
                 formatted_val = value_fmt.format(v)
                 elements.append(
-                    f'<text x="{tx:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="{anchor}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#333333">{html.escape(formatted_val)}</text>'
+                    f'<text x="{tx:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="{anchor}" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#2e2430">{html.escape(formatted_val)}</text>'
                 )
             elements.append(
-                f'<line x1="{x_base:.1f}" y1="{margin_top:.1f}" x2="{x_base:.1f}" y2="{margin_top + plot_h:.1f}" stroke="#757575" stroke-width="1.5" />'
+                f'<line x1="{x_base:.1f}" y1="{margin_top:.1f}" x2="{x_base:.1f}" y2="{margin_top + plot_h:.1f}" stroke="#6f6270" stroke-width="1.5" />'
             )
     else:
         h = height if height is not None else 300
@@ -482,13 +482,13 @@ def svg_bars(
             )
             formatted_val = value_fmt.format(v)
             elements.append(
-                f'<text x="{bx + bar_w / 2.0:.1f}" y="{by - 6:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#333333">{html.escape(formatted_val)}</text>'
+                f'<text x="{bx + bar_w / 2.0:.1f}" y="{by - 6:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#2e2430">{html.escape(formatted_val)}</text>'
             )
             elements.append(
-                f'<text x="{bx + bar_w / 2.0:.1f}" y="{y_base + 16:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#333333">{html.escape(str(lbl))}</text>'
+                f'<text x="{bx + bar_w / 2.0:.1f}" y="{y_base + 16:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#2e2430">{html.escape(str(lbl))}</text>'
             )
         elements.append(
-            f'<line x1="{margin_left:.1f}" y1="{y_base:.1f}" x2="{margin_left + plot_w:.1f}" y2="{y_base:.1f}" stroke="#9e9e9e" stroke-width="1" />'
+            f'<line x1="{margin_left:.1f}" y1="{y_base:.1f}" x2="{margin_left + plot_w:.1f}" y2="{y_base:.1f}" stroke="#6f6270" stroke-width="1" />'
         )
 
     return (
@@ -530,7 +530,7 @@ def svg_stacked_bars(
             f'<rect x="{leg_x:.1f}" y="12" width="12" height="12" fill="{cat_color}" rx="2" />'
         )
         elements.append(
-            f'<text x="{leg_x + 16:.1f}" y="22" font-family="Arial, sans-serif" font-size="11" fill="#424242">{html.escape(cat_label)}</text>'
+            f'<text x="{leg_x + 16:.1f}" y="22" font-family="Arial, sans-serif" font-size="11" fill="#2e2430">{html.escape(cat_label)}</text>'
         )
         leg_x += len(cat_label) * 7.5 + 32.0
 
@@ -545,7 +545,7 @@ def svg_stacked_bars(
 
         bar_y = margin_top + i * row_h + (row_h - bar_h) / 2.0
         elements.append(
-            f'<text x="{margin_left - 8:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#333333">{html.escape(str(lbl))}</text>'
+            f'<text x="{margin_left - 8:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="end" font-family="Arial, sans-serif" font-size="11" fill="#2e2430">{html.escape(str(lbl))}</text>'
         )
 
         cur_x = margin_left
@@ -558,7 +558,7 @@ def svg_stacked_bars(
             )
             pct = (val / total) * 100.0
             if seg_w > 38.0 and pct >= 4.0:
-                txt_color = "#ffffff" if cat in ("rojo", "naranja", "verde") else "#212121"
+                txt_color = "#ffffff" if cat in ("rojo", "naranja", "verde") else "#2e2430"
                 elements.append(
                     f'<text x="{cur_x + seg_w / 2.0:.1f}" y="{bar_y + bar_h / 2.0 + 4:.1f}" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="{txt_color}">{pct:.0f}%</text>'
                 )

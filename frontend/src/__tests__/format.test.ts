@@ -42,10 +42,10 @@ describe("Format Utilities", () => {
   });
 
   it("maps categories to official semáforo colors", () => {
-    expect(getCategoryColor("verde")).toBe("#2e7d32");
-    expect(getCategoryColor("amarillo")).toBe("#f9a825");
-    expect(getCategoryColor("naranja")).toBe("#ef6c00");
-    expect(getCategoryColor("rojo")).toBe("#c62828");
+    expect(getCategoryColor("verde")).toBe("#3f9a5b");
+    expect(getCategoryColor("amarillo")).toBe("#f2bf3a");
+    expect(getCategoryColor("naranja")).toBe("#ec7a2c");
+    expect(getCategoryColor("rojo")).toBe("#c8352f");
     expect(getCategoryColor("sin_dato")).toBe("#bdbdbd");
   });
 
@@ -112,10 +112,10 @@ describe("Format Utilities", () => {
     expect(formatSignedVotes(undefined)).toBe("—");
     expect(formatSignedVotes(NaN)).toBe("—");
 
-    expect(getVotesColorClass(326621)).toBe("text-emerald-400");
-    expect(getVotesColorClass(0)).toBe("text-emerald-400");
-    expect(getVotesColorClass(-1631433)).toBe("text-rose-400");
-    expect(getVotesColorClass(null)).toBe("text-slate-400");
+    expect(getVotesColorClass(326621)).toBe("text-good");
+    expect(getVotesColorClass(0)).toBe("text-good");
+    expect(getVotesColorClass(-1631433)).toBe("text-bad");
+    expect(getVotesColorClass(null)).toBe("text-muted-foreground");
   });
 
   it("evaluates delta abstention semantics: negative improves, positive worsens", () => {
@@ -124,17 +124,17 @@ describe("Format Utilities", () => {
     expect(formatDeltaPp(0)).toBe("0.0 pp");
     expect(formatDeltaPp(null)).toBe("—");
 
-    // Negative delta = less abstention = green
-    expect(getDeltaAbstentionColorClass(-2.5)).toBe("text-emerald-400");
-    expect(getDeltaAbstentionHex(-2.5)).toBe("#10b981");
+    // Negative delta = less abstention = green/good
+    expect(getDeltaAbstentionColorClass(-2.5)).toBe("text-good");
+    expect(getDeltaAbstentionHex(-2.5)).toBe("#2f7d4b");
 
-    // Positive delta = more abstention = red/rose
-    expect(getDeltaAbstentionColorClass(1.8)).toBe("text-rose-400");
-    expect(getDeltaAbstentionHex(1.8)).toBe("#f43f5e");
+    // Positive delta = more abstention = red/bad
+    expect(getDeltaAbstentionColorClass(1.8)).toBe("text-bad");
+    expect(getDeltaAbstentionHex(1.8)).toBe("#c0392b");
 
     // Neutral
-    expect(getDeltaAbstentionColorClass(0)).toBe("text-slate-200");
-    expect(getDeltaAbstentionColorClass(null)).toBe("text-slate-400");
+    expect(getDeltaAbstentionColorClass(0)).toBe("text-foreground");
+    expect(getDeltaAbstentionColorClass(null)).toBe("text-muted-foreground");
   });
 
   it("checks driver prominence threshold (|contribution_pp| >= 0.3)", () => {
