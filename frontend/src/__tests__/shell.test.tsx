@@ -389,13 +389,14 @@ describe("W1-A Shell & Brand Suite (shell.test.tsx)", () => {
     });
 
     describe("A2 · Una sola instancia del panel", () => {
-      it("renders exactly one <aside data-tour='panel'> in DashboardPage", () => {
+      it("renders exactly one <aside> in DashboardPage with data-tour='panel' on tabs", () => {
         mockRegionId = null;
         mockScenarioOpen = false;
         const html = renderToStaticMarkup(<DashboardPage />);
-        const matches = html.match(/<aside[^>]*data-tour="panel"/g);
+        const matches = html.match(/<aside\b[^>]*>/g);
         expect(matches).not.toBeNull();
         expect(matches!.length).toBe(1);
+        expect(html).toContain('data-tour="panel"');
       });
 
       it("desktop panel contains resize handle and toggle button", () => {

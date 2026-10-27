@@ -260,6 +260,7 @@ export function buildDataLayers(
       source: stateSource,
       ...stateLayerProp,
       maxzoom: EXTRUSION_ZOOM_SPLIT,
+      filter: ["!=", ["coalesce", ["get", "offshore"], 0], 1],
       layout: {
         visibility: "none",
       },
@@ -278,7 +279,11 @@ export function buildDataLayers(
       source: munSource,
       ...munLayerProp,
       minzoom: EXTRUSION_ZOOM_SPLIT,
-      filter: ["==", ["get", "ent"], ""],
+      filter: [
+        "all",
+        ["==", ["get", "ent"], ""],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
+      ],
       layout: {
         visibility: "none",
       },
@@ -422,7 +427,11 @@ export function setExtrusionFocus(map: maplibregl.Map, ent: string | null): void
       return;
     }
     if (map?.getLayer && map.getLayer(LAYER_IDS.munExtrusion)) {
-      map.setFilter(LAYER_IDS.munExtrusion, ["==", ["get", "ent"], targetEnt]);
+      map.setFilter(LAYER_IDS.munExtrusion, [
+        "all",
+        ["==", ["get", "ent"], targetEnt],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
+      ]);
       focusCache.set(map, targetEnt);
     }
   } catch {

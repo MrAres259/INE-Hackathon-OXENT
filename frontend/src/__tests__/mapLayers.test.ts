@@ -165,6 +165,7 @@ describe("mapLayers", () => {
       expect(statesExt.type).toBe("fill-extrusion");
       expect(statesExt.source).toBe(SOURCE_IDS.states);
       expect(statesExt.maxzoom).toBe(EXTRUSION_ZOOM_SPLIT);
+      expect(statesExt.filter).toEqual(["!=", ["coalesce", ["get", "offshore"], 0], 1]);
       expect(statesExt.layout?.visibility).toBe("none");
       expect(statesExt.paint?.["fill-extrusion-height"]).toEqual(
         extrusionHeightExpression("state")
@@ -177,7 +178,11 @@ describe("mapLayers", () => {
       expect(munExt.type).toBe("fill-extrusion");
       expect(munExt.source).toBe(SOURCE_IDS.mun);
       expect(munExt.minzoom).toBe(EXTRUSION_ZOOM_SPLIT);
-      expect(munExt.filter).toEqual(["==", ["get", "ent"], ""]);
+      expect(munExt.filter).toEqual([
+        "all",
+        ["==", ["get", "ent"], ""],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
+      ]);
       expect(munExt.layout?.visibility).toBe("none");
       expect(munExt.paint?.["fill-extrusion-height"]).toEqual(
         extrusionHeightExpression("mun")
@@ -422,9 +427,9 @@ describe("mapLayers", () => {
       setExtrusionFocus(mockMap, "07");
       expect(mockSetFilter).toHaveBeenCalledTimes(1);
       expect(mockSetFilter).toHaveBeenCalledWith(LAYER_IDS.munExtrusion, [
-        "==",
-        ["get", "ent"],
-        "07",
+        "all",
+        ["==", ["get", "ent"], "07"],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
       ]);
     });
 
@@ -447,9 +452,9 @@ describe("mapLayers", () => {
       setExtrusionFocus(mockMap, "15");
       expect(mockSetFilter).toHaveBeenCalledTimes(2);
       expect(mockSetFilter).toHaveBeenCalledWith(LAYER_IDS.munExtrusion, [
-        "==",
-        ["get", "ent"],
-        "15",
+        "all",
+        ["==", ["get", "ent"], "15"],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
       ]);
     });
 
@@ -467,9 +472,9 @@ describe("mapLayers", () => {
       setExtrusionFocus(mockMap, null);
       expect(mockSetFilter).toHaveBeenCalledTimes(2);
       expect(mockSetFilter).toHaveBeenCalledWith(LAYER_IDS.munExtrusion, [
-        "==",
-        ["get", "ent"],
-        "",
+        "all",
+        ["==", ["get", "ent"], ""],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
       ]);
 
       // null again: cached as "", must not call setFilter again
@@ -486,6 +491,32 @@ describe("mapLayers", () => {
       } as unknown as import("maplibre-gl").Map;
 
       expect(() => setExtrusionFocus(mockMapMissingLayers, "01")).not.toThrow();
+    });
+
+    it("both extrusion layers exclude offshore features with offshore: 1 and preserve it through setExtrusionFocus", () => {
+      const layers = buildDataLayers("category", "vector");
+      const stateExt = layers.find((l) => l.id === LAYER_IDS.statesExtrusion) as FillExtrusionLayerSpecification;
+      const munExt = layers.find((l) => l.id === LAYER_IDS.munExtrusion) as FillExtrusionLayerSpecification;
+
+      expect(stateExt.filter).toEqual(["!=", ["coalesce", ["get", "offshore"], 0], 1]);
+      expect(munExt.filter).toEqual([
+        "all",
+        ["==", ["get", "ent"], ""],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
+      ]);
+
+      const mockSetFilter = vi.fn();
+      const mockMap = {
+        getLayer: vi.fn().mockReturnValue({}),
+        setFilter: mockSetFilter,
+      } as unknown as import("maplibre-gl").Map;
+
+      setExtrusionFocus(mockMap, "02");
+      expect(mockSetFilter).toHaveBeenCalledWith(LAYER_IDS.munExtrusion, [
+        "all",
+        ["==", ["get", "ent"], "02"],
+        ["!=", ["coalesce", ["get", "offshore"], 0], 1],
+      ]);
     });
   });
 });

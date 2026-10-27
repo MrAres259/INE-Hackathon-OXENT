@@ -26,7 +26,8 @@
       "maxzoom": 9,
       "fields": {
         "id": "String",
-        "name": "String"
+        "name": "String",
+        "offshore": "Number"
       }
     },
     {
@@ -36,7 +37,8 @@
       "fields": {
         "id": "String",
         "ent": "String",
-        "name": "String"
+        "name": "String",
+        "offshore": "Number"
       }
     }
   ],
@@ -44,7 +46,11 @@
     "states": 32,
     "mun": 2478
   },
+  "offshore_parts": {
+    "states": 5,
+    "mun": 7
+  },
   "tile_count": 1899,
-  "bytes": 5845869,
-  "generated_at": "2026-10-20T18:53:42.504Z"
+  "bytes": 5848425,
+  "generated_at": "2026-10-27T21:22:30.425Z"
 }

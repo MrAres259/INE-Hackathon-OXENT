@@ -98,7 +98,7 @@ export function SidePanelTabs({ onTabChange }: SidePanelTabsProps) {
   return (
     <div className="flex flex-col h-full min-h-0 bg-card overflow-hidden">
       {/* Tab Navigation Bar */}
-      <div className="flex border-b border-border bg-card px-2 shrink-0">
+      <div data-tour="panel" className="flex border-b border-border bg-card px-2 shrink-0">
         {TABS.map((t) => (
           <button
             key={t.id}

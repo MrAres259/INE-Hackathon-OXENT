@@ -13,6 +13,221 @@ import { getInputConfig } from './build_geo.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+export const OFFSHORE_KM = 50;
+
+export function polygonArea(polyCoords) {
+  if (!polyCoords || polyCoords.length === 0 || !polyCoords[0]) return 0;
+  const ring = polyCoords[0];
+  let area = 0;
+  const n = ring.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    area += (ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1]);
+  }
+  return Math.abs(area) / 2;
+}
+
+export function pointInPolygon(px, py, ring) {
+  let inside = false;
+  const n = ring.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    const intersect = ((yi > py) !== (yj > py)) &&
+      (px < ((xj - xi) * (py - yi)) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+export function haversineKm(lon1, lat1, lon2, lat2) {
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return 6371.0 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function pointToSegmentDistKm(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (dx === 0 && dy === 0) {
+    return haversineKm(px, py, ax, ay);
+  }
+  let t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+  t = Math.max(0, Math.min(1, t));
+  const qx = ax + t * dx;
+  const qy = ay + t * dy;
+  return haversineKm(px, py, qx, qy);
+}
+
+export function minDistanceToPolygon(partPoly, continentPoly, maxThresholdKm = OFFSHORE_KM) {
+  if (!partPoly || !partPoly[0] || !continentPoly || !continentPoly[0]) {
+    return Infinity;
+  }
+  const partRing = partPoly[0];
+  const continentRing = continentPoly[0];
+
+  // If any vertex of the part is inside the continent, distance is 0
+  for (const pt of partRing) {
+    if (pointInPolygon(pt[0], pt[1], continentRing)) {
+      return 0;
+    }
+  }
+
+  // Check centroid / average point
+  let sx = 0, sy = 0;
+  for (const pt of partRing) {
+    sx += pt[0];
+    sy += pt[1];
+  }
+  if (pointInPolygon(sx / partRing.length, sy / partRing.length, continentRing)) {
+    return 0;
+  }
+
+  // Minimum distance from part vertices to continent segments
+  let minDist = Infinity;
+  const contLen = continentRing.length;
+  for (const pt of partRing) {
+    const px = pt[0], py = pt[1];
+    for (let i = 0; i < contLen - 1; i++) {
+      const ax = continentRing[i][0], ay = continentRing[i][1];
+      const bx = continentRing[i + 1][0], by = continentRing[i + 1][1];
+      const d = pointToSegmentDistKm(px, py, ax, ay, bx, by);
+      if (d < minDist) {
+        minDist = d;
+        if (minDist <= maxThresholdKm) {
+          return minDist; // Early exit: within threshold, not offshore
+        }
+      }
+    }
+  }
+  return minDist;
+}
+
+export function getLargestPolygon(geojson) {
+  if (!geojson) return null;
+  let maxArea = -1;
+  let largestPoly = null;
+
+  function checkPoly(coords) {
+    const area = polygonArea(coords);
+    if (area > maxArea) {
+      maxArea = area;
+      largestPoly = coords;
+    }
+  }
+
+  function walkGeom(geom) {
+    if (!geom) return;
+    if (geom.type === 'Polygon') {
+      checkPoly(geom.coordinates);
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates) {
+        checkPoly(poly);
+      }
+    } else if (geom.type === 'GeometryCollection') {
+      for (const g of geom.geometries) walkGeom(g);
+    }
+  }
+
+  if (geojson.type === 'FeatureCollection') {
+    for (const feat of geojson.features) walkGeom(feat.geometry);
+  } else if (geojson.type === 'Feature') {
+    walkGeom(geojson.geometry);
+  } else {
+    walkGeom(geojson);
+  }
+
+  return largestPoly;
+}
+
+export function separateOffshoreFeatures(features, continentPoly, offshoreKm = OFFSHORE_KM) {
+  const mainFeatures = [];
+  const offshoreFeatures = [];
+  const offshoreNames = [];
+
+  for (const feat of features) {
+    if (!feat.geometry || feat.geometry.type !== 'MultiPolygon') {
+      mainFeatures.push(feat);
+      continue;
+    }
+
+    const parts = feat.geometry.coordinates;
+    if (!Array.isArray(parts) || parts.length <= 1) {
+      mainFeatures.push(feat);
+      continue;
+    }
+
+    // Find largest area part
+    let largestIdx = 0;
+    let maxArea = -1;
+    for (let i = 0; i < parts.length; i++) {
+      const area = polygonArea(parts[i]);
+      if (area > maxArea) {
+        maxArea = area;
+        largestIdx = i;
+      }
+    }
+
+    const nonOffshoreParts = [];
+    const lejanaParts = [];
+
+    for (let i = 0; i < parts.length; i++) {
+      if (i === largestIdx) {
+        // Largest part is NEVER marked as offshore (e.g. Cozumel stays complete)
+        nonOffshoreParts.push(parts[i]);
+      } else {
+        const dist = continentPoly ? minDistanceToPolygon(parts[i], continentPoly, offshoreKm) : 0;
+        if (dist > offshoreKm) {
+          lejanaParts.push(parts[i]);
+        } else {
+          nonOffshoreParts.push(parts[i]);
+        }
+      }
+    }
+
+    if (lejanaParts.length === 0) {
+      mainFeatures.push(feat);
+    } else {
+      // Main feature with non-lejana parts
+      const mainFeat = {
+        type: 'Feature',
+        id: feat.id,
+        properties: { ...feat.properties },
+        geometry: {
+          type: nonOffshoreParts.length === 1 ? 'Polygon' : 'MultiPolygon',
+          coordinates: nonOffshoreParts.length === 1 ? nonOffshoreParts[0] : nonOffshoreParts
+        }
+      };
+      mainFeatures.push(mainFeat);
+
+      // Extra feature with lejana parts
+      const extraFeat = {
+        type: 'Feature',
+        id: feat.id,
+        properties: {
+          ...feat.properties,
+          offshore: 1
+        },
+        geometry: {
+          type: lejanaParts.length === 1 ? 'Polygon' : 'MultiPolygon',
+          coordinates: lejanaParts.length === 1 ? lejanaParts[0] : lejanaParts
+        }
+      };
+      offshoreFeatures.push(extraFeat);
+      const name = feat.properties?.name || feat.properties?.id || '';
+      offshoreNames.push(`${name} (${feat.properties?.id}): ${lejanaParts.length} lejana part(s)`);
+    }
+  }
+
+  return {
+    features: [...mainFeatures, ...offshoreFeatures],
+    offshoreCount: offshoreFeatures.length,
+    offshoreNames
+  };
+}
+
 export function lonLatToTile(lon, lat, z) {
   const n = 2 ** z;
   let x = Math.floor(((lon + 180) / 360) * n);
@@ -119,9 +334,11 @@ export async function buildTiles(options = {}) {
   const uniqueId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const tmpStatesJson = path.join(tmpDir, `tmp_states_${uniqueId}.json`);
   const tmpMunJson = path.join(tmpDir, `tmp_mun_${uniqueId}.json`);
+  const tmpDissolvedJson = path.join(tmpDir, `tmp_dissolved_${uniqueId}.json`);
 
   let statesRaw;
   let munRaw;
+  let continentPoly = null;
 
   try {
     const entCfg = getInputConfig(ent);
@@ -155,9 +372,30 @@ export async function buildTiles(options = {}) {
 
     statesRaw = JSON.parse(fs.readFileSync(tmpStatesJson, 'utf8'));
     munRaw = JSON.parse(fs.readFileSync(tmpMunJson, 'utf8'));
+
+    // Compute continent = largest polygon of dissolved states or country.json
+    if (options.continent) {
+      continentPoly = options.continent;
+    } else if (options.country) {
+      continentPoly = getLargestPolygon(options.country);
+    } else {
+      const countryPath = path.join(resolvedOutDir, 'country.json');
+      if (fs.existsSync(countryPath)) {
+        try {
+          const countryRaw = JSON.parse(fs.readFileSync(countryPath, 'utf8'));
+          continentPoly = getLargestPolygon(countryRaw);
+        } catch {}
+      }
+      if (!continentPoly) {
+        await mapshaper.runCommands(`-i "${tmpStatesJson}" -dissolve -each "id='MX'" -o force "${tmpDissolvedJson}" format=geojson`);
+        const dissolvedRaw = JSON.parse(fs.readFileSync(tmpDissolvedJson, 'utf8'));
+        continentPoly = getLargestPolygon(dissolvedRaw);
+      }
+    }
   } finally {
     try { fs.unlinkSync(tmpStatesJson); } catch {}
     try { fs.unlinkSync(tmpMunJson); } catch {}
+    try { fs.unlinkSync(tmpDissolvedJson); } catch {}
     try {
       const remaining = fs.readdirSync(tmpDir);
       if (remaining.length === 0) {
@@ -186,6 +424,17 @@ export async function buildTiles(options = {}) {
     feat.id = parseInt(id, 10);
     feat.properties = { id, ent, name };
   }
+
+  // Separate offshore features (> 50 km from mainland)
+  const statesProc = separateOffshoreFeatures(statesRaw.features, continentPoly, OFFSHORE_KM);
+  const munProc = separateOffshoreFeatures(munRaw.features, continentPoly, OFFSHORE_KM);
+
+  statesRaw.features = statesProc.features;
+  munRaw.features = munProc.features;
+
+  console.log(`[build_tiles] Offshore features (distance > ${OFFSHORE_KM} km from mainland):`);
+  console.log(`  states (${statesProc.offshoreCount}): ${statesProc.offshoreNames.length > 0 ? statesProc.offshoreNames.join(', ') : 'none'}`);
+  console.log(`  mun (${munProc.offshoreCount}): ${munProc.offshoreNames.length > 0 ? munProc.offshoreNames.join(', ') : 'none'}`);
 
   // Bounds & center calculation
   let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
@@ -291,7 +540,8 @@ export async function buildTiles(options = {}) {
         maxzoom,
         fields: {
           id: 'String',
-          name: 'String'
+          name: 'String',
+          offshore: 'Number'
         }
       },
       {
@@ -301,13 +551,18 @@ export async function buildTiles(options = {}) {
         fields: {
           id: 'String',
           ent: 'String',
-          name: 'String'
+          name: 'String',
+          offshore: 'Number'
         }
       }
     ],
     feature_counts: {
-      states: statesRaw.features.length,
-      mun: munRaw.features.length
+      states: new Set(statesRaw.features.map(f => f.properties.id)).size,
+      mun: new Set(munRaw.features.map(f => f.properties.id)).size
+    },
+    offshore_parts: {
+      states: statesProc.offshoreCount,
+      mun: munProc.offshoreCount
     },
     tile_count: tileCount,
     bytes: totalBytes,
@@ -319,8 +574,8 @@ export async function buildTiles(options = {}) {
   console.log(`[build_tiles] Wrote manifest: ${manifestPath} (${tileCount} tiles, ${(totalBytes / 1024 / 1024).toFixed(2)} MB)`);
 
   const expectedIds = {
-    states: statesRaw.features.map(f => f.properties.id),
-    mun: munRaw.features.map(f => f.properties.id)
+    states: Array.from(new Set(statesRaw.features.map(f => f.properties.id))),
+    mun: Array.from(new Set(munRaw.features.map(f => f.properties.id)))
   };
   const valResult = validateTileset(resolvedOutDir, manifest, expectedIds);
   if (!valResult.ok) {

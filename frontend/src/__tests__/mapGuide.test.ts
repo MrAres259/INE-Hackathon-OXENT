@@ -8,6 +8,8 @@ import {
   TOUR_STEPS,
   MapGuide,
   getValidStepAndRect,
+  placeBalloon,
+  getSafeTop,
 } from "../components/map/MapGuide";
 
 describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
@@ -387,6 +389,42 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
       expect(html).toContain("top:430px");
     });
 
+    it("el anillo rodea el rectángulo real del ancla sin tope de 160px", () => {
+      const mockWindow = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: { getItem: () => null, setItem: () => {} },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      // Tall anchor with height 400
+      const tallAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({
+          top: 100,
+          bottom: 500,
+          left: 600,
+          right: 1000,
+          width: 400,
+          height: 400,
+        }),
+      };
+
+      (globalThis as any).window = mockWindow;
+      (globalThis as any).document = {
+        querySelectorAll: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? [tallAnchor] : [])),
+        querySelector: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? tallAnchor : null)),
+      };
+
+      const html = renderToStaticMarkup(
+        React.createElement(MapGuide, { open: true })
+      );
+
+      // Ring height should be 400 + 8 = 408px, NOT capped to 160px
+      expect(html).toContain("height:408px");
+      expect(html).not.toContain("height:160px");
+    });
+
     it("no renderiza nada cuando open=false", () => {
       const html = renderToStaticMarkup(
         React.createElement(MapGuide, { open: false })
@@ -394,5 +432,203 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
       expect(html).toBe("");
     });
   });
-});
 
+  describe("placeBalloon pure placement logic", () => {
+    it("ancla alta en la columna derecha (como el panel de PC) -> globo a la izquierda, completo", () => {
+      const viewport = { w: 1024, h: 768 };
+      // Panel anchor filling right column from top 56 to 768
+      const anchor = {
+        left: 624,
+        top: 56,
+        width: 400,
+        height: 712,
+        right: 1024,
+        bottom: 768,
+      };
+      const balloon = { w: 280, h: 160 };
+      const margin = 12;
+      const safeTop = 56;
+
+      const result = placeBalloon(anchor, balloon, viewport, margin, safeTop);
+
+      expect(result.side).toBe("left");
+      // Placed to the left of the anchor with at least 10px gap
+      expect(result.left).toBeLessThanOrEqual(anchor.left - 10);
+      expect(result.left).toBeGreaterThanOrEqual(margin);
+      // Balloon fits completely within screen bounds respecting safeTop
+      expect(result.top).toBeGreaterThanOrEqual(safeTop);
+      expect(result.top + balloon.h).toBeLessThanOrEqual(viewport.h - margin);
+    });
+
+    it("ancla pegada arriba -> abajo", () => {
+      const viewport = { w: 1024, h: 768 };
+      // Top control (e.g. scenario bar under header)
+      const anchor = {
+        left: 300,
+        top: 56,
+        width: 200,
+        height: 40,
+        right: 500,
+        bottom: 96,
+      };
+      const balloon = { w: 280, h: 160 };
+      const margin = 12;
+      const safeTop = 56;
+
+      const result = placeBalloon(anchor, balloon, viewport, margin, safeTop);
+
+      expect(result.side).toBe("bottom");
+      expect(result.top).toBe(anchor.bottom + 10);
+      expect(result.top).toBeGreaterThanOrEqual(safeTop);
+      expect(result.top + balloon.h).toBeLessThanOrEqual(viewport.h - margin);
+      expect(result.left).toBeGreaterThanOrEqual(margin);
+      expect(result.left + balloon.w).toBeLessThanOrEqual(viewport.w - margin);
+    });
+
+    it("ancla pegada abajo (pestañas de la hoja en celular 375x812) -> arriba", () => {
+      const viewport = { w: 375, h: 812 };
+      // Tabs at bottom sheet peek position (e.g. top: 680, bottom: 724)
+      const anchor = {
+        left: 0,
+        top: 680,
+        width: 375,
+        height: 44,
+        right: 375,
+        bottom: 724,
+      };
+      const balloon = { w: 280, h: 160 };
+      const margin = 12;
+      const safeTop = 56;
+
+      const result = placeBalloon(anchor, balloon, viewport, margin, safeTop);
+
+      expect(result.side).toBe("top");
+      expect(result.top).toBe(anchor.top - 10 - balloon.h);
+      expect(result.top).toBeGreaterThanOrEqual(safeTop);
+      expect(result.top + balloon.h).toBeLessThanOrEqual(viewport.h - margin);
+      expect(result.left).toBeGreaterThanOrEqual(margin);
+      expect(result.left + balloon.w).toBeLessThanOrEqual(viewport.w - margin);
+    });
+
+    it("ancla que ocupa toda la pantalla -> globo dentro de la pantalla y bajo safeTop", () => {
+      const viewport = { w: 375, h: 812 };
+      const anchor = {
+        left: 0,
+        top: 0,
+        width: 375,
+        height: 812,
+        right: 375,
+        bottom: 812,
+      };
+      const balloon = { w: 280, h: 160 };
+      const margin = 12;
+      const safeTop = 56;
+
+      const result = placeBalloon(anchor, balloon, viewport, margin, safeTop);
+
+      expect(result.top).toBeGreaterThanOrEqual(safeTop);
+      expect(result.top + balloon.h).toBeLessThanOrEqual(viewport.h);
+      expect(result.left).toBeGreaterThanOrEqual(margin);
+      expect(result.left + balloon.w).toBeLessThanOrEqual(viewport.w);
+    });
+
+    it("el globo nunca tiene top < safeTop ni se sale por los lados en múltiples resoluciones", () => {
+      const viewports = [
+        { w: 360, h: 640 },
+        { w: 375, h: 812 },
+        { w: 768, h: 1024 },
+        { w: 1024, h: 768 },
+        { w: 1366, h: 768 },
+        { w: 1920, h: 1080 },
+      ];
+      const safeTops = [0, 48, 56, 64];
+      const anchors = [
+        { left: -100, top: -50, width: 200, height: 100 },
+        { left: 0, top: 0, width: 300, height: 200 },
+        { left: 200, top: 50, width: 500, height: 40 },
+        { left: 500, top: 700, width: 400, height: 500 },
+        { left: 10, top: 10, width: 2000, height: 2000 },
+        { left: 100, top: 400, width: 60, height: 60 },
+      ];
+
+      for (const vp of viewports) {
+        for (const st of safeTops) {
+          for (const anc of anchors) {
+            const balloon = { w: Math.min(280, vp.w - 24), h: 160 };
+            const res = placeBalloon(anc, balloon, vp, 12, st);
+
+            expect(res.top).toBeGreaterThanOrEqual(st);
+            expect(res.top + balloon.h).toBeLessThanOrEqual(vp.h);
+            expect(res.left).toBeGreaterThanOrEqual(12);
+            expect(res.left + balloon.w).toBeLessThanOrEqual(vp.w);
+          }
+        }
+      }
+    });
+
+    it("coloca a la derecha cuando el ancla está a la izquierda y vertical no cabe", () => {
+      const viewport = { w: 1024, h: 768 };
+      // Anchor filling left column from top to bottom
+      const anchor = {
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 768,
+        right: 100,
+        bottom: 768,
+      };
+      const balloon = { w: 280, h: 160 };
+      const margin = 12;
+      const safeTop = 56;
+
+      const result = placeBalloon(anchor, balloon, viewport, margin, safeTop);
+
+      expect(result.side).toBe("right");
+      expect(result.left).toBe(anchor.right + 10);
+      expect(result.top).toBeGreaterThanOrEqual(safeTop);
+      expect(result.top + balloon.h).toBeLessThanOrEqual(viewport.h - margin);
+    });
+
+    it("fallback ubica en zona libre inferior más grande cuando espacio abajo supera arriba", () => {
+      const viewport = { w: 400, h: 800 };
+      // Anchor near top covering full width
+      const anchor = {
+        left: 0,
+        top: 60,
+        width: 400,
+        height: 300,
+        right: 400,
+        bottom: 360,
+      };
+      const balloon = { w: 280, h: 160 };
+      const safeTop = 56;
+
+      const result = placeBalloon(anchor, balloon, viewport, 12, safeTop);
+
+      expect(result.side).toBe("bottom");
+      expect(result.top).toBeGreaterThanOrEqual(safeTop);
+      expect(result.left).toBeGreaterThanOrEqual(12);
+    });
+  });
+
+  describe("getSafeTop helper", () => {
+    it("returns 0 if doc or header is missing", () => {
+      expect(getSafeTop(undefined)).toBe(0);
+      expect(getSafeTop({ querySelector: () => null } as any)).toBe(0);
+    });
+
+    it("returns header bottom if header exists with positive bottom", () => {
+      const mockDoc = {
+        querySelector: vi.fn((sel: string) => {
+          if (sel === "header") {
+            return {
+              getBoundingClientRect: () => ({ bottom: 56 }),
+            };
+          }
+          return null;
+        }),
+      };
+      expect(getSafeTop(mockDoc as any)).toBe(56);
+    });
+  });
+});

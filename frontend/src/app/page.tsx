@@ -233,7 +233,6 @@ export default function DashboardPage() {
 
       {/* Single instance of Panel / Sheet (preserves state across mobile/desktop transitions) */}
       <aside
-        data-tour="panel"
         className={
           isCompact
             ? `absolute inset-x-0 bottom-0 z-20 flex flex-col rounded-t-2xl border-t border-border bg-card shadow-float overflow-hidden ${

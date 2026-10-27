@@ -11,7 +11,12 @@ import {
   tileRangeForBounds,
   tilesetVersion,
   buildTiles,
-  validateTileset
+  validateTileset,
+  OFFSHORE_KM,
+  separateOffshoreFeatures,
+  polygonArea,
+  minDistanceToPolygon,
+  getLargestPolygon
 } from '../build_tiles.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -89,6 +94,7 @@ test('buildTiles produces valid tiles, manifest, and structure from fixtures', a
     assert.equal(manifest.maxzoom, 6);
     assert.equal(manifest.version.length, 12);
     assert.deepEqual(manifest.feature_counts, { states: 2, mun: 3 });
+    assert.deepEqual(manifest.offshore_parts, { states: 0, mun: 0 });
     assert.ok(manifest.tile_count > 0, 'Tile count must be > 0');
     assert.ok(manifest.bytes > 0, 'Bytes must be > 0');
     assert.equal(manifest.bounds.length, 4);
@@ -201,3 +207,145 @@ test('buildTiles safety check rejects invalid outDir paths', async () => {
     /Refusing to clean tiles directory/
   );
 });
+
+test('separateOffshoreFeatures correctly isolates offshore islands > 50km and preserves mainland & island-only features', () => {
+  // Synthetic mainland continent: 2x2 degree square from [-100, 20] to [-98, 22]
+  const continentPoly = [
+    [
+      [-100, 20],
+      [-98, 20],
+      [-98, 22],
+      [-100, 22],
+      [-100, 20]
+    ]
+  ];
+
+  // Mainland part for multi-polygon features: 1x1 degree square inside continent
+  const mainlandPart = [
+    [
+      [-99.5, 20.5],
+      [-98.5, 20.5],
+      [-98.5, 21.5],
+      [-99.5, 21.5],
+      [-99.5, 20.5]
+    ]
+  ];
+
+  // 1. Island at ~222 km north (latitude 24.0 vs continent top 22.0: 2.0 degrees * 111 km/deg = ~222 km > 50 km)
+  const farIslandPart = [
+    [
+      [-99.2, 24.0],
+      [-99.0, 24.0],
+      [-99.0, 24.2],
+      [-99.2, 24.2],
+      [-99.2, 24.0]
+    ]
+  ];
+
+  // 2. Island at ~10 km north (latitude 22.09 vs continent top 22.0: 0.09 degrees * 111 km/deg = ~10 km < 50 km)
+  const nearIslandPart = [
+    [
+      [-99.2, 22.09],
+      [-99.0, 22.09],
+      [-99.0, 22.10],
+      [-99.2, 22.10],
+      [-99.2, 22.09]
+    ]
+  ];
+
+  // Test Case A: Feature with island at 200 km -> generates main feature + offshore: 1
+  const featWithFarIsland = {
+    type: 'Feature',
+    id: 1,
+    properties: { id: '01', name: 'Estado Con Isla Lejana' },
+    geometry: {
+      type: 'MultiPolygon',
+      coordinates: [mainlandPart, farIslandPart]
+    }
+  };
+
+  const resFar = separateOffshoreFeatures([featWithFarIsland], continentPoly, OFFSHORE_KM);
+  assert.equal(resFar.offshoreCount, 1, 'Must detect 1 offshore feature');
+  assert.equal(resFar.features.length, 2, 'Must emit main feature + extra offshore feature');
+
+  const mainFeat = resFar.features[0];
+  const extraFeat = resFar.features[1];
+
+  assert.equal(mainFeat.id, 1);
+  assert.equal(mainFeat.properties.id, '01');
+  assert.equal(mainFeat.properties.name, 'Estado Con Isla Lejana');
+  assert.equal(mainFeat.properties.offshore, undefined, 'Main feature must not have offshore property');
+  assert.equal(mainFeat.geometry.type, 'Polygon');
+  assert.deepEqual(mainFeat.geometry.coordinates, mainlandPart);
+
+  assert.equal(extraFeat.id, 1, 'Extra feature must keep the same numeric id for feature-state');
+  assert.equal(extraFeat.properties.id, '01');
+  assert.equal(extraFeat.properties.name, 'Estado Con Isla Lejana');
+  assert.equal(extraFeat.properties.offshore, 1, 'Extra feature must have offshore: 1');
+  assert.equal(extraFeat.geometry.type, 'Polygon');
+  assert.deepEqual(extraFeat.geometry.coordinates, farIslandPart);
+
+  // Test Case B: Feature with island at 10 km -> does NOT generate extra feature
+  const featWithNearIsland = {
+    type: 'Feature',
+    id: 2,
+    properties: { id: '02', name: 'Estado Con Isla Cercana' },
+    geometry: {
+      type: 'MultiPolygon',
+      coordinates: [mainlandPart, nearIslandPart]
+    }
+  };
+
+  const resNear = separateOffshoreFeatures([featWithNearIsland], continentPoly, OFFSHORE_KM);
+  assert.equal(resNear.offshoreCount, 0, 'Must NOT mark island at 10km as offshore');
+  assert.equal(resNear.features.length, 1, 'Must emit only 1 feature');
+  assert.equal(resNear.features[0].properties.offshore, undefined);
+  assert.equal(resNear.features[0].geometry.coordinates.length, 2);
+
+  // Test Case C: Feature that is entirely an offshore island (e.g. Cozumel) -> stays without mark
+  const featEntirelyIslandPoly = {
+    type: 'Feature',
+    id: 3,
+    properties: { id: '03', name: 'Municipio Todo Isla Polygon' },
+    geometry: {
+      type: 'Polygon',
+      coordinates: farIslandPart
+    }
+  };
+
+  const featEntirelyIslandMulti = {
+    type: 'Feature',
+    id: 4,
+    properties: { id: '04', name: 'Municipio Todo Isla MultiPolygon' },
+    geometry: {
+      type: 'MultiPolygon',
+      coordinates: [farIslandPart]
+    }
+  };
+
+  const resAllIsland = separateOffshoreFeatures(
+    [featEntirelyIslandPoly, featEntirelyIslandMulti],
+    continentPoly,
+    OFFSHORE_KM
+  );
+  assert.equal(resAllIsland.offshoreCount, 0, 'Feature that is all island must not be separated or marked');
+  assert.equal(resAllIsland.features.length, 2);
+  assert.equal(resAllIsland.features[0].properties.offshore, undefined);
+  assert.equal(resAllIsland.features[1].properties.offshore, undefined);
+
+  // Test Case D: feature_counts counts unique IDs
+  const allTestFeatures = [
+    featWithFarIsland,
+    featWithNearIsland,
+    featEntirelyIslandPoly,
+    featEntirelyIslandMulti
+  ];
+  const combined = separateOffshoreFeatures(allTestFeatures, continentPoly, OFFSHORE_KM);
+  // featWithFarIsland splits into 2, total features = 5
+  assert.equal(combined.features.length, 5);
+  // Unique IDs should be exactly 4 ('01', '02', '03', '04')
+  const uniqueIdsCount = new Set(combined.features.map(f => f.properties.id)).size;
+  assert.equal(uniqueIdsCount, 4, 'feature_counts must count unique IDs');
+  assert.equal(combined.offshoreCount, 1);
+});
+

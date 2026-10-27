@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from "react";
 
 export const GUIDE_STORAGE_KEY = "atalaya.guide.v1";
 
@@ -79,6 +79,129 @@ export const TOUR_STEPS: TourStep[] = [
     text: "Identifica los cuatro niveles del semáforo, el conteo de municipios y la proporción de lista nominal representada en cada categoría.",
   },
 ];
+
+export interface Rect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  bottom?: number;
+  right?: number;
+}
+
+export interface Size {
+  w: number;
+  h: number;
+}
+
+export type BalloonSide = "bottom" | "top" | "left" | "right" | "inside";
+
+export interface BalloonPlacement {
+  top: number;
+  left: number;
+  side: BalloonSide;
+}
+
+/**
+ * Pure placement algorithm for the guided tour balloon.
+ * Tries bottom, top, left, right (10px gap) taking the first that fits completely
+ * without overlapping the anchor, respecting margin and safeTop.
+ * Falls back to horizontal centering in the largest free space, or inside anchor top.
+ */
+export function placeBalloon(
+  anchor: Rect,
+  balloon: { w: number; h: number },
+  viewport: { w: number; h: number },
+  margin = 12,
+  safeTop = 0
+): BalloonPlacement {
+  const aTop = anchor.top;
+  const aLeft = anchor.left;
+  const aWidth = anchor.width;
+  const aHeight = anchor.height;
+  const aBottom = anchor.bottom !== undefined ? anchor.bottom : aTop + aHeight;
+  const aRight = anchor.right !== undefined ? anchor.right : aLeft + aWidth;
+
+  const bW = balloon.w;
+  const bH = balloon.h;
+  const vW = viewport.w;
+  const vH = viewport.h;
+
+  const GAP = 10;
+  const minY = Math.max(margin, safeTop);
+  const maxY = Math.max(minY, vH - margin - bH);
+  const minX = margin;
+  const maxX = Math.max(minX, vW - margin - bW);
+
+  // 1. Abajo (bottom)
+  const bottomTop = aBottom + GAP;
+  if (bottomTop >= minY && bottomTop + bH <= vH - margin) {
+    let bottomLeft = aLeft + (aWidth - bW) / 2;
+    bottomLeft = Math.max(minX, Math.min(bottomLeft, maxX));
+    return { top: bottomTop, left: bottomLeft, side: "bottom" };
+  }
+
+  // 2. Arriba (top)
+  const topTop = aTop - GAP - bH;
+  if (topTop >= minY && topTop + bH <= vH - margin) {
+    let topLeft = aLeft + (aWidth - bW) / 2;
+    topLeft = Math.max(minX, Math.min(topLeft, maxX));
+    return { top: topTop, left: topLeft, side: "top" };
+  }
+
+  // 3. Izquierda (left)
+  const leftLeft = aLeft - GAP - bW;
+  if (leftLeft >= minX && leftLeft <= maxX && maxY >= minY) {
+    let leftTop = Math.max(minY, Math.min(aTop, maxY));
+    return { top: leftTop, left: leftLeft, side: "left" };
+  }
+
+  // 4. Derecha (right)
+  const rightLeft = aRight + GAP;
+  if (rightLeft >= minX && rightLeft <= maxX && maxY >= minY) {
+    let rightTop = Math.max(minY, Math.min(aTop, maxY));
+    return { top: rightTop, left: rightLeft, side: "right" };
+  }
+
+  // Fallback: horizontal center, largest free space outside anchor, or inside anchor top edge
+  let fLeft = (vW - bW) / 2;
+  fLeft = Math.max(minX, Math.min(fLeft, maxX));
+
+  const spaceAbove = Math.max(0, aTop - minY);
+  const spaceBelow = Math.max(0, (vH - margin) - aBottom);
+
+  if (spaceBelow > spaceAbove && spaceBelow > 0) {
+    const fTop = Math.min(maxY, Math.max(minY, aBottom + GAP));
+    return { top: fTop, left: fLeft, side: "bottom" };
+  }
+
+  if (spaceAbove >= spaceBelow && spaceAbove > 0) {
+    const fTop = Math.max(minY, Math.min(maxY, aTop - GAP - bH));
+    return { top: fTop, left: fLeft, side: "top" };
+  }
+
+  // Inside anchor pinned to its top edge under safeTop
+  const fTop = Math.min(maxY, Math.max(minY, aTop + GAP));
+  return { top: fTop, left: fLeft, side: "inside" };
+}
+
+/**
+ * Measures bottom of <header> element in DOM for safeTop offset.
+ */
+export function getSafeTop(doc?: Document): number {
+  const d = doc !== undefined ? doc : typeof document !== "undefined" ? document : null;
+  if (!d) return 0;
+  try {
+    const header = d.querySelector("header");
+    if (header && typeof header.getBoundingClientRect === "function") {
+      const r = header.getBoundingClientRect();
+      if (r && r.bottom > 0) {
+        return r.bottom;
+      }
+    }
+  } catch {}
+  return 0;
+}
 
 /**
  * Determines whether a DOM element is visible (width > 0, height > 0, and not display:none).
@@ -184,6 +307,10 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
 
   const [i, setI] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
+  const [balloonHeight, setBalloonHeight] = useState<number>(160);
+  const [, setRerenderTick] = useState(0);
+
+  const balloonRef = useRef<HTMLDivElement | null>(null);
 
   const handleClose = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -246,11 +373,28 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
     setRect(match.rect);
   }, [effectiveOpen, i, handleClose]);
 
+  // Measure real balloon height on step change or open
+  useIsomorphicLayoutEffect(() => {
+    if (!effectiveOpen || !balloonRef.current) return;
+    const bRect = balloonRef.current.getBoundingClientRect();
+    if (bRect && bRect.height > 0 && Math.abs(bRect.height - balloonHeight) > 1) {
+      setBalloonHeight(bRect.height);
+    }
+  }, [effectiveOpen, i, balloonHeight]);
+
   // Reposition on window resize and scroll
   useEffect(() => {
     if (!effectiveOpen) return;
 
     const handleReposition = () => {
+      if (balloonRef.current) {
+        const bRect = balloonRef.current.getBoundingClientRect();
+        if (bRect && bRect.height > 0 && Math.abs(bRect.height - balloonHeight) > 1) {
+          setBalloonHeight(bRect.height);
+        }
+      }
+      setRerenderTick((t) => t + 1);
+
       const currentSel = TOUR_STEPS[i]?.sel;
       const match = currentSel ? findVisibleAnchor(currentSel, document) : null;
       if (match) {
@@ -273,7 +417,7 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
     };
-  }, [effectiveOpen, i, handleClose]);
+  }, [effectiveOpen, i, balloonHeight, handleClose]);
 
   // Close on Escape key
   useEffect(() => {
@@ -316,26 +460,24 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
   const vh = typeof window !== "undefined" ? window.innerHeight : 768;
   const margin = 12;
   const w = Math.min(280, Math.max(200, vw - margin * 2));
+  const safeTop = getSafeTop();
 
-  const balloonHeightEstimate = 160;
-  // If the anchor center is in the bottom half of the viewport, place the balloon above the anchor
-  const anchorCenterY = currentRect.top + currentRect.height / 2;
-  const isBottomHalf = anchorCenterY > vh / 2;
-
-  // Horizontal position centered on anchor, clamped to screen with 12px margins
-  const left = Math.min(
-    Math.max(margin, currentRect.left + currentRect.width / 2 - w / 2),
-    Math.max(margin, vw - w - margin)
+  const placement = placeBalloon(
+    currentRect,
+    { w, h: balloonHeight },
+    { w: vw, h: vh },
+    margin,
+    safeTop
   );
 
-  // Vertical position: above if anchor is in bottom half, below if anchor is in top half
-  let top = isBottomHalf
-    ? currentRect.top - balloonHeightEstimate - 10
-    : currentRect.bottom + 10;
-
-  // Clamp vertical position with 12px margin so balloon never leaves screen
-  const maxTop = Math.max(margin, vh - balloonHeightEstimate - margin);
-  top = Math.min(Math.max(margin, top), maxTop);
+  // Spotlight ring surrounding targeted anchor without arbitrary height cap
+  const ringPad = 4;
+  const ringLeft = Math.max(0, currentRect.left - ringPad);
+  const ringTop = Math.max(0, currentRect.top - ringPad);
+  const ringRight = Math.min(vw, (currentRect.right ?? (currentRect.left + currentRect.width)) + ringPad);
+  const ringBottom = Math.min(vh, (currentRect.bottom ?? (currentRect.top + currentRect.height)) + ringPad);
+  const ringWidth = Math.max(0, ringRight - ringLeft);
+  const ringHeight = Math.max(0, ringBottom - ringTop);
 
   const hasMoreSteps = getValidStepAndRect(activeMatch.index + 1) !== null;
 
@@ -347,23 +489,25 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
         style={{
           position: "fixed",
           zIndex: 70,
-          left: Math.max(0, currentRect.left - 4),
-          top: Math.max(0, currentRect.top - 4),
-          width: currentRect.width + 8,
-          height: Math.min(currentRect.height + 8, 160),
+          left: ringLeft,
+          top: ringTop,
+          width: ringWidth,
+          height: ringHeight,
+          pointerEvents: "none",
         }}
       />
 
       {/* Floating guided tour balloon */}
       <div
+        ref={balloonRef}
         role="region"
         aria-label="Guía interactiva del mapa"
         className={`fixed z-[70] float-panel p-3.5 shadow-float text-foreground ${className}`}
         style={{
           position: "fixed",
           zIndex: 70,
-          left,
-          top,
+          left: placement.left,
+          top: placement.top,
           width: w,
         }}
       >
