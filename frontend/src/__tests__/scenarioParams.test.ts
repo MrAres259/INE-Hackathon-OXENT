@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   defaultParamsFromMeta,
   defaultsForScenario,
+  leverDefaults,
   paramsForScenario,
   describeScenario,
   isScenarioModified,
@@ -146,5 +147,18 @@ describe("scenarioParams Pure Functions", () => {
     expect(isScenarioModified("intervencion", intervDefaults, MOCK_META)).toBe(false);
     expect(isScenarioModified("intervencion", { ...intervDefaults, effect_pp: 5 }, MOCK_META)).toBe(true);
     expect(isScenarioModified("base", {}, MOCK_META)).toBe(false);
+  });
+
+  it("extracts lever defaults without lever key using leverDefaults", () => {
+    expect(leverDefaults(MOCK_META)).toEqual({
+      targeting: "rojo_naranja",
+      effect_pp: 3.0,
+      coverage: 100,
+    });
+    expect(leverDefaults(null)).toEqual({
+      targeting: "rojo_naranja",
+      effect_pp: 3.0,
+      coverage: 100,
+    });
   });
 });

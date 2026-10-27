@@ -71,16 +71,34 @@ export function RiskMap() {
   const data = useMapRisk();
 
   const mapInstanceRef = useRef<MapLibreMap | null>(null);
-  const [hover, setHover] = useState<HoverInfo | null>(null);
+  const [hoverPos, setHoverPos] = useState<{
+    id: string;
+    level: "state" | "mun";
+    name: string;
+    ent: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const handleMapReady = React.useCallback((map: MapLibreMap) => {
     mapInstanceRef.current = map;
   }, []);
 
   const handleHover = React.useCallback((nextHover: HoverInfo | null) => {
-    setHover((prev) => {
+    setHoverPos((prev) => {
       if (!prev && !nextHover) return prev;
-      if (!prev || !nextHover) return nextHover;
+      if (!prev || !nextHover) {
+        return nextHover
+          ? {
+              id: nextHover.id,
+              level: nextHover.level,
+              name: nextHover.name,
+              ent: nextHover.ent,
+              x: nextHover.x,
+              y: nextHover.y,
+            }
+          : null;
+      }
       const rxPrev = Math.round(prev.x);
       const ryPrev = Math.round(prev.y);
       const rxNext = Math.round(nextHover.x);
@@ -90,15 +108,38 @@ export function RiskMap() {
         prev.level === nextHover.level &&
         rxPrev === rxNext &&
         ryPrev === ryNext &&
-        prev.item === nextHover.item &&
-        prev.base === nextHover.base &&
-        prev.alt === nextHover.alt
+        prev.name === nextHover.name &&
+        prev.ent === nextHover.ent
       ) {
         return prev;
       }
-      return nextHover;
+      return {
+        id: nextHover.id,
+        level: nextHover.level,
+        name: nextHover.name,
+        ent: nextHover.ent,
+        x: nextHover.x,
+        y: nextHover.y,
+      };
     });
   }, []);
+
+  // Derive base/alt/item on every render from data so tooltip refreshes upon simulation/apply
+  const hover = React.useMemo<HoverInfo | null>(() => {
+    if (!hoverPos) return null;
+    const lvl = hoverPos.level;
+    const id = hoverPos.id;
+    const baseItem = data.base[lvl]?.get(id) ?? null;
+    const altItem = data.alt ? (data.alt[lvl]?.get(id) ?? null) : null;
+    const activeItem = data.active[lvl]?.get(id) ?? baseItem;
+
+    return {
+      ...hoverPos,
+      base: baseItem,
+      alt: altItem,
+      item: activeItem,
+    };
+  }, [hoverPos, data]);
 
   const handleExportPng = React.useCallback(() => {
     const map = mapInstanceRef.current;

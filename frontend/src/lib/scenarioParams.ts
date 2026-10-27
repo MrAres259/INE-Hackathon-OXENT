@@ -56,6 +56,21 @@ export function defaultsForScenario(
 }
 
 /**
+ * Default parameters for an intervention lever (defaults from meta without `lever`).
+ */
+export function leverDefaults(meta: Meta | null): Record<string, number | string> {
+  const defs = defaultsForScenario("intervencion", meta);
+  const { lever: _lever, ...rest } = defs;
+  return rest;
+}
+
+export const SCENARIO_DISPLAY_NAMES: Record<ScenarioId, string> = {
+  base: "Base",
+  intervencion: "Intervención",
+  pesimista: "Pesimista",
+};
+
+/**
  * Canonical string key representing scenario parameters for cache/matching.
  */
 export function scenarioParamsKey(params: Record<string, number | string>): string {

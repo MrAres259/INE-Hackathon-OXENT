@@ -13,8 +13,14 @@ import {
 import { ApiError } from "@/lib/api";
 import { InfoTip } from "@/components/ui/InfoTip";
 import { PARAM_TERM, optionTerm, glossaryFor } from "@/lib/glossary";
-import { defaultsForScenario, isScenarioModified } from "@/lib/scenarioParams";
+import { defaultsForScenario, isScenarioModified, leverDefaults } from "@/lib/scenarioParams";
 import { showToast } from "@/lib/toast";
+
+const LEVER_WEIGHT_VARIABLE: Record<string, string> = {
+  promocion_jovenes: "población de 18 a 24 años",
+  casillas_rurales: "población rural",
+  materiales_lengua_indigena: "población hablante de lengua indígena",
+};
 
 export function ScenarioControls() {
   const {
@@ -22,26 +28,28 @@ export function ScenarioControls() {
     setIsScenarioModalOpen,
     meta,
     paramsByScenario,
+    leverParams,
     applyScenarioParams,
     resetScenarioParams,
     simulationResult,
     scenario,
   } = useAtalaya();
 
-  const activeParams = useMemo(() => {
-    if (scenario === "base") return {};
-    return paramsByScenario[scenario] ?? {};
-  }, [scenario, paramsByScenario]);
-
-  const [localParams, setLocalParams] = useState<Record<string, number | string>>(activeParams);
+  const activeLever = String(paramsByScenario.intervencion?.lever ?? "promocion_jovenes");
+  const [selectedLever, setSelectedLever] = useState<string>(activeLever);
+  const [draftsByLever, setDraftsByLever] = useState<Record<string, Record<string, number | string>>>({});
+  const [pesimistaDraft, setPesimistaDraft] = useState<Record<string, number | string>>(paramsByScenario.pesimista ?? {});
   const [isSimulating, setIsSimulating] = useState(false);
   const [paramErrors, setParamErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
-  // Sync localParams when scenario or state params change
+  // Sync state when scenario or paramsByScenario changes
   useEffect(() => {
-    if (scenario !== "base") {
-      setLocalParams(paramsByScenario[scenario] ?? {});
+    if (scenario === "intervencion") {
+      const activeL = String(paramsByScenario.intervencion?.lever ?? "promocion_jovenes");
+      setSelectedLever(activeL);
+    } else if (scenario === "pesimista") {
+      setPesimistaDraft(paramsByScenario.pesimista ?? {});
     }
   }, [scenario, paramsByScenario]);
 
@@ -57,6 +65,51 @@ export function ScenarioControls() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isScenarioModalOpen, setIsScenarioModalOpen]);
 
+  // Derived current values for active sheet
+  const currentValues = useMemo<Record<string, number | string>>(() => {
+    if (scenario !== "intervencion") {
+      return pesimistaDraft;
+    }
+    const defs = leverDefaults(meta);
+    const saved = leverParams?.[selectedLever];
+    const draft = draftsByLever[selectedLever];
+    return {
+      lever: selectedLever,
+      ...defs,
+      ...(saved ?? {}),
+      ...(draft ?? {}),
+    };
+  }, [scenario, selectedLever, meta, leverParams, draftsByLever, pesimistaDraft]);
+
+  const updateParamValue = (key: string, val: number | string) => {
+    setParamErrors((prev) => ({ ...prev, [key]: "" }));
+    if (key === "lever") {
+      setSelectedLever(String(val));
+      return;
+    }
+    if (scenario === "intervencion") {
+      setDraftsByLever((prev) => {
+        const curDraft = prev[selectedLever] ?? {
+          effect_pp: currentValues.effect_pp,
+          coverage: currentValues.coverage,
+          targeting: currentValues.targeting,
+        };
+        return {
+          ...prev,
+          [selectedLever]: {
+            ...curDraft,
+            [key]: val,
+          },
+        };
+      });
+    } else {
+      setPesimistaDraft((prev) => ({
+        ...prev,
+        [key]: val,
+      }));
+    }
+  };
+
   // Find scenario definition dynamically from meta
   const scenarioDef =
     meta?.scenarios.find((s) => s.id === scenario && s.params && s.params.length > 0) ??
@@ -70,10 +123,10 @@ export function ScenarioControls() {
   const isModified = useMemo(() => {
     if (scenario === "base") return false;
     return (
-      isScenarioModified(scenario, localParams, meta) ||
+      isScenarioModified(scenario, currentValues, meta) ||
       isScenarioModified(scenario, paramsByScenario[scenario], meta)
     );
-  }, [scenario, localParams, paramsByScenario, meta]);
+  }, [scenario, currentValues, paramsByScenario, meta]);
 
   if (!isScenarioModalOpen) return null;
 
@@ -83,7 +136,7 @@ export function ScenarioControls() {
     setParamErrors({});
     setGeneralError(null);
     try {
-      await applyScenarioParams(scenario, localParams);
+      await applyScenarioParams(scenario, currentValues);
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 422) {
         const errors: Record<string, string> = {};
@@ -127,7 +180,9 @@ export function ScenarioControls() {
     setParamErrors({});
     setGeneralError(null);
     try {
-      setLocalParams(defaults);
+      setDraftsByLever({});
+      setSelectedLever("promocion_jovenes");
+      setPesimistaDraft(defaultsForScenario("pesimista", meta));
       await resetScenarioParams(scenario);
     } catch (err: unknown) {
       const msg = (err as Error)?.message || "Error al restablecer valores";
@@ -195,7 +250,7 @@ export function ScenarioControls() {
           </p>
         ) : (
           paramsList.map((p) => {
-            const currentVal = localParams[p.key] ?? p.default;
+            const currentVal = currentValues[p.key] ?? p.default;
             const hasError = !!paramErrors[p.key];
 
             if (p.type === "select") {
@@ -216,10 +271,7 @@ export function ScenarioControls() {
                         <button
                           key={opt.value}
                           type="button"
-                          onClick={() => {
-                            setLocalParams((prev) => ({ ...prev, [p.key]: opt.value }));
-                            setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
-                          }}
+                          onClick={() => updateParamValue(p.key, opt.value)}
                           className={`rounded px-1.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
                             String(currentVal) === String(opt.value)
                               ? "bg-card text-primary shadow-xs"
@@ -233,11 +285,7 @@ export function ScenarioControls() {
                   ) : (
                     <select
                       value={String(currentVal)}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setLocalParams((prev) => ({ ...prev, [p.key]: val }));
-                        setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
-                      }}
+                      onChange={(e) => updateParamValue(p.key, e.target.value)}
                       className={`h-9 w-full rounded-md border ${
                         hasError ? "border-destructive" : "border-border"
                       } bg-background px-3 text-xs text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/20 cursor-pointer`}
@@ -254,10 +302,18 @@ export function ScenarioControls() {
                     const optKey = optionTerm(p.key, String(currentVal));
                     const optEntry = optKey ? glossaryFor(optKey) : undefined;
                     if (!optEntry) return null;
+                    const weightVar = p.key === "lever" ? LEVER_WEIGHT_VARIABLE[String(currentVal)] : undefined;
                     return (
-                      <p className="text-[11px] text-muted-foreground line-clamp-2" title={optEntry.body}>
-                        {optEntry.body}
-                      </p>
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-muted-foreground line-clamp-2" title={optEntry.body}>
+                          {optEntry.body}
+                        </p>
+                        {weightVar && (
+                          <p className="text-[11px] text-muted-foreground leading-snug">
+                            Su efecto se pondera por {weightVar}: rinde más donde {weightVar} es mayor y poco en zonas donde es baja.
+                          </p>
+                        )}
+                      </div>
                     );
                   })()}
                   {hasError && (
@@ -298,8 +354,7 @@ export function ScenarioControls() {
                       value={isNaN(numVal) ? min : numVal}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value);
-                        setLocalParams((prev) => ({ ...prev, [p.key]: val }));
-                        setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                        updateParamValue(p.key, isNaN(val) ? min : val);
                       }}
                       className="flex-1 cursor-pointer"
                       style={{ accentColor: "var(--primary)" }}
@@ -312,11 +367,7 @@ export function ScenarioControls() {
                       value={isNaN(numVal) ? "" : numVal}
                       onChange={(e) => {
                         const val = parseFloat(e.target.value);
-                        setLocalParams((prev) => ({
-                          ...prev,
-                          [p.key]: isNaN(val) ? 0 : val,
-                        }));
-                        setParamErrors((prev) => ({ ...prev, [p.key]: "" }));
+                        updateParamValue(p.key, isNaN(val) ? 0 : val);
                       }}
                       className={`h-8 w-16 rounded-md border ${
                         hasError ? "border-destructive" : "border-border"
@@ -336,13 +387,13 @@ export function ScenarioControls() {
 
         {/* Live Formula Box */}
         {scenarioDef?.id === "intervencion" && (() => {
-          const effect = Number(localParams.effect_pp ?? 3.0);
-          const rawCoverage = Number(localParams.coverage ?? 100);
+          const effect = Number(currentValues.effect_pp ?? 3.0);
+          const rawCoverage = Number(currentValues.coverage ?? 100);
           const covPct = rawCoverage;
           const resultado = effect * (covPct / 100);
           const maxResultado = 1.5 * resultado;
 
-          const lever = String(localParams.lever ?? "promocion_jovenes");
+          const lever = String(currentValues.lever ?? "promocion_jovenes");
           let variableLabel = "";
           if (lever === "promocion_jovenes") {
             variableLabel = "población de 18 a 24 años";
@@ -370,8 +421,8 @@ export function ScenarioControls() {
         })()}
 
         {scenarioDef?.id === "pesimista" && (() => {
-          const shock = Number(localParams.shock_pp ?? 2.0);
-          const rawTrend = Number(localParams.trend_amplifier ?? 50);
+          const shock = Number(currentValues.shock_pp ?? 2.0);
+          const rawTrend = Number(currentValues.trend_amplifier ?? 50);
           const trendPct = rawTrend;
 
           return (
@@ -390,11 +441,16 @@ export function ScenarioControls() {
         {/* Simulation Summary Result */}
         {simulationResult ? (
           <div className="rounded-lg border border-border bg-card p-3 space-y-3">
-            <div className="flex items-center justify-between text-xs font-bold text-foreground">
-              <span>Resultado simulado</span>
-              <span className="text-[10px] text-muted-foreground tnum font-mono">
-                {simulationResult.summary.n_units} zonas evaluadas
-              </span>
+            <div>
+              <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                <span>Resultado simulado</span>
+                <span className="text-[10px] text-muted-foreground tnum font-mono">
+                  {simulationResult.summary.n_units} zonas evaluadas
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Comparado con el escenario base
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -424,6 +480,32 @@ export function ScenarioControls() {
                 </span>
               </div>
             </div>
+
+            {(() => {
+              let down = 0;
+              let up = 0;
+              let noChange = 0;
+              for (const it of simulationResult.items) {
+                const delta = it.delta_vs_base_pp;
+                if (typeof delta === "number") {
+                  if (delta < -0.05) down++;
+                  else if (delta > 0.05) up++;
+                  else noChange++;
+                } else {
+                  noChange++;
+                }
+              }
+              return (
+                <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/50">
+                  <span>Zonas vs base:</span>
+                  <span className="text-good font-semibold tnum">{down} bajan</span>
+                  <span>·</span>
+                  <span className="text-bad font-semibold tnum">{up} suben</span>
+                  <span>·</span>
+                  <span className="text-muted-foreground font-semibold tnum">{noChange} sin cambio</span>
+                </div>
+              );
+            })()}
 
             {/* Stacked bar of risk distribution */}
             {(() => {

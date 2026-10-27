@@ -140,8 +140,12 @@ export function RegionDetailPanel() {
                 <span>Escenario activo</span>
                 <InfoTip term="escenarios" size="xs" />
               </div>
-              <div className="mt-1 font-display text-xl font-bold capitalize text-primary truncate">
-                {scenario}
+              <div className="mt-1 font-display text-xl font-bold text-primary truncate">
+                {scenario === "intervencion"
+                  ? "Intervención"
+                  : scenario === "pesimista"
+                  ? "Pesimista"
+                  : "Base"}
               </div>
             </div>
             <div className="text-[11px] text-muted-foreground mt-0.5">

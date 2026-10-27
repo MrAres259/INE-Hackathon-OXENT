@@ -31,6 +31,7 @@ import {
 import {
   defaultParamsFromMeta,
   defaultsForScenario,
+  leverDefaults,
   paramsForScenario,
   describeScenario,
   scenarioParamsKey,
@@ -117,6 +118,7 @@ export interface AtalayaContextValue {
     intervencion: Record<string, number | string>;
     pesimista: Record<string, number | string>;
   };
+  leverParams: Record<string, Record<string, number | string>>;
   applyScenarioParams: (
     scenario: ScenarioId,
     params: Record<string, number | string>,
@@ -165,6 +167,12 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     intervencion: defaultsForScenario("intervencion", null),
     pesimista: defaultsForScenario("pesimista", null),
   });
+  const [leverParams, setLeverParams] = useState<Record<string, Record<string, number | string>>>(() => {
+    const defs = leverDefaults(null);
+    return {
+      promocion_jovenes: { ...defs },
+    };
+  });
   const [level, setLevel] = useState<Level>("state");
   const [selectedEnt, setSelectedEnt] = useState<string | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
@@ -206,6 +214,14 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
       setParamsByScenario((prev) => {
         const current = prev[scenario] ?? {};
         const next = typeof action === "function" ? action(current) : action;
+        if (scenario === "intervencion") {
+          const activeLever = String(next.lever || current.lever || "promocion_jovenes");
+          const { lever: _l, ...leverFields } = next;
+          setLeverParams((lp) => ({
+            ...lp,
+            [activeLever]: { ...(lp[activeLever] ?? {}), ...leverFields },
+          }));
+        }
         return {
           ...prev,
           [scenario]: next,
@@ -290,14 +306,18 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     getMeta().then((m) => {
       setMeta(m);
       if (m?.scenarios) {
-        setParamsByScenario((prev) => {
-          const defInterv = defaultsForScenario("intervencion", m);
-          const defPesim = defaultsForScenario("pesimista", m);
-          return {
-            intervencion: { ...defInterv, ...prev.intervencion },
-            pesimista: { ...defPesim, ...prev.pesimista },
-          };
-        });
+        const defInterv = defaultsForScenario("intervencion", m);
+        const defPesim = defaultsForScenario("pesimista", m);
+        const lvrDefs = leverDefaults(m);
+        const initialLever = String(defInterv.lever ?? "promocion_jovenes");
+        setParamsByScenario((prev) => ({
+          intervencion: { ...defInterv, ...prev.intervencion },
+          pesimista: { ...defPesim, ...prev.pesimista },
+        }));
+        setLeverParams((prev) => ({
+          [initialLever]: { ...lvrDefs, ...(prev[initialLever] ?? {}) },
+          ...prev,
+        }));
       }
     });
   }, []);
@@ -450,6 +470,14 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
             ...prev,
             [scenarioToApply]: resolved,
           }));
+          if (scenarioToApply === "intervencion") {
+            const activeLever = String(resolved.lever || "promocion_jovenes");
+            const { lever: _l, ...leverFields } = resolved;
+            setLeverParams((prev) => ({
+              ...prev,
+              [activeLever]: leverFields,
+            }));
+          }
           if (scenario === scenarioToApply) {
             setRiskItems(res.items);
           }
@@ -488,6 +516,11 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     async (scenarioToReset: ScenarioId) => {
       if (scenarioToReset === "base") return;
       const defaults = defaultsForScenario(scenarioToReset, meta);
+      if (scenarioToReset === "intervencion") {
+        const defLever = String(defaults.lever ?? "promocion_jovenes");
+        const { lever: _l, ...defFields } = defaults;
+        setLeverParams({ [defLever]: defFields });
+      }
       await applyScenarioParams(scenarioToReset, defaults, { showToast: false });
       showToast({
         kind: "success",
@@ -527,6 +560,7 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
         scenarioParams,
         setScenarioParams,
         paramsByScenario,
+        leverParams,
         applyScenarioParams,
         resetScenarioParams,
         isScenarioModified,

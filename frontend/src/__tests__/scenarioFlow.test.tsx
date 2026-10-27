@@ -3,6 +3,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   defaultsForScenario,
+  leverDefaults,
   paramsForScenario,
   describeScenario,
   isScenarioModified,
@@ -31,6 +32,9 @@ function createMockContext(overrides: Partial<AtalayaContextValue> = {}): Atalay
     paramsByScenario: {
       intervencion: defaultsForScenario("intervencion", MOCK_META),
       pesimista: defaultsForScenario("pesimista", MOCK_META),
+    },
+    leverParams: {
+      promocion_jovenes: leverDefaults(MOCK_META),
     },
     applyScenarioParams: vi.fn().mockResolvedValue(undefined),
     resetScenarioParams: vi.fn().mockResolvedValue(undefined),
@@ -442,6 +446,190 @@ describe("W4-A Scenario Flow & Ephemeral Toast Suite", () => {
       );
       expect(html).not.toContain("Modificado");
       expect(html).not.toContain('aria-label="Restablecer valores originales"');
+    });
+  });
+
+  describe("7. Per-lever Memory & Explanation Flow (W5-A)", () => {
+    it("maintains separate values per lever, preserves custom values when switching levers, and reset clears all levers", () => {
+      // 1. Initial defaults for intervention levers
+      const defaults = leverDefaults(MOCK_META);
+      expect(defaults).toEqual({
+        targeting: "rojo_naranja",
+        effect_pp: 3.0,
+        coverage: 100,
+      });
+
+      // Memory map simulating state.tsx leverParams
+      let leverParams: Record<string, Record<string, number | string>> = {
+        promocion_jovenes: { ...defaults },
+      };
+      let activeParams: Record<string, number | string> = {
+        lever: "promocion_jovenes",
+        ...defaults,
+      };
+
+      // Step 1: User applies voto joven at 10 pp
+      activeParams = {
+        ...activeParams,
+        lever: "promocion_jovenes",
+        effect_pp: 10.0,
+      };
+      leverParams["promocion_jovenes"] = {
+        targeting: activeParams.targeting,
+        effect_pp: 10.0,
+        coverage: activeParams.coverage,
+      };
+
+      expect(leverParams["promocion_jovenes"].effect_pp).toBe(10.0);
+      expect(isScenarioModified("intervencion", activeParams, MOCK_META)).toBe(true);
+
+      // Step 2: User switches lever to casillas rurales in the controls
+      // Fields load values for casillas rurales: not yet saved => defaults (3 pp, 100 %, rojo_naranja)
+      const ruralValues = leverParams["casillas_rurales"] ?? leverDefaults(MOCK_META);
+      expect(ruralValues).toEqual({
+        targeting: "rojo_naranja",
+        effect_pp: 3.0,
+        coverage: 100,
+      });
+
+      // Step 3: User switches back to voto joven => 10 pp retained!
+      const youthValues = leverParams["promocion_jovenes"] ?? leverDefaults(MOCK_META);
+      expect(youthValues.effect_pp).toBe(10.0);
+
+      // Step 4: User applies casillas rurales (e.g. at 5 pp) => does NOT change voto joven!
+      leverParams["casillas_rurales"] = {
+        ...ruralValues,
+        effect_pp: 5.0,
+      };
+      activeParams = {
+        lever: "casillas_rurales",
+        ...leverParams["casillas_rurales"],
+      };
+
+      // Voto joven is still 10 pp!
+      expect(leverParams["promocion_jovenes"].effect_pp).toBe(10.0);
+      expect(leverParams["casillas_rurales"].effect_pp).toBe(5.0);
+
+      // Step 5: Restablecer cleans both and returns to defaults
+      leverParams = {};
+      activeParams = defaultsForScenario("intervencion", MOCK_META);
+
+      expect(activeParams.lever).toBe("promocion_jovenes");
+      expect(activeParams.effect_pp).toBe(3.0);
+      expect(isScenarioModified("intervencion", activeParams, MOCK_META)).toBe(false);
+
+      // Both levers are now at defaults
+      const youthReset = leverParams["promocion_jovenes"] ?? leverDefaults(MOCK_META);
+      const ruralReset = leverParams["casillas_rurales"] ?? leverDefaults(MOCK_META);
+      expect(youthReset.effect_pp).toBe(3.0);
+      expect(ruralReset.effect_pp).toBe(3.0);
+    });
+
+    it("ScenarioControls renders distinct values per lever from leverParams and explains variable weighting", () => {
+      // With promocion_jovenes at 10 pp
+      const mockCtxYouth = createMockContext({
+        scenario: "intervencion",
+        paramsByScenario: {
+          intervencion: {
+            lever: "promocion_jovenes",
+            effect_pp: 10.0,
+            coverage: 100,
+            targeting: "rojo_naranja",
+          },
+          pesimista: defaultsForScenario("pesimista", MOCK_META),
+        },
+        leverParams: {
+          promocion_jovenes: {
+            effect_pp: 10.0,
+            coverage: 100,
+            targeting: "rojo_naranja",
+          },
+          casillas_rurales: {
+            effect_pp: 3.0,
+            coverage: 100,
+            targeting: "rojo_naranja",
+          },
+        },
+      });
+
+      const htmlYouth = renderToStaticMarkup(
+        <AtalayaContext.Provider value={mockCtxYouth}>
+          <ScenarioControls />
+        </AtalayaContext.Provider>
+      );
+
+      expect(htmlYouth).toContain("+10.0 pp");
+      expect(htmlYouth).toContain("Su efecto se pondera por población de 18 a 24 años");
+
+      // With casillas_rurales active (with 3 pp defaults)
+      const mockCtxRural = createMockContext({
+        scenario: "intervencion",
+        paramsByScenario: {
+          intervencion: {
+            lever: "casillas_rurales",
+            effect_pp: 3.0,
+            coverage: 100,
+            targeting: "rojo_naranja",
+          },
+          pesimista: defaultsForScenario("pesimista", MOCK_META),
+        },
+        leverParams: {
+          promocion_jovenes: {
+            effect_pp: 10.0,
+            coverage: 100,
+            targeting: "rojo_naranja",
+          },
+          casillas_rurales: {
+            effect_pp: 3.0,
+            coverage: 100,
+            targeting: "rojo_naranja",
+          },
+        },
+      });
+
+      const htmlRural = renderToStaticMarkup(
+        <AtalayaContext.Provider value={mockCtxRural}>
+          <ScenarioControls />
+        </AtalayaContext.Provider>
+      );
+
+      expect(htmlRural).toContain("+3.0 pp");
+      expect(htmlRural).toContain("Su efecto se pondera por población rural");
+    });
+
+    it("ScenarioControls explains simulation result compared with base and shows zones breakdown", () => {
+      const mockCtx = createMockContext({
+        scenario: "intervencion",
+        simulationResult: {
+          scenario: "intervencion",
+          level: "mun",
+          params: { lever: "promocion_jovenes", effect_pp: 3.0, coverage: 100, targeting: "rojo_naranja" },
+          summary: {
+            n_units: 3,
+            mean_delta_pp: -1.5,
+            votos_adicionales: 50000,
+            by_category: { verde: 2, amarillo: 1, naranja: 0, rojo: 0, sin_dato: 0 },
+            by_category_base: { verde: 1, amarillo: 1, naranja: 1, rojo: 0, sin_dato: 0 },
+          },
+          items: [
+            { id: "01001", delta_vs_base_pp: -1.5 } as any,
+            { id: "01002", delta_vs_base_pp: 0.1 } as any,
+            { id: "01003", delta_vs_base_pp: 0.0 } as any,
+          ],
+        },
+      });
+
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={mockCtx}>
+          <ScenarioControls />
+        </AtalayaContext.Provider>
+      );
+
+      expect(html).toContain("Comparado con el escenario base");
+      expect(html).toContain("Zonas vs base:");
+      expect(html).toContain("1 bajan");
+      expect(html).toContain("1 suben");
+      expect(html).toContain("1 sin cambio");
     });
   });
 });
