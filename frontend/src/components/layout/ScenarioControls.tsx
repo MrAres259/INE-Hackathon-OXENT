@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useAtalaya } from "@/lib/state";
 import {
   formatSignedVotes,
@@ -17,10 +17,11 @@ import {
   defaultsForScenario,
   isScenarioModified,
   leverDefaults,
+  defaultCampaign,
   LEVER_DEFAULT_LABELS,
   LEVER_SHORT_LABELS,
 } from "@/lib/scenarioParams";
-import type { Campaign } from "@/lib/types";
+import type { Campaign, Meta } from "@/lib/types";
 import { MOCK_STATES } from "@/lib/mocks/meta";
 import { showToast } from "@/lib/toast";
 
@@ -37,7 +38,72 @@ const LEVER_WEIGHT_VARIABLE: Record<string, string> = {
   materiales_lengua_indigena: "población hablante de lengua indígena",
 };
 
-export function ScenarioControls() {
+export function getAppliedCampaigns(
+  params: Record<string, any> | undefined,
+  savedLeverParams: Record<string, any> | undefined,
+  meta: Meta | null
+): Campaign[] {
+  if (Array.isArray(params?.campaigns) && params.campaigns.length > 0) {
+    return params.campaigns.map((c: any) => ({
+      lever: String(c.lever || "promocion_jovenes"),
+      targeting: String(c.targeting || "rojo_naranja"),
+      effect_pp: Number(c.effect_pp ?? 3.0),
+      coverage: Number(c.coverage ?? 100),
+      ents: Array.isArray(c.ents) ? [...c.ents] : [],
+    }));
+  }
+
+  const p = params;
+  const activeLever = String(p?.lever ?? "promocion_jovenes");
+  const saved = savedLeverParams?.[activeLever];
+  const defs = leverDefaults(meta);
+
+  const effect_pp = Number(
+    p?.effect_pp ?? saved?.effect_pp ?? defs.effect_pp ?? 3.0
+  );
+  const coverage = Number(
+    p?.coverage ?? saved?.coverage ?? defs.coverage ?? 100
+  );
+  const targeting = String(
+    p?.targeting ?? saved?.targeting ?? defs.targeting ?? "rojo_naranja"
+  );
+  const ents = Array.isArray(p?.ents)
+    ? [...p.ents]
+    : Array.isArray(saved?.ents)
+    ? [...saved.ents]
+    : [];
+
+  return [
+    {
+      lever: activeLever,
+      targeting,
+      effect_pp,
+      coverage,
+      ents,
+    },
+  ];
+}
+
+export function areCampaignsEqual(a: Campaign[], b: Campaign[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const c1 = a[i];
+    const c2 = b[i];
+    if (c1.lever !== c2.lever) return false;
+    if (c1.targeting !== c2.targeting) return false;
+    if (Number(c1.effect_pp) !== Number(c2.effect_pp)) return false;
+    if (Number(c1.coverage) !== Number(c2.coverage)) return false;
+    const ents1 = [...(c1.ents || [])].sort();
+    const ents2 = [...(c2.ents || [])].sort();
+    if (ents1.length !== ents2.length) return false;
+    for (let j = 0; j < ents1.length; j++) {
+      if (ents1[j] !== ents2[j]) return false;
+    }
+  }
+  return true;
+}
+
+export function useScenarioDraft() {
   const {
     isScenarioModalOpen,
     setIsScenarioModalOpen,
@@ -46,62 +112,20 @@ export function ScenarioControls() {
     leverParams,
     applyScenarioParams,
     resetScenarioParams,
-    setScenarioParams,
     simulationResult,
     scenario,
   } = useAtalaya();
 
   const allStates = meta?.states ?? MOCK_STATES;
 
-  // Initialize draft campaigns from paramsByScenario
-  const initialCampaigns: Campaign[] = useMemo(() => {
-    if (
-      Array.isArray(paramsByScenario.intervencion?.campaigns) &&
-      paramsByScenario.intervencion.campaigns.length > 0
-    ) {
-      return paramsByScenario.intervencion.campaigns.map((c: any) => ({
-        lever: String(c.lever || "promocion_jovenes"),
-        targeting: String(c.targeting || "rojo_naranja"),
-        effect_pp: Number(c.effect_pp ?? 3.0),
-        coverage: Number(c.coverage ?? 100),
-        ents: Array.isArray(c.ents) ? [...c.ents] : [],
-      }));
-    }
+  const appliedCampaigns = useMemo(
+    () => getAppliedCampaigns(paramsByScenario.intervencion, leverParams, meta),
+    [paramsByScenario.intervencion, leverParams, meta]
+  );
 
-    const p = paramsByScenario.intervencion;
-    const activeLever = String(p?.lever ?? "promocion_jovenes");
-    const saved = leverParams?.[activeLever];
-    const defs = leverDefaults(meta);
-
-    const effect_pp = Number(
-      p?.effect_pp ?? saved?.effect_pp ?? defs.effect_pp ?? 3.0
-    );
-    const coverage = Number(
-      p?.coverage ?? saved?.coverage ?? defs.coverage ?? 100
-    );
-    const targeting = String(
-      p?.targeting ?? saved?.targeting ?? defs.targeting ?? "rojo_naranja"
-    );
-    const ents = Array.isArray(p?.ents)
-      ? p.ents
-      : Array.isArray(saved?.ents)
-      ? saved.ents
-      : [];
-
-    return [
-      {
-        lever: activeLever,
-        targeting,
-        effect_pp,
-        coverage,
-        ents,
-      },
-    ];
-  }, [paramsByScenario.intervencion, leverParams, meta]);
-
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
+  const [campaigns, setCampaigns] = useState<Campaign[]>(appliedCampaigns);
   const [pesimistaDraft, setPesimistaDraft] = useState<Record<string, number | string>>(
-    paramsByScenario.pesimista ?? {}
+    () => paramsByScenario.pesimista ?? {}
   );
   const [isSimulating, setIsSimulating] = useState(false);
   const [cardErrors, setCardErrors] = useState<Record<number, string>>({});
@@ -110,28 +134,51 @@ export function ScenarioControls() {
   const [stateSearch, setStateSearch] = useState<Record<number, string>>({});
   const [scopeMode, setScopeMode] = useState<Record<number, "pais" | "estados">>({});
 
-  // Sync state when scenario or paramsByScenario changes
+  const prevOpenRef = useRef(isScenarioModalOpen);
+  const prevScenarioRef = useRef(scenario);
+
+  // Sync draft when sheet opens, when scenario changes, or when paramsByScenario updates (e.g. after apply)
+  useEffect(() => {
+    const justOpened = isScenarioModalOpen && !prevOpenRef.current;
+    const scenarioChanged = scenario !== prevScenarioRef.current;
+    prevOpenRef.current = isScenarioModalOpen;
+    prevScenarioRef.current = scenario;
+
+    if (justOpened || scenarioChanged) {
+      if (scenario === "intervencion") {
+        setCampaigns(appliedCampaigns);
+      } else if (scenario === "pesimista") {
+        setPesimistaDraft(paramsByScenario.pesimista ?? {});
+      }
+      setCardErrors({});
+      setPesimistaErrors({});
+      setGeneralError(null);
+    }
+  }, [isScenarioModalOpen, scenario, appliedCampaigns, paramsByScenario.pesimista]);
+
+  // When paramsByScenario changes after Apply, keep draft in sync with applied
   useEffect(() => {
     if (scenario === "intervencion") {
-      setCampaigns(initialCampaigns);
+      setCampaigns(appliedCampaigns);
     } else if (scenario === "pesimista") {
       setPesimistaDraft(paramsByScenario.pesimista ?? {});
     }
-  }, [scenario, initialCampaigns, paramsByScenario.pesimista]);
+  }, [appliedCampaigns, paramsByScenario.pesimista, scenario]);
 
-  // Close sheet on Escape key
-  useEffect(() => {
-    if (!isScenarioModalOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setIsScenarioModalOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isScenarioModalOpen, setIsScenarioModalOpen]);
+  const hasUnappliedChanges = useMemo(() => {
+    if (scenario === "intervencion") {
+      return !areCampaignsEqual(campaigns, appliedCampaigns);
+    }
+    if (scenario === "pesimista") {
+      const applied = paramsByScenario.pesimista ?? {};
+      return (
+        Number(pesimistaDraft.shock_pp ?? 2.0) !== Number(applied.shock_pp ?? 2.0) ||
+        Number(pesimistaDraft.trend_amplifier ?? 50) !== Number(applied.trend_amplifier ?? 50)
+      );
+    }
+    return false;
+  }, [scenario, campaigns, appliedCampaigns, pesimistaDraft, paramsByScenario.pesimista]);
 
-  // Track modification status
   const isModified = useMemo(() => {
     if (scenario === "base") return false;
     if (scenario === "intervencion") {
@@ -146,72 +193,74 @@ export function ScenarioControls() {
     );
   }, [scenario, campaigns, pesimistaDraft, paramsByScenario, meta]);
 
-  if (!isScenarioModalOpen) return null;
-
-  const updateCampaign = (idx: number, patch: Partial<Campaign>) => {
+  const updateCampaign = useCallback((idx: number, patch: Partial<Campaign>) => {
     setCardErrors((prev) => ({ ...prev, [idx]: "" }));
     setCampaigns((prev) => {
       const next = [...prev];
-      const current = next[idx];
-      const updated = { ...current, ...patch };
-      next[idx] = updated;
-      setScenarioParams((sp) => ({
-        ...sp,
-        campaigns: next,
-      }));
+      next[idx] = { ...next[idx], ...patch };
       return next;
     });
-  };
+  }, []);
 
-  const handleLeverChange = (idx: number, newLever: string) => {
-    const saved = leverParams[newLever];
-    const defs = leverDefaults(meta);
+  const handleLeverChange = useCallback(
+    (idx: number, newLever: string) => {
+      const saved = leverParams[newLever];
+      const defs = leverDefaults(meta);
 
-    const nextCampaign: Campaign = {
-      lever: newLever,
-      targeting: String(saved?.targeting ?? defs.targeting ?? "rojo_naranja"),
-      effect_pp: Number(saved?.effect_pp ?? defs.effect_pp ?? 3.0),
-      coverage: Number(saved?.coverage ?? defs.coverage ?? 100),
-      ents: Array.isArray(saved?.ents) ? [...saved.ents] : [],
-    };
+      const nextCampaign: Campaign = {
+        lever: newLever,
+        targeting: String(saved?.targeting ?? defs.targeting ?? "rojo_naranja"),
+        effect_pp: Number(saved?.effect_pp ?? defs.effect_pp ?? 3.0),
+        coverage: Number(saved?.coverage ?? defs.coverage ?? 100),
+        ents: Array.isArray(saved?.ents) ? [...saved.ents] : [],
+      };
 
-    updateCampaign(idx, nextCampaign);
-  };
+      updateCampaign(idx, nextCampaign);
+    },
+    [leverParams, meta, updateCampaign]
+  );
 
-  const handleRemoveCampaign = (idx: number) => {
-    if (campaigns.length <= 1) return;
-    const nextCampaigns = campaigns.filter((_, i) => i !== idx);
-    setCampaigns(nextCampaigns);
-    setScenarioParams((sp) => ({
-      ...sp,
-      campaigns: nextCampaigns,
-    }));
-  };
+  const handleRemoveCampaign = useCallback((idx: number) => {
+    setCampaigns((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((_, i) => i !== idx);
+    });
+  }, []);
 
-  const handleAddCampaign = () => {
-    if (campaigns.length >= 4) return;
-    const used = campaigns.map((c) => c.lever);
-    const free = ALL_LEVERS.filter((l) => !used.includes(l));
-    if (free.length === 0) return;
-    const nextLever = free[0];
-    const saved = leverParams[nextLever];
-    const defs = leverDefaults(meta);
-    const newCamp: Campaign = {
-      lever: nextLever,
-      targeting: String(saved?.targeting ?? defs.targeting ?? "rojo_naranja"),
-      effect_pp: Number(saved?.effect_pp ?? defs.effect_pp ?? 3.0),
-      coverage: Number(saved?.coverage ?? defs.coverage ?? 100),
-      ents: Array.isArray(saved?.ents) ? [...saved.ents] : [],
-    };
-    const nextCampaigns = [...campaigns, newCamp];
-    setCampaigns(nextCampaigns);
-    setScenarioParams((sp) => ({
-      ...sp,
-      campaigns: nextCampaigns,
-    }));
-  };
+  const handleAddCampaign = useCallback(() => {
+    setCampaigns((prev) => {
+      if (prev.length >= 4) return prev;
+      const used = prev.map((c) => c.lever);
+      const free = ALL_LEVERS.filter((l) => !used.includes(l));
+      if (free.length === 0) return prev;
+      const nextLever = free[0];
+      const saved = leverParams[nextLever];
+      const defs = leverDefaults(meta);
+      const newCamp: Campaign = {
+        lever: nextLever,
+        targeting: String(saved?.targeting ?? defs.targeting ?? "rojo_naranja"),
+        effect_pp: Number(saved?.effect_pp ?? defs.effect_pp ?? 3.0),
+        coverage: Number(saved?.coverage ?? defs.coverage ?? 100),
+        ents: Array.isArray(saved?.ents) ? [...saved.ents] : [],
+      };
+      return [...prev, newCamp];
+    });
+  }, [leverParams, meta]);
 
-  const handleSimulate = async () => {
+  const handleClose = useCallback(() => {
+    // Discard unapplied changes and restore applied state
+    if (scenario === "intervencion") {
+      setCampaigns(appliedCampaigns);
+    } else if (scenario === "pesimista") {
+      setPesimistaDraft(paramsByScenario.pesimista ?? {});
+    }
+    setCardErrors({});
+    setPesimistaErrors({});
+    setGeneralError(null);
+    setIsScenarioModalOpen(false);
+  }, [scenario, appliedCampaigns, paramsByScenario.pesimista, setIsScenarioModalOpen]);
+
+  const handleSimulate = useCallback(async () => {
     if (scenario === "base") return;
     setIsSimulating(true);
     setCardErrors({});
@@ -280,9 +329,9 @@ export function ScenarioControls() {
     } finally {
       setIsSimulating(false);
     }
-  };
+  }, [scenario, campaigns, pesimistaDraft, applyScenarioParams]);
 
-  const handleReset = async () => {
+  const handleReset = useCallback(async () => {
     if (scenario === "base" || !isModified || isSimulating) return;
     setIsSimulating(true);
     setCardErrors({});
@@ -291,10 +340,15 @@ export function ScenarioControls() {
     try {
       if (scenario === "intervencion") {
         const defs = defaultsForScenario("intervencion", meta);
-        setCampaigns(defs.campaigns ?? []);
+        const resetCamps =
+          Array.isArray(defs.campaigns) && defs.campaigns.length > 0
+            ? defs.campaigns
+            : [defaultCampaign(meta)];
+        setCampaigns(resetCamps);
         await resetScenarioParams("intervencion");
       } else {
-        setPesimistaDraft(defaultsForScenario("pesimista", meta));
+        const defs = defaultsForScenario("pesimista", meta);
+        setPesimistaDraft(defs);
         await resetScenarioParams("pesimista");
       }
     } catch (err: unknown) {
@@ -308,7 +362,86 @@ export function ScenarioControls() {
     } finally {
       setIsSimulating(false);
     }
+  }, [scenario, isModified, isSimulating, meta, resetScenarioParams]);
+
+  return {
+    isScenarioModalOpen,
+    setIsScenarioModalOpen,
+    meta,
+    scenario,
+    campaigns,
+    setCampaigns,
+    appliedCampaigns,
+    pesimistaDraft,
+    setPesimistaDraft,
+    hasUnappliedChanges,
+    isModified,
+    isSimulating,
+    cardErrors,
+    pesimistaErrors,
+    generalError,
+    stateSearch,
+    setStateSearch,
+    scopeMode,
+    setScopeMode,
+    allStates,
+    simulationResult,
+    updateCampaign,
+    handleLeverChange,
+    handleRemoveCampaign,
+    handleAddCampaign,
+    handleClose,
+    handleSimulate,
+    handleReset,
   };
+}
+
+export function ScenarioControls() {
+  const { isScenarioModalOpen } = useAtalaya();
+  if (!isScenarioModalOpen) return null;
+  return <ScenarioControlsContent />;
+}
+
+function ScenarioControlsContent() {
+  const {
+    isScenarioModalOpen,
+    meta,
+    scenario,
+    campaigns,
+    pesimistaDraft,
+    setPesimistaDraft,
+    hasUnappliedChanges,
+    isModified,
+    isSimulating,
+    cardErrors,
+    pesimistaErrors,
+    generalError,
+    stateSearch,
+    setStateSearch,
+    scopeMode,
+    setScopeMode,
+    allStates,
+    simulationResult,
+    updateCampaign,
+    handleLeverChange,
+    handleRemoveCampaign,
+    handleAddCampaign,
+    handleClose,
+    handleSimulate,
+    handleReset,
+  } = useScenarioDraft();
+
+  // Close sheet on Escape key
+  useEffect(() => {
+    if (!isScenarioModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isScenarioModalOpen, handleClose]);
 
   const scenarioDef = meta?.scenarios?.find((s) => s.id === scenario);
   const title =
@@ -344,7 +477,7 @@ export function ScenarioControls() {
 
         <button
           type="button"
-          onClick={() => setIsScenarioModalOpen(false)}
+          onClick={handleClose}
           className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
           aria-label="Cerrar hoja de parámetros"
         >
@@ -478,11 +611,12 @@ export function ScenarioControls() {
                         <span>Focalización por semáforo</span>
                         <InfoTip term="param.targeting" size="xs" />
                       </label>
+                      {/* CONTRACT-NOTE: La opción de focalización 'todos' se rotula 'Todas las zonas' para distinguirla del ámbito territorial 'Todo el país'. El término 'targeting.todos' en glossary.ts mantiene title: 'Todo el país' según su contrato. */}
                       <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-0.5 text-xs">
                         {[
                           { value: "rojo", label: "Solo rojas" },
                           { value: "rojo_naranja", label: "Rojas y naranjas" },
-                          { value: "todos", label: "Todo el país" },
+                          { value: "todos", label: "Todas las zonas" },
                         ].map((opt) => (
                           <button
                             key={opt.value}
@@ -932,6 +1066,11 @@ export function ScenarioControls() {
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 Comparado con el escenario base
               </p>
+              {hasUnappliedChanges && (
+                <p className="text-[11px] text-amber-700 font-medium mt-1">
+                  Muestra el último escenario aplicado
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -1050,7 +1189,7 @@ export function ScenarioControls() {
                           <tr>
                             <td colSpan={2} className="py-1 text-muted-foreground font-medium">
                               <span className="inline-flex items-center gap-1">
-                                <span>Traslape</span>
+                                <span>Traslape (personas alcanzadas por más de una campaña):</span>
                                 <InfoTip
                                   term={"traslape" as any}
                                   text="personas alcanzadas por más de una campaña"
@@ -1059,7 +1198,9 @@ export function ScenarioControls() {
                               </span>
                             </td>
                             <td className="py-1 text-right font-mono text-bad tnum font-semibold">
-                              -{Math.abs(simulationResult.summary.votos_traslape).toLocaleString("es-MX")}
+                              {simulationResult.summary.votos_traslape > 0
+                                ? `−${Math.abs(simulationResult.summary.votos_traslape).toLocaleString("es-MX")}`
+                                : "0"}
                             </td>
                           </tr>
                         )}
@@ -1181,9 +1322,18 @@ export function ScenarioControls() {
         </button>
 
         <div className="flex items-center gap-2">
+          {hasUnappliedChanges && (
+            <span
+              aria-live="polite"
+              className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+            >
+              <span className="size-1.5 rounded-full bg-amber-500" />
+              <span>Cambios sin aplicar</span>
+            </span>
+          )}
           <button
             type="button"
-            onClick={() => setIsScenarioModalOpen(false)}
+            onClick={handleClose}
             className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer min-h-[36px]"
           >
             Cerrar
@@ -1192,7 +1342,9 @@ export function ScenarioControls() {
             type="button"
             onClick={handleSimulate}
             disabled={isSimulating}
-            className="px-4 py-1.5 text-xs font-semibold text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-md transition-all flex items-center gap-1.5 shadow-xs cursor-pointer min-h-[36px]"
+            className={`px-4 py-1.5 text-xs font-semibold text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-md transition-all flex items-center gap-1.5 shadow-xs cursor-pointer min-h-[36px] ${
+              hasUnappliedChanges ? "ring-2 ring-primary ring-offset-1 font-bold shadow-sm" : ""
+            }`}
           >
             {isSimulating ? (
               <>
