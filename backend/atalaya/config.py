@@ -49,8 +49,11 @@ class Settings:
     chat_rate_per_day: int = 200
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
+    gemini_fallback_models: list[str] = field(default_factory=lambda: ["gemini-3.5-flash", "gemini-3.1-flash-lite"])
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_thinking_level: str = "medium"
+    gemini_timeout_s: float = 45.0
+    gemini_grounding_cooldown_min: int = 30
     intel_gemini_daily_limit: int = 40
     intel_monitor_cooldown_min: int = 15
     intel_campaign_ttl_h: int = 72
@@ -75,7 +78,10 @@ class Settings:
             f"chat_rate_per_min={self.chat_rate_per_min!r}, "
             f"chat_rate_per_day={self.chat_rate_per_day!r}, "
             f"gemini_api_key={masked_gemini_key!r}, gemini_model={self.gemini_model!r}, "
+            f"gemini_fallback_models={self.gemini_fallback_models!r}, "
             f"gemini_base_url={self.gemini_base_url!r}, gemini_thinking_level={self.gemini_thinking_level!r}, "
+            f"gemini_timeout_s={self.gemini_timeout_s!r}, "
+            f"gemini_grounding_cooldown_min={self.gemini_grounding_cooldown_min!r}, "
             f"intel_gemini_daily_limit={self.intel_gemini_daily_limit!r}, "
             f"intel_monitor_cooldown_min={self.intel_monitor_cooldown_min!r}, "
             f"intel_campaign_ttl_h={self.intel_campaign_ttl_h!r}, "
@@ -158,8 +164,24 @@ def get_settings() -> Settings:
 
     gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
+    raw_fallbacks = os.getenv("GEMINI_FALLBACK_MODELS")
+    if raw_fallbacks is not None and raw_fallbacks.strip():
+        gemini_fallback_models = [m.strip() for m in raw_fallbacks.split(",") if m.strip()]
+    else:
+        gemini_fallback_models = ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
+
     gemini_base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip().rstrip("/")
     gemini_thinking_level = os.getenv("GEMINI_THINKING_LEVEL", "medium").strip().lower() or "medium"
+
+    try:
+        gemini_timeout_s = float(os.getenv("GEMINI_TIMEOUT_S", "45"))
+    except ValueError:
+        gemini_timeout_s = 45.0
+
+    try:
+        gemini_grounding_cooldown_min = int(os.getenv("GEMINI_GROUNDING_COOLDOWN_MIN", "30"))
+    except ValueError:
+        gemini_grounding_cooldown_min = 30
 
     try:
         intel_gemini_daily_limit = int(os.getenv("INTEL_GEMINI_DAILY_LIMIT", "40"))
@@ -221,8 +243,11 @@ def get_settings() -> Settings:
         chat_rate_per_day=chat_rate_per_day,
         gemini_api_key=gemini_api_key,
         gemini_model=gemini_model,
+        gemini_fallback_models=gemini_fallback_models,
         gemini_base_url=gemini_base_url,
         gemini_thinking_level=gemini_thinking_level,
+        gemini_timeout_s=gemini_timeout_s,
+        gemini_grounding_cooldown_min=gemini_grounding_cooldown_min,
         intel_gemini_daily_limit=intel_gemini_daily_limit,
         intel_monitor_cooldown_min=intel_monitor_cooldown_min,
         intel_campaign_ttl_h=intel_campaign_ttl_h,

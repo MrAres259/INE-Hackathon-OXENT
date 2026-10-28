@@ -59,6 +59,7 @@ class DummyGroundedResult:
     latency_ms: int = 250
     supports: list[dict] = None
     from_cache: bool = False
+    mode: str = "grounding"
 
     def __post_init__(self):
         if self.sources is None:
@@ -770,4 +771,132 @@ def test_message_length_trimmings(monkeypatch: pytest.MonkeyPatch):
     reply_item = next(it for it in snap.items if "respuesta" in it.claim)
     assert len(reply_item.remediation.draft_message) <= 280
     assert not reply_item.remediation.draft_message.endswith(" ")
+
+
+def test_monitor_run_scan_fallback_queries_and_rss_mode(monkeypatch):
+    """Verify fallback_queries passed to all 3 stages, mode tracking per stage, and snapshot note."""
+    from atalaya.intel import monitor, prompts_monitor
+
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    captured_stages: dict[str, dict[str, Any]] = {}
+
+    def mock_grounded_json(prompt, system=None, **kwargs):
+        cache_key = kwargs.get("cache_key", "")
+        if "noticias" in cache_key:
+            captured_stages["stage1"] = kwargs
+            data = {
+                "items": [
+                    {
+                        "headline": "Ajuste presupuestal en casillas",
+                        "summary": "Se analizan ajustes presupuestales operativos.",
+                        "claim": "El INE ajusta presupuesto en instalación de casillas",
+                        "published": "2026-10-25",
+                        "sources": [{"url": "https://www.eluniversal.com.mx/nota1", "title": "Nota 1"}],
+                        "topic": "presupuesto_recortes",
+                        "geo": {"level": "nacional"},
+                        "intensity": 0.5,
+                        "persistence": "coyuntural",
+                    }
+                ]
+            }
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource(url="https://www.eluniversal.com.mx/nota1", title="Nota 1", domain="eluniversal.com.mx")],
+                queries=["INE presupuesto"],
+                mode="rss_url_context",
+            )
+            return data, res
+        elif "rumores" in cache_key:
+            captured_stages["stage2"] = kwargs
+            data = {
+                "items": [
+                    {
+                        "headline": "Afirman que boletas vienen marcadas",
+                        "summary": "Circula rumor sobre marcas previas en boletas.",
+                        "claim": "Las boletas electorales tienen marcas previas",
+                        "topic": "procedimiento_votacion",
+                        "geo": {"level": "nacional"},
+                        "posts": [
+                            {
+                                "platform": "x",
+                                "url": "https://x.com/post_viral/1",
+                                "author": "@usuario1",
+                                "published": "2026-10-26T12:00:00",
+                                "engagement": {"likes": 50, "shares": None, "comments": None, "views": None},
+                                "excerpt": "Cuidado con las boletas",
+                            },
+                            {
+                                "platform": "tiktok",
+                                "url": "",  # Empty URL -> must be ignored in posts
+                                "author": "@anon",
+                            },
+                        ],
+                    }
+                ]
+            }
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource(url="https://verificado.com.mx/desmentido-boletas", title="Verificado", domain="verificado.com.mx")],
+                queries=["INE falso"],
+                mode="rss_url_context",
+            )
+            return data, res
+        elif "verificacion" in cache_key:
+            captured_stages["stage3"] = kwargs
+            data = {
+                "verifications": [
+                    {
+                        "id": monitor.item_id_for_claim("Las boletas electorales tienen marcas previas"),
+                        "verdict": "falsa",
+                        "confidence": "alta",
+                        "rationale": "El INE desmintió formalmente marcas en boletas con folio de seguridad.",
+                        "fact_checks": [
+                            {"url": "https://verificado.com.mx/desmentido-boletas", "title": "Verificado MX: Falso rumor de boletas"}
+                        ],
+                    }
+                ]
+            }
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource(url="https://verificado.com.mx/desmentido-boletas", title="Verificado", domain="verificado.com.mx")],
+                queries=["boletas verificación"],
+                mode="rss_url_context",
+            )
+            return data, res
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    # 1. Verify stage 1 queries & days
+    assert "stage1" in captured_stages
+    assert captured_stages["stage1"].get("fallback_days") == 14
+    assert captured_stages["stage1"].get("fallback_queries") == prompts_monitor.STAGE1_FALLBACK_QUERIES
+
+    # 2. Verify stage 2 queries & days
+    assert "stage2" in captured_stages
+    assert captured_stages["stage2"].get("fallback_days") == 14
+    assert captured_stages["stage2"].get("fallback_queries") == prompts_monitor.STAGE2_FALLBACK_QUERIES
+
+    # 3. Verify stage 3 queries & days
+    assert "stage3" in captured_stages
+    assert captured_stages["stage3"].get("fallback_days") == 14
+    st3_q = captured_stages["stage3"].get("fallback_queries", [])
+    assert any("verificación" in q for q in st3_q)
+
+    # 4. Verify snapshot note documents RSS fallback and per-stage modes
+    assert snap.note is not None
+    assert "Búsqueda de respaldo activa: noticias indexadas" in snap.note
+    assert "noticias=rss_url_context" in snap.note
+    assert "rumores=rss_url_context" in snap.note
+    assert "verificación=rss_url_context" in snap.note
+
+    # 5. Verify posts filtering: only post with valid URL is kept
+    rumor_item = next(it for it in snap.items if "marcas" in it.claim)
+    assert rumor_item.virality is not None
+    assert len(rumor_item.virality.posts) == 1
+    assert rumor_item.virality.posts[0].url == "https://x.com/post_viral/1"
+    assert rumor_item.virality.posts[0].engagement.likes == 50
+    assert rumor_item.virality.posts[0].engagement.shares is None
 

@@ -1,6 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createPortal } from "react-dom";
 import {
   shouldShowGuide,
   dismissGuide,
@@ -15,6 +16,20 @@ import {
   handleGuidePointerCapture,
   handleGuideKeyDown,
 } from "../components/map/MapGuide";
+
+vi.mock("react-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-dom")>();
+  return {
+    ...actual,
+    createPortal: vi.fn((children: React.ReactNode, container: any) => {
+      if (container) {
+        container.children = container.children || [];
+        container.children.push(children);
+      }
+      return children;
+    }),
+  };
+});
 
 describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
   it("exports the expected storage key 'atalaya.guide.v1'", () => {
@@ -864,6 +879,34 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
       expect(html).not.toContain("Listo");
       // Since it's step 6 (index 5 > 0), Anterior button is rendered
       expect(html).toContain("Anterior");
+    });
+
+    it("renderiza toda la guía con createPortal en document.body (fondo es hijo de document.body)", () => {
+      const visibleAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({ top: 10, bottom: 40, left: 10, right: 100, width: 90, height: 30 }),
+      };
+      const mockBody: any = { dataset: {}, children: [] };
+      (globalThis as any).document = {
+        body: mockBody,
+        querySelectorAll: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? [visibleAnchor] : [])),
+        querySelector: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? visibleAnchor : null)),
+      };
+      (globalThis as any).window = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: { getItem: () => null, setItem: () => {} },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+
+      const html = renderToStaticMarkup(React.createElement(MapGuide, { open: true }));
+      // Fondo y anillo presentes en la salida
+      expect(html).toContain('data-guide-backdrop="true"');
+      expect(html).toContain('data-guide-spotlight="true"');
+      // Verificación directa: el fondo y contenido se renderizan como hijos de document.body
+      expect(createPortal).toHaveBeenCalledWith(expect.anything(), mockBody);
+      expect(mockBody.children.length).toBeGreaterThan(0);
     });
   });
 });

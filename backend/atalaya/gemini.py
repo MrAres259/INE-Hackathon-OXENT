@@ -1,9 +1,9 @@
-"""ATALAYA Gemini client with Google Search grounding and budget management."""
+"""ATALAYA Gemini client with Google Search grounding, fallback models, RSS fallback and budget management."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import functools
 import hashlib
 import json
@@ -14,7 +14,7 @@ import re
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
 import urllib.parse
 
 import httpx
@@ -70,6 +70,7 @@ class GroundedResult:
     latency_ms: int
     supports: list[dict] = field(default_factory=list)
     from_cache: bool = False
+    mode: Literal["grounding", "rss_url_context", "none"] = "grounding"
 
 
 # ---------------------------------------------------------------- Internal state & hooks
@@ -101,6 +102,45 @@ def _atomic_write_json(path: Path, data: Any) -> None:
         tf.write(serialized)
         tmp_name = tf.name
     os.replace(tmp_name, str(path))
+
+
+def _is_grounding_available() -> tuple[bool, str | None]:
+    """Check if grounding circuit is currently available or cooling down."""
+    state_file = _get_intel_dir() / "gemini_state.json"
+    if not state_file.is_file():
+        return True, None
+    try:
+        data = json.loads(state_file.read_text(encoding="utf-8"))
+        until_str = data.get("grounding_unavailable_until")
+        if not until_str:
+            return True, None
+        until_dt = datetime.fromisoformat(until_str)
+        now_dt = datetime.now(timezone.utc)
+        if until_dt.tzinfo is None:
+            now_dt = datetime.now()
+        if now_dt < until_dt:
+            return False, until_str
+        return True, None
+    except Exception:
+        return True, None
+
+
+def _trip_grounding_circuit() -> None:
+    """Trip grounding circuit for GEMINI_GROUNDING_COOLDOWN_MIN minutes."""
+    settings = get_settings()
+    cooldown_min = settings.gemini_grounding_cooldown_min
+    retry_at = datetime.now(timezone.utc) + timedelta(minutes=cooldown_min)
+    retry_str = retry_at.isoformat()
+    state_file = _get_intel_dir() / "gemini_state.json"
+    try:
+        _atomic_write_json(state_file, {"grounding_unavailable_until": retry_str})
+        logger.warning(
+            "Circuito de grounding abierto por HTTP 429. Grounding deshabilitado hasta %s (%d min cooldown)",
+            retry_str,
+            cooldown_min,
+        )
+    except Exception as exc:
+        logger.warning("Fallo al escribir gemini_state.json: %s", exc)
 
 
 # ---------------------------------------------------------------- Public helpers
@@ -232,21 +272,32 @@ def extract_json(text: str) -> Any:
 
 
 def budget_status() -> dict:
-    """Return local daily budget status: {'day': 'YYYY-MM-DD', 'used': int, 'limit': int}."""
+    """Return local daily budget status and grounding availability:
+    {'day': 'YYYY-MM-DD', 'used': int, 'limit': int, 'grounding_available': bool, 'grounding_retry_at': str | None}
+    """
     settings = get_settings()
     today = datetime.now().strftime("%Y-%m-%d")
     limit = settings.intel_gemini_daily_limit
     budget_file = _get_intel_dir() / "gemini_budget.json"
 
+    used = 0
     with _budget_lock:
         if budget_file.is_file():
             try:
                 data = json.loads(budget_file.read_text(encoding="utf-8"))
                 if data.get("day") == today:
-                    return {"day": today, "used": int(data.get("used", 0)), "limit": limit}
+                    used = int(data.get("used", 0))
             except Exception:
                 pass
-        return {"day": today, "used": 0, "limit": limit}
+
+    grounding_available, grounding_retry_at = _is_grounding_available()
+    return {
+        "day": today,
+        "used": used,
+        "limit": limit,
+        "grounding_available": grounding_available,
+        "grounding_retry_at": grounding_retry_at,
+    }
 
 
 def _check_and_increment_budget() -> None:
@@ -279,7 +330,12 @@ def _check_and_increment_budget() -> None:
 # ---------------------------------------------------------------- Core search & JSON APIs
 
 
-def _parse_candidate_response(data: dict, model_name: str, latency_ms: int) -> GroundedResult:
+def _parse_candidate_response(
+    data: dict,
+    model_name: str,
+    latency_ms: int,
+    mode: Literal["grounding", "rss_url_context", "none"] = "grounding",
+) -> GroundedResult:
     """Parse Gemini generateContent candidate response into GroundedResult."""
     candidates = data.get("candidates") or []
     if not candidates:
@@ -323,6 +379,7 @@ def _parse_candidate_response(data: dict, model_name: str, latency_ms: int) -> G
         latency_ms=latency_ms,
         supports=raw_supports,
         from_cache=False,
+        mode=mode,
     )
 
 
@@ -333,9 +390,10 @@ def _call_gemini_raw(
     tools: list[dict] | None = None,
     thinking_level: str | None = None,
     max_output_tokens: int = 8192,
-    timeout_s: float = 120.0,
+    timeout_s: float | None = None,
+    mode: Literal["grounding", "rss_url_context", "none"] = "none",
 ) -> GroundedResult:
-    """Execute raw POST request to Gemini generateContent with retries."""
+    """Execute raw POST request to Gemini generateContent with fallback models and retries."""
     if not is_enabled():
         raise GeminiDisabled("Gemini está deshabilitado o no tiene GEMINI_API_KEY configurada.")
 
@@ -343,8 +401,15 @@ def _call_gemini_raw(
 
     settings = get_settings()
     base_url = settings.gemini_base_url.rstrip("/")
-    model = settings.gemini_model
-    url = f"{base_url}/models/{model}:generateContent"
+    per_call_timeout = timeout_s if timeout_s is not None else settings.gemini_timeout_s
+    if per_call_timeout <= 0:
+        per_call_timeout = 45.0
+
+    primary_model = settings.gemini_model
+    fallback_models = [m for m in settings.gemini_fallback_models if m and m != primary_model]
+    models_chain = [primary_model] + fallback_models
+
+    is_grounding = bool(tools and any("google_search" in t for t in tools))
 
     headers = {
         "x-goog-api-key": settings.gemini_api_key,
@@ -375,12 +440,13 @@ def _call_gemini_raw(
     body["generationConfig"] = gen_config
 
     start_time = time.perf_counter()
-    attempts = 1 + len(_backoff_steps)
+    all_429 = True
     last_err: Exception | None = None
 
-    for attempt in range(attempts):
+    for model in models_chain:
+        url = f"{base_url}/models/{model}:generateContent"
         try:
-            client = _create_httpx_client(timeout=timeout_s)
+            client = _create_httpx_client(timeout=per_call_timeout)
             with client:
                 resp = client.post(url, json=body, headers=headers)
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -389,80 +455,67 @@ def _call_gemini_raw(
                 if resp.status_code == 400 and "thinkingConfig" in body.get("generationConfig", {}):
                     err_text = resp.text.lower()
                     if "thinking" in err_text:
-                        logger.warning("Gemini HTTP 400 with thinkingConfig. Retrying once without thinkingConfig...")
-                        body["generationConfig"].pop("thinkingConfig", None)
+                        logger.warning("Gemini model %s HTTP 400 with thinkingConfig. Retrying once without thinkingConfig...", model)
+                        saved_thinking = body["generationConfig"].pop("thinkingConfig", None)
                         resp = client.post(url, json=body, headers=headers)
                         latency_ms = int((time.perf_counter() - start_time) * 1000)
+                        if resp.status_code != 200 and saved_thinking:
+                            body["generationConfig"]["thinkingConfig"] = saved_thinking
 
-                # 429 quota exhaustion: 1 retry after delay, then GeminiQuotaError
+                # 429 quota exhaustion: trip circuit if grounding, advance to next model
                 if resp.status_code == 429:
-                    retry_after: float = 2.0
-                    ra_hdr = resp.headers.get("Retry-After")
-                    if ra_hdr:
-                        try:
-                            retry_after = float(ra_hdr)
-                        except ValueError:
-                            pass
-                    retry_after = min(max(retry_after, 1.0), 10.0)
+                    if is_grounding:
+                        _trip_grounding_circuit()
+                    logger.warning("Gemini model %s HTTP 429 quota exhausted. Trying next model...", model)
+                    last_err = GeminiQuotaError("Cuota de Gemini agotada temporalmente (HTTP 429).")
+                    continue
 
-                    if attempt == 0:
-                        logger.warning("Gemini HTTP 429, waiting %.1fs before single retry...", retry_after)
-                        time.sleep(retry_after)
-                        continue
-                    raise GeminiQuotaError(
-                        "Cuota de Gemini agotada temporalmente (HTTP 429).",
-                        retry_after_s=retry_after,
-                    )
+                # Not a 429
+                all_429 = False
 
-                # 5xx server errors: retry with backoff
+                # 5xx server errors: advance to next model
                 if resp.status_code in (500, 502, 503, 504):
-                    if attempt < len(_backoff_steps):
-                        sleep_s = _backoff_steps[attempt]
-                        logger.warning(
-                            "Gemini HTTP %d (intento %d/%d), reintentando en %.1fs",
-                            resp.status_code,
-                            attempt + 1,
-                            attempts,
-                            sleep_s,
-                        )
-                        time.sleep(sleep_s)
-                        continue
-                    raise GeminiError(f"Error del servidor Gemini (HTTP {resp.status_code}). Intenta de nuevo más tarde.")
+                    logger.warning("Gemini model %s HTTP %d. Trying next model...", model, resp.status_code)
+                    last_err = GeminiError(f"Error del servidor Gemini (HTTP {resp.status_code}) en {model}.")
+                    continue
+
+                # 400 tool / syntax error: raise GeminiError
+                if resp.status_code == 400:
+                    err_msg = resp.text[:200]
+                    raise GeminiError(f"Error 400 de Gemini en modelo {model}: {err_msg}")
 
                 resp.raise_for_status()
                 data = resp.json()
-                result = _parse_candidate_response(data, model, latency_ms)
+                result = _parse_candidate_response(data, model, latency_ms, mode=mode)
 
                 logger.info(
-                    "Gemini request completed: model=%s latency_ms=%d sources=%d queries=%d",
+                    "Gemini request completed: model=%s latency_ms=%d mode=%s sources=%d queries=%d",
                     model,
                     latency_ms,
+                    mode,
                     len(result.sources),
                     len(result.queries),
                 )
                 return result
 
         except (httpx.TimeoutException, httpx.NetworkError) as err:
+            all_429 = False
             last_err = err
-            if attempt < len(_backoff_steps):
-                sleep_s = _backoff_steps[attempt]
-                logger.warning(
-                    "Gemini %s (intento %d/%d), reintentando en %.1fs",
-                    err.__class__.__name__,
-                    attempt + 1,
-                    attempts,
-                    sleep_s,
-                )
-                time.sleep(sleep_s)
-                continue
-            raise GeminiError(f"Error de red o tiempo de espera al conectar con Gemini: {err.__class__.__name__}") from err
+            logger.warning("Gemini model %s %s. Trying next model...", model, err.__class__.__name__)
+            continue
         except GeminiError:
             raise
         except Exception as err:
-            logger.error("Error inesperado en llamada a Gemini: %s", err)
-            raise GeminiError(f"Error inesperado al consultar Gemini: {err}") from err
+            all_429 = False
+            logger.error("Error inesperado en llamada a Gemini (%s): %s", model, err)
+            last_err = err
+            continue
 
-    raise GeminiError(f"La llamada a Gemini falló tras reintentos: {last_err}")
+    if all_429 and last_err is not None:
+        raise GeminiQuotaError("Cuota de Gemini agotada temporalmente en todos los modelos (HTTP 429).")
+    if last_err is not None:
+        raise GeminiError(f"La llamada a Gemini falló en todos los modelos: {last_err}")
+    raise GeminiError("La llamada a Gemini falló sin respuesta válida.")
 
 
 def grounded_search(
@@ -497,9 +550,17 @@ def grounded_search(
                         latency_ms=data.get("latency_ms", 0),
                         supports=data.get("supports", []),
                         from_cache=True,
+                        mode=data.get("mode", "grounding"),
                     )
             except Exception as exc:
                 logger.warning("Fallo al leer caché de Gemini (%s): %s", cache_file, exc)
+
+    # Check circuit before making network grounding request
+    is_avail, retry_at = _is_grounding_available()
+    if not is_avail:
+        raise GeminiQuotaError(
+            f"Circuito de grounding abierto tras cuota agotada (HTTP 429). Disponible a las {retry_at}."
+        )
 
     result = _call_gemini_raw(
         prompt=prompt,
@@ -508,6 +569,7 @@ def grounded_search(
         thinking_level=thinking_level,
         max_output_tokens=max_output_tokens,
         timeout_s=timeout_s,
+        mode="grounding",
     )
 
     if cache_file is not None:
@@ -519,6 +581,7 @@ def grounded_search(
                 "model": result.model,
                 "latency_ms": result.latency_ms,
                 "supports": result.supports,
+                "mode": result.mode,
             }
             _atomic_write_json(cache_file, cache_data)
         except Exception as exc:
@@ -527,17 +590,146 @@ def grounded_search(
     return result
 
 
+def _rss_fallback_json(
+    prompt: str,
+    *,
+    system: str | None = None,
+    fallback_queries: list[str],
+    fallback_days: int = 30,
+    fallback_max_items: int = 25,
+    **kw,
+) -> tuple[Any, GroundedResult]:
+    """Execute Gemini in RSS fallback mode using websearch candidates and url_context."""
+    from atalaya import websearch
+
+    candidates = websearch.search_news(
+        fallback_queries,
+        days=fallback_days,
+        max_items=fallback_max_items,
+    )
+
+    cand_lines = []
+    for i, c in enumerate(candidates, start=1):
+        cand_lines.append(
+            f"{i}. Título: {c.title} | Medio: {c.outlet or 'Desconocido'} | Dominio: {c.domain} | "
+            f"Fecha: {c.published or 'Desconocida'} | URL: {c.url}"
+        )
+    cand_text = "\n".join(cand_lines) if cand_lines else "No se encontraron materiales candidatos recientes."
+
+    rss_prompt = (
+        f"Materiales candidatos:\n{cand_text}\n\n"
+        "Instrucciones: usa SOLO estos materiales; cita por URL exacta de la lista; "
+        "puedes leer hasta 10 URLs con url_context.\n\n"
+        f"{prompt}"
+    )
+
+    sources = [
+        GroundedSource(url=c.url, title=c.title, domain=c.domain)
+        for c in candidates
+    ]
+    queries = list(fallback_queries)
+
+    try:
+        res = _call_gemini_raw(
+            prompt=rss_prompt,
+            system=system,
+            tools=[{"url_context": {}}],
+            thinking_level=kw.get("thinking_level"),
+            max_output_tokens=kw.get("max_output_tokens", 8192),
+            timeout_s=kw.get("timeout_s"),
+            mode="rss_url_context",
+        )
+    except Exception as exc:
+        logger.warning("url_context failed (%s). Retrying without tools...", exc)
+        res = _call_gemini_raw(
+            prompt=rss_prompt,
+            system=system,
+            tools=None,
+            thinking_level=kw.get("thinking_level"),
+            max_output_tokens=kw.get("max_output_tokens", 8192),
+            timeout_s=kw.get("timeout_s"),
+            mode="rss_url_context",
+        )
+
+    res.sources = sources
+    res.queries = queries
+    res.mode = "rss_url_context"
+
+    try:
+        parsed = extract_json(res.text)
+        return parsed, res
+    except ValueError:
+        logger.warning("grounded_json (RSS mode): Falló el parseo inicial de JSON. Ejecutando llamada de reparación...")
+        repair_prompt = (
+            f"El siguiente texto debía contener un JSON válido pero falló al parsearse:\n\n"
+            f"{res.text}\n\n"
+            f"Devuelve únicamente el JSON válido, sin comentarios, explicaciones ni formato markdown."
+        )
+        repair_res = _call_gemini_raw(
+            prompt=repair_prompt,
+            system="Eres un formateador de datos. Devuelve únicamente el JSON válido requerido.",
+            tools=None,
+            max_output_tokens=kw.get("max_output_tokens", 8192),
+            timeout_s=kw.get("timeout_s"),
+            mode="none",
+        )
+        parsed_repair = extract_json(repair_res.text)
+        final_res = GroundedResult(
+            text=repair_res.text,
+            sources=sources,
+            queries=queries,
+            model=repair_res.model,
+            latency_ms=res.latency_ms + repair_res.latency_ms,
+            supports=res.supports,
+            from_cache=False,
+            mode="rss_url_context",
+        )
+        return parsed_repair, final_res
+
+
 def grounded_json(
     prompt: str,
     *,
     system: str | None = None,
+    fallback_queries: list[str] | None = None,
+    fallback_days: int = 30,
+    fallback_max_items: int = 25,
     **kw,
 ) -> tuple[Any, GroundedResult]:
     """Execute grounded search and parse result as JSON.
 
+    If grounding is unavailable or hits 429, and fallback_queries is provided,
+    falls back to RSS mode (websearch candidates + url_context).
     On validation/parsing failure, attempts a single repair retry without tools.
     """
-    res = grounded_search(prompt, system=system, **kw)
+    if fallback_queries:
+        is_avail, retry_at = _is_grounding_available()
+        if not is_avail:
+            logger.info("Grounding circuit open (until %s). Using RSS fallback mode directly.", retry_at)
+            return _rss_fallback_json(
+                prompt,
+                system=system,
+                fallback_queries=fallback_queries,
+                fallback_days=fallback_days,
+                fallback_max_items=fallback_max_items,
+                **kw,
+            )
+
+    try:
+        res = grounded_search(prompt, system=system, **kw)
+    except (GeminiQuotaError, GeminiError) as exc:
+        if fallback_queries:
+            logger.warning("Grounding search failed (%s). Falling back to RSS mode...", exc)
+            return _rss_fallback_json(
+                prompt,
+                system=system,
+                fallback_queries=fallback_queries,
+                fallback_days=fallback_days,
+                fallback_max_items=fallback_max_items,
+                **kw,
+            )
+        raise
+
     try:
         parsed = extract_json(res.text)
         return parsed, res
@@ -553,7 +745,8 @@ def grounded_json(
             system="Eres un formateador de datos. Devuelve únicamente el JSON válido requerido.",
             tools=None,
             max_output_tokens=kw.get("max_output_tokens", 8192),
-            timeout_s=kw.get("timeout_s", 120.0),
+            timeout_s=kw.get("timeout_s"),
+            mode="none",
         )
         parsed_repair = extract_json(repair_res.text)
 
@@ -566,5 +759,6 @@ def grounded_json(
             latency_ms=res.latency_ms + repair_res.latency_ms,
             supports=res.supports,
             from_cache=False,
+            mode=res.mode,
         )
         return parsed_repair, final_res

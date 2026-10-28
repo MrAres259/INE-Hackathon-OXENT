@@ -82,8 +82,8 @@ def _resolve_extra_body(
     settings = get_settings()
     model_name = (model or settings.maas_model).strip()
 
-    # 1. Failure fallback in memory
-    if _remembered_fallback == "none":
+    # 1. Failure fallback in memory for legacy models only
+    if _remembered_fallback == "none" and _is_legacy_model(model_name):
         return {}, "none"
 
     # 2. MAAS_EXTRA_BODY from environment always takes precedence
@@ -239,17 +239,28 @@ def chat(
                             )
                     except Exception:
                         provider_msg = resp.text[:200]
-                    logger.warning("LLM HTTP 400 from provider: %s. Retrying with fallback...", provider_msg)
 
-                    current_effort = extra_body.get("reasoning_effort")
-                    if mode == "enabled" and current_effort and current_effort != "high":
-                        fallback_extra_body = {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
-                        fallback_mode = "enabled"
-                        payload["max_tokens"] = max_tokens + HEADROOM.get("high", 1024)
-                    else:
+                    msg_lower = provider_msg.lower()
+                    is_reasoning_400 = ("thinking" in msg_lower) or ("reasoning" in msg_lower)
+                    if not is_reasoning_400:
+                        logger.warning("LLM HTTP 400 from provider (non-reasoning): %s", provider_msg)
+                        raise LLMError(f"LLM request failed with status 400: {provider_msg}")
+
+                    logger.warning("LLM HTTP 400 from provider (reasoning): %s. Retrying with fallback...", provider_msg)
+
+                    if _is_legacy_model(payload.get("model", "")):
                         fallback_extra_body = {}
                         fallback_mode = "none"
                         payload["max_tokens"] = max_tokens
+                    else:
+                        current_effort = extra_body.get("reasoning_effort")
+                        if current_effort == "high":
+                            fallback_effort = "low"
+                        else:
+                            fallback_effort = "high"
+                        fallback_extra_body = {"thinking": {"type": "enabled"}, "reasoning_effort": fallback_effort}
+                        fallback_mode = "enabled"
+                        payload["max_tokens"] = max_tokens + HEADROOM.get(fallback_effort, 1024)
 
                     for k in list(extra_body.keys()):
                         payload.pop(k, None)
@@ -262,10 +273,19 @@ def chat(
 
                     if resp.status_code == 200:
                         global _remembered_fallback
-                        if fallback_mode == "none":
+                        if fallback_mode == "enabled":
+                            _remembered_fallback = fallback_extra_body["reasoning_effort"]
+                        elif fallback_mode == "none":
                             _remembered_fallback = "none"
-                        elif fallback_mode == "enabled":
-                            _remembered_fallback = "high"
+                    elif resp.status_code == 400:
+                        retry_err_msg = ""
+                        try:
+                            retry_json = resp.json()
+                            if isinstance(retry_json, dict):
+                                retry_err_msg = retry_json.get("error", {}).get("message") or str(retry_json)
+                        except Exception:
+                            retry_err_msg = resp.text[:200]
+                        raise LLMError(f"LLM request failed with status 400 after fallback: {retry_err_msg}")
             finally:
                 if close_client:
                     client.close()
@@ -419,6 +439,7 @@ def chat_stream(
         resp = stream_cm.__enter__()
 
         if resp.status_code == 400 and extra_body:
+            resp.read()
             provider_msg = ""
             try:
                 err_json = resp.json()
@@ -430,18 +451,30 @@ def chat_stream(
                     )
             except Exception:
                 provider_msg = resp.text[:200]
-            logger.warning("LLM stream HTTP 400 from provider: %s. Retrying with fallback...", provider_msg)
+
+            msg_lower = provider_msg.lower()
+            is_reasoning_400 = ("thinking" in msg_lower) or ("reasoning" in msg_lower)
+            if not is_reasoning_400:
+                logger.warning("LLM stream HTTP 400 from provider (non-reasoning): %s", provider_msg)
+                stream_cm.__exit__(None, None, None)
+                raise LLMError(f"LLM stream failed with HTTP status 400: {provider_msg}")
+
+            logger.warning("LLM stream HTTP 400 from provider (reasoning): %s. Retrying with fallback...", provider_msg)
             stream_cm.__exit__(None, None, None)
 
-            current_effort = extra_body.get("reasoning_effort")
-            if mode == "enabled" and current_effort and current_effort != "high":
-                fallback_extra_body = {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
-                fallback_mode = "enabled"
-                payload["max_tokens"] = max_tokens + HEADROOM.get("high", 1024)
-            else:
+            if _is_legacy_model(payload.get("model", "")):
                 fallback_extra_body = {}
                 fallback_mode = "none"
                 payload["max_tokens"] = max_tokens
+            else:
+                current_effort = extra_body.get("reasoning_effort")
+                if current_effort == "high":
+                    fallback_effort = "low"
+                else:
+                    fallback_effort = "high"
+                fallback_extra_body = {"thinking": {"type": "enabled"}, "reasoning_effort": fallback_effort}
+                fallback_mode = "enabled"
+                payload["max_tokens"] = max_tokens + HEADROOM.get(fallback_effort, 1024)
 
             for k in list(extra_body.keys()):
                 payload.pop(k, None)
@@ -454,10 +487,21 @@ def chat_stream(
 
             if resp.status_code == 200:
                 global _remembered_fallback
-                if fallback_mode == "none":
+                if fallback_mode == "enabled":
+                    _remembered_fallback = fallback_extra_body["reasoning_effort"]
+                elif fallback_mode == "none":
                     _remembered_fallback = "none"
-                elif fallback_mode == "enabled":
-                    _remembered_fallback = "high"
+            elif resp.status_code == 400:
+                resp.read()
+                retry_err_msg = ""
+                try:
+                    retry_json = resp.json()
+                    if isinstance(retry_json, dict):
+                        retry_err_msg = retry_json.get("error", {}).get("message") or str(retry_json)
+                except Exception:
+                    retry_err_msg = resp.text[:200]
+                stream_cm.__exit__(None, None, None)
+                raise LLMError(f"LLM stream failed with HTTP status 400 after fallback: {retry_err_msg}")
 
         try:
             if resp.status_code == 403:

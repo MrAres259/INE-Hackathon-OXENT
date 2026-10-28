@@ -2,9 +2,9 @@
 <html lang="es-MX">
 <head>
   <meta charset="utf-8">
-  <title>{{ plan.unit.name }} · Plan de Campaña</title>
+  <title>{{ plan.unit.name }} · Plan de Campaña Cívica</title>
   <style>
-    {{ css_content }}
+    {{ css_content | safe }}
   </style>
 </head>
 <body>
@@ -12,26 +12,28 @@
 {% for slide in slides %}
   {% if slide.kind == "portada" %}
     <section class="slide portada-slide" id="{{ slide.id }}">
-      <div class="portada-hero">
-        <div class="portada-tag">
-          <span>★</span> Borrador generado con IA · Equipo OXENT
+      <div class="portada-banner">
+        <div class="portada-banner-header">
+          {% if logo_light_uri %}
+            <img class="portada-logo" src="{{ logo_light_uri }}" alt="Atalaya Electoral Logo">
+          {% endif %}
+          <div class="portada-sello">
+            Borrador generado con IA — propuesta del equipo OXENT
+          </div>
         </div>
         <h1 class="portada-title">{{ slide.title }}</h1>
-        <p class="portada-subtitle">{{ slide.subtitle or plan.unit.ent_name }}</p>
+        <div class="portada-subtitle">{{ slide.subtitle }}</div>
+      </div>
 
-        <div class="bullets-box" style="margin-top: 10px;">
-          {% for b in slide.bullets %}
-            <div class="bullet-item">
-              <span class="bullet-icon">▸</span>
-              <span>{{ b }}</span>
-            </div>
-          {% endfor %}
-        </div>
-
+      <div class="portada-body">
         <div class="portada-meta-grid">
           <div class="portada-meta-card">
             <div class="portada-meta-label">Entidad / Territorio</div>
-            <div class="portada-meta-value">{{ plan.unit.name }}</div>
+            <div class="portada-meta-value">{{ plan.unit.name }}, {{ plan.unit.ent_name }}</div>
+          </div>
+          <div class="portada-meta-card">
+            <div class="portada-meta-label">Nivel Territorial</div>
+            <div class="portada-meta-value">{{ slide.data.get("level_readable") or ("Municipio" if plan.unit.level == "mun" else "Estado") }}</div>
           </div>
           <div class="portada-meta-card">
             <div class="portada-meta-label">Lista Nominal</div>
@@ -43,10 +45,21 @@
               <span class="badge badge-{{ plan.unit.category }}">{{ plan.unit.category|capitalize }}</span>
             </div>
           </div>
-          <div class="portada-meta-card">
-            <div class="portada-meta-label">Fecha de corte</div>
-            <div class="portada-meta-value">{{ plan.generated_at[:10] }}</div>
+        </div>
+
+        {% if plan.focus %}
+          <div class="portada-focus-badge">
+            <strong>Enfoque prioritario:</strong> {{ plan.focus }}
           </div>
+        {% endif %}
+
+        <div class="bullets-box">
+          {% for b in slide.bullets %}
+            <div class="bullet-item">
+              <span class="bullet-icon">▸</span>
+              <span>{{ b }}</span>
+            </div>
+          {% endfor %}
         </div>
       </div>
 
@@ -54,12 +67,12 @@
         <div class="footer-left">
           <span>Atalaya Electoral</span>
           <span class="footer-dot"></span>
-          <span>Borrador generado con IA</span>
+          <span>Borrador generado con IA — propuesta del equipo OXENT</span>
           <span class="footer-dot"></span>
           <span>{{ plan.generated_at[:10] }}</span>
         </div>
         <div class="footer-right">
-          Diapositiva {{ loop.index }} de {{ slides|length }}
+          Diapositiva 1 de {{ slides|length }}
         </div>
       </footer>
     </section>
@@ -143,7 +156,7 @@
             </div>
             <div class="territory-panel">
               <div class="bullets-box" style="flex: 1;">
-                <div style="font-weight: 700; color: #4a2a48; margin-bottom: 4px; font-size: 13.5px;">Factores Territoriales Clave:</div>
+                <div style="font-weight: 700; color: #4a2a48; margin-bottom: 4px; font-size: 13px;">Factores Territoriales Clave:</div>
                 {% for b in slide.bullets %}
                   <div class="bullet-item">
                     <span class="bullet-icon">▸</span>
@@ -188,7 +201,7 @@
               <div class="proposal-card">
                 <div class="proposal-top">
                   <span class="proposal-title">{{ p.title }}</span>
-                  <span class="badge badge-tier">{{ p.lever|replace("_", " ")|capitalize }}</span>
+                  <span class="badge badge-tier">{{ p.lever_label or p.lever|replace("_", " ")|capitalize }}</span>
                 </div>
                 <div class="proposal-desc">{{ p.description }}</div>
                 <div class="proposal-metrics">
@@ -240,17 +253,24 @@
                 <tr>
                   <th>Propuesta / Palanca</th>
                   <th>Votos Adicionales (Individual)</th>
-                  <th>Contribución Relativa</th>
+                  <th>% del total individual</th>
                 </tr>
               </thead>
               <tbody>
                 {% for pi in slide.data.get("per_proposal") %}
                   <tr>
-                    <td><strong>{{ pi.lever|replace("_", " ")|capitalize }}</strong> ({{ pi.proposal_id }})</td>
-                    <td>+{{ "{:,}".format(pi.votos_solo) }} votos</td>
-                    <td>Impacto directo sinérgico</td>
+                    <td><strong>{{ pi.lever_label }}</strong> ({{ pi.proposal_id }})</td>
+                    <td>{{ pi.votos_solo_str }}</td>
+                    <td>{{ pi.pct_individual }}</td>
                   </tr>
                 {% endfor %}
+                {% if slide.data.get("overlap_votos") %}
+                  <tr class="impact-overlap-row">
+                    <td><em>Traslape (personas alcanzadas por más de una campaña)</em></td>
+                    <td>{{ slide.data.get("overlap_votos_str") }}</td>
+                    <td>Ajuste sinérgico</td>
+                  </tr>
+                {% endif %}
               </tbody>
             </table>
           {% endif %}
@@ -275,7 +295,7 @@
                 <div class="timeline-dates">{{ s.start }} a {{ s.end }}</div>
                 <div class="timeline-actions">
                   {% for act in s.actions %}
-                    <div>• {{ act }}</div>
+                    <div class="timeline-action-item"><span>•</span> <span>{{ act }}</span></div>
                   {% endfor %}
                 </div>
                 <div class="timeline-kpi">
@@ -342,6 +362,50 @@
     </section>
   {% endif %}
 {% endfor %}
+
+<script>
+window.addEventListener("DOMContentLoaded", function() {
+  var slides = document.querySelectorAll(".slide");
+  for (var i = 0; i < slides.length; i++) {
+    var slide = slides[i];
+    var isOverflowing = false;
+
+    // Check relevant content containers and cards
+    var checkCards = slide.querySelectorAll(
+      ".timeline-card, .finding-card, .proposal-card, .target-card, " +
+      ".risk-item, .kpi-card, .bullets-box, .slide-content, .portada-body, " +
+      ".timeline-grid, .findings-grid, .proposals-grid, .matrix-grid"
+    );
+    for (var j = 0; j < checkCards.length; j++) {
+      var el = checkCards[j];
+      if (el.scrollHeight > el.clientHeight + 1) {
+        el.setAttribute("data-overflow", "1");
+        isOverflowing = true;
+      }
+    }
+
+    // Check if content crosses or touches the footer
+    var content = slide.querySelector(".slide-content") || slide.querySelector(".portada-body");
+    var footer = slide.querySelector(".slide-footer");
+    if (content && footer) {
+      var cRect = content.getBoundingClientRect();
+      var fRect = footer.getBoundingClientRect();
+      if (cRect.bottom > fRect.top + 1) {
+        content.setAttribute("data-overflow", "1");
+        isOverflowing = true;
+      }
+    }
+
+    if (slide.scrollHeight > slide.clientHeight + 1) {
+      isOverflowing = true;
+    }
+
+    if (isOverflowing) {
+      slide.setAttribute("data-overflow", "1");
+    }
+  }
+});
+</script>
 
 </body>
 </html>

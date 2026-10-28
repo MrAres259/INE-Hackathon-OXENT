@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from atalaya.api import deps
 from atalaya.intel.prompts_campaign import (
+    build_campaign_fallback_queries,
     build_planner_prompt,
     build_research_prompt,
 )
@@ -334,14 +335,28 @@ def research_unit(
     system_prompt, user_prompt = build_research_prompt(snapshot, focus)
     cache_key = f"campaign:{snapshot.unit_id}:{focus or ''}"
     cache_ttl_s = 0 if refresh else 72 * 3600
+    fallback_queries = build_campaign_fallback_queries(snapshot, focus)
 
     try:
-        parsed_json, grounded_res = gemini.grounded_json(
-            user_prompt,
-            system=system_prompt,
-            cache_key=cache_key,
-            cache_ttl_s=cache_ttl_s,
-        )
+        try:
+            parsed_json, grounded_res = gemini.grounded_json(
+                user_prompt,
+                system=system_prompt,
+                cache_key=cache_key,
+                cache_ttl_s=cache_ttl_s,
+                fallback_queries=fallback_queries,
+                fallback_days=1460,
+            )
+        except TypeError as type_err:
+            if "fallback_queries" in str(type_err):
+                parsed_json, grounded_res = gemini.grounded_json(
+                    user_prompt,
+                    system=system_prompt,
+                    cache_key=cache_key,
+                    cache_ttl_s=cache_ttl_s,
+                )
+            else:
+                raise
     except Exception as exc:
         logger.warning("Gemini grounded_json failed for unit %s: %s", snapshot.unit_id, exc)
         return ResearchBundle(
@@ -506,6 +521,11 @@ def research_unit(
     queries = getattr(grounded_res, "queries", [])
     model_name = getattr(grounded_res, "model", "gemini-3.8-flash")
     from_cache = getattr(grounded_res, "from_cache", False)
+    res_mode = getattr(grounded_res, "mode", "grounding")
+
+    note: str | None = None
+    if res_mode == "rss_url_context":
+        note = "Búsqueda de respaldo: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa."
 
     return ResearchBundle(
         unit_id=snapshot.unit_id,
@@ -519,7 +539,7 @@ def research_unit(
         model=model_name,
         from_cache=from_cache,
         degraded=False,
-        note=None,
+        note=note,
     )
 
 

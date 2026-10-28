@@ -118,12 +118,12 @@ def virality(
     R = 0
     if min_age_hours is not None:
         if min_age_hours <= 48.0:
-            R = 10
+            R = 8
         elif min_age_hours <= 168.0:  # 7 days
-            R = 5
+            R = 4
 
-    # 4. Score calculation: min(100, round(22*log10(1+Σe) + 8*(n_plataformas-1) + 4*min(n_posts,5) + R))
-    raw_score = 22.0 * math.log10(1.0 + e_total) + 8.0 * (n_platforms - 1) + 4.0 * min(n_posts, 5) + R
+    # 4. Score calculation: clamp(0, 100, round(15*log10(1+Σe) + 6*(n_plataformas-1) + 3*min(n_posts,5) + R - 15))
+    raw_score = 15.0 * math.log10(1.0 + e_total) + 6.0 * (n_platforms - 1) + 3.0 * min(n_posts, 5) + R - 15.0
     score = max(0, min(100, int(round(raw_score))))
 
     # 5. Severity level classification

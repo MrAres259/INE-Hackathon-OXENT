@@ -139,12 +139,20 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain('title="Plegar a pastilla Resumen"');
     });
 
-    it("renders swipe divider handle and labels at top-1/3 with data-map-overlay", () => {
+    it("renders comparison summary collapsed as Resumen pill on compact screens", () => {
+      const html = renderToStaticMarkup(<CompareSummary data={mockData} defaultCollapsed={true} />);
+      expect(html).toContain('data-map-overlay="compare-summary"');
+      expect(html).toContain("Resumen");
+      expect(html).toContain('title="Mostrar resumen de comparación"');
+      expect(html).not.toContain("Rojo 1 → 0");
+    });
+
+    it("renders swipe divider handle and labels positioned above handle without overlay collision", () => {
       const html = renderToStaticMarkup(<CompareSwipe data={mockData} />);
       expect(html).toContain('data-map-overlay="swipe-handle"');
       expect(html).toContain('data-map-overlay="swipe-left-label"');
       expect(html).toContain('data-map-overlay="swipe-right-label"');
-      expect(html).toContain("top-1/3");
+      expect(html).toContain("bottom-[calc(50%+24px)]");
     });
   });
 

@@ -15,7 +15,7 @@ import tempfile
 import unicodedata
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment, FileSystemLoader
 import pandas as pd
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -25,6 +25,7 @@ from pptx.util import Inches, Pt
 
 from atalaya.config import REPO_DIR
 from atalaya.intel.schemas import CampaignPlan, Slide, SlideKind
+from atalaya.intel.storage import exports_dir
 from atalaya.report.charts import CATEGORY_COLORS, find_browser, html_to_pdf
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,40 @@ SLIDE_KINDS_ORDER: list[SlideKind] = [
     "riesgos_kpis",
     "fuentes",
 ]
+
+LEVER_LABELS: dict[str, str] = {
+    "promocion_jovenes": "Promoción del voto joven",
+    "casillas_rurales": "Casillas y traslado en zonas rurales",
+    "materiales_lengua_indigena": "Materiales y capacitación en lenguas indígenas",
+    "campana_general": "Campaña general de promoción del voto",
+}
+
+
+def get_lever_label(lever: str) -> str:
+    """Returns canonical institutional label for a lever from SCENARIOS."""
+    if lever in LEVER_LABELS:
+        return LEVER_LABELS[lever]
+    try:
+        from atalaya.model.scenarios import SCENARIOS
+        for sc in SCENARIOS:
+            for p in sc.get("params", []):
+                if p.get("key") == "lever":
+                    for opt in p.get("options", []):
+                        if opt.get("value") == lever:
+                            return opt.get("label", lever)
+    except Exception:
+        pass
+    return lever.replace("_", " ").capitalize()
+
+
+def get_level_readable(level: str) -> str:
+    """Returns natural Spanish label for level: 'Municipio' / 'Estado'."""
+    lvl = (level or "").lower().strip()
+    if lvl in ("mun", "municipio", "municipal"):
+        return "Municipio"
+    if lvl in ("state", "estado", "estatal"):
+        return "Estado"
+    return level.capitalize()
 
 
 # ---------------------------------------------------------------- formatting helpers
@@ -125,16 +160,25 @@ def export_filename(plan: CampaignPlan, fmt: str) -> str:
 
 # ---------------------------------------------------------------- 1. build_slides
 
-def build_slides(plan: CampaignPlan) -> list[Slide]:
-    """Builds the 10 deterministic slides for the campaign plan (§6.4)."""
+def build_slides(plan: CampaignPlan, reduced: bool = False) -> list[Slide]:
+    """Builds the 10 deterministic slides for the campaign plan (§6.4).
+
+    When reduced=True, cuts text budgets to 70% and limits step actions to 1 to guarantee 0 overflow.
+    """
+    factor = 0.7 if reduced else 1.0
+
+    def rcut(text: str, max_chars: int) -> str:
+        return truncate_bullet(text, max(10, int(round(max_chars * factor))))
+
     slides: list[Slide] = []
     unit = plan.unit
     date_short = plan.generated_at[:10] if plan.generated_at else ""
+    level_readable = get_level_readable(unit.level)
 
     # Sl 1: portada
     p_bullets = [
-        "Borrador — propuesta del equipo OXENT con IA",
-        f"Unidad territorial: {unit.name} ({unit.ent_name})",
+        "Borrador generado con IA — propuesta del equipo OXENT",
+        f"Unidad territorial: {unit.name} ({unit.ent_name}) · {level_readable}",
         f"Lista nominal: {fmt_int(unit.lista_nominal)} electores",
         f"Abstención estimada: {fmt_pct(unit.pred_abstention)} (Riesgo {unit.category.capitalize()})",
     ]
@@ -143,13 +187,19 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
     if date_short:
         p_bullets.append(f"Fecha de corte del análisis: {date_short}")
 
+    portada_sub = (
+        f"{unit.name}, {unit.ent_name} · {level_readable} · Enfoque: {plan.focus}"
+        if plan.focus
+        else f"{unit.name}, {unit.ent_name} · {level_readable}"
+    )
+
     slides.append(
         Slide(
             id="sl1",
             kind="portada",
             title=f"Plan de Campaña Cívica: {unit.name}",
-            subtitle=f"{unit.ent_name} · Enfoque: {plan.focus}" if plan.focus else f"{unit.ent_name} · Ámbito {unit.level.upper()}",
-            bullets=[truncate_bullet(b) for b in p_bullets[:6]],
+            subtitle=portada_sub,
+            bullets=[rcut(b, 160) for b in p_bullets[:6]],
             notes=(
                 f"Presentación ejecutiva del plan de campaña cívica focalizada para {unit.name}, {unit.ent_name}. "
                 "El documento articula el modelo predictivo de participación electoral de Atalaya con evidencia documental "
@@ -160,6 +210,7 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
                 "unit_id": unit.unit_id,
                 "unit_name": unit.name,
                 "ent_name": unit.ent_name,
+                "level_readable": level_readable,
                 "focus": plan.focus,
                 "generated_at": plan.generated_at,
             },
@@ -201,7 +252,7 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="diagnostico_datos",
             title="Diagnóstico Electoral y Factores de Riesgo",
             subtitle="Línea base predictiva e indicadores demográficos de participación",
-            bullets=[truncate_bullet(b) for b in d_bullets[:6]],
+            bullets=[rcut(b, 160) for b in d_bullets[:6]],
             notes=(
                 f"La línea base predictiva sitúa a {unit.name} en nivel de riesgo {unit.category}, proyectando una abstención "
                 f"de {fmt_pct(unit.pred_abstention)} sobre una lista nominal de {fmt_int(unit.lista_nominal)} electores. "
@@ -227,8 +278,8 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             "findings": [
                 {
                     "id": f"d{i+1}",
-                    "title": d.label,
-                    "summary": f"Factor predictivo con aporte de {fmt_pp(d.contribution_pp)} a la abstención territorial.",
+                    "title": rcut(d.label, 80),
+                    "summary": rcut(f"Factor predictivo con aporte de {fmt_pp(d.contribution_pp)} a la abstención territorial.", 180),
                     "category": "condiciones_socioeconomicas",
                     "evidence": [],
                     "scope": "estado",
@@ -240,14 +291,19 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
         prob_title = "Problemáticas y Barreras de Participación"
         prob_sub = "Causas documentadas en fuentes públicas verificadas"
         prob_bullets = []
+        findings_processed = []
         for f in plan.research.findings[:6]:
             refs = f" [{', '.join(f.evidence)}]" if f.evidence else ""
             prob_bullets.append(f"{f.title}: {f.summary}{refs}")
+            fd = f.model_dump()
+            fd["title"] = rcut(f.title, 80)
+            fd["summary"] = rcut(f.summary, 180)
+            findings_processed.append(fd)
         if not prob_bullets:
             prob_bullets.append("No se detectaron problemáticas documentadas atípicas en las fuentes verificadas.")
         prob_data = {
             "degraded": False,
-            "findings": [f.model_dump() for f in plan.research.findings[:6]],
+            "findings": findings_processed,
         }
 
     slides.append(
@@ -256,7 +312,7 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="problematicas",
             title=prob_title,
             subtitle=prob_sub,
-            bullets=[truncate_bullet(b) for b in prob_bullets[:6]],
+            bullets=[rcut(b, 160) for b in prob_bullets[:6]],
             notes=(
                 "Las causas del abstencionismo local combinan factores sociodemográficos y barreras operativas de acceso. "
                 "Cada problemática documentada fue contrastada contra fuentes verificables para fundamentar las intervenciones cívicas "
@@ -269,7 +325,7 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
     # Sl 4: region
     svg_map = region_svg(plan)
     r_bullets = [
-        f"Entidad federativa: {unit.ent_name} (clave {unit.ent}), nivel {unit.level}.",
+        f"Entidad federativa: {unit.ent_name} (clave {unit.ent}) · Ámbito {level_readable.lower()}.",
         f"Distribución demográfica: {fmt_pct(unit.pct_rural, is_fraction=False)} rural y {fmt_pct(unit.pct_internet, is_fraction=False)} cobertura internet.",
         f"Población hablante de lengua indígena (HLI): {fmt_pct(unit.pct_hli, is_fraction=False)}.",
     ]
@@ -283,8 +339,8 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             id="sl4",
             kind="region",
             title="Contexto Territorial y Distribución del Riesgo",
-            subtitle=f"Ámbito territorial: {unit.name} ({unit.ent_name})",
-            bullets=[truncate_bullet(b) for b in r_bullets[:6]],
+            subtitle=f"{level_readable}: {unit.name} ({unit.ent_name})",
+            bullets=[rcut(b, 160) for b in r_bullets[:6]],
             notes=(
                 f"El mapa territorial permite visualizar la distribución espacial del riesgo electoral en {unit.name}. "
                 "La dispersión geográfica y el grado de conectividad determinan la viabilidad operativa de las rutas de difusión "
@@ -301,9 +357,13 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
 
     # Sl 5: grupo_objetivo
     tg_bullets = []
+    tg_processed = []
     for tg in plan.target_groups[:5]:
         size_str = f" ({fmt_int(tg.size_estimate)} personas)" if tg.size_estimate else ""
         tg_bullets.append(f"{tg.name}{size_str}: {tg.description}")
+        tg_d = tg.model_dump()
+        tg_d["description"] = rcut(tg.description, 180)
+        tg_processed.append(tg_d)
     if not tg_bullets:
         tg_bullets.append("Ciudadanía inscrita en la lista nominal con énfasis en jóvenes y zonas de baja concurrencia.")
 
@@ -313,26 +373,26 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="grupo_objetivo",
             title="Grupos Objetivo Prioritarios",
             subtitle="Población meta para las acciones de movilización y pedagogía electoral",
-            bullets=[truncate_bullet(b) for b in tg_bullets[:6]],
+            bullets=[rcut(b, 160) for b in tg_bullets[:6]],
             notes=(
                 "La focalización en segmentos específicos optimiza el despliegue territorial y la asignación de recursos cívicos. "
                 "Los grupos objetivo reflejan las mayores brechas observadas en los datos del Censo y el historial de participación."
             ),
-            data={"target_groups": [tg.model_dump() for tg in plan.target_groups]},
+            data={"target_groups": tg_processed},
         )
     )
 
     # Sl 6: propuestas
     prop_bullets = []
-    lever_names = {
-        "promocion_jovenes": "Promoción en jóvenes",
-        "casillas_rurales": "Casillas y transporte rural",
-        "materiales_lengua_indigena": "Materiales en lenguas indígenas",
-        "campana_general": "Campaña cívica general",
-    }
+    prop_processed = []
     for p in plan.proposals[:4]:
-        lev_label = lever_names.get(p.lever, p.lever.replace("_", " ").capitalize())
+        lev_label = get_lever_label(p.lever)
         prop_bullets.append(f"{p.title} ({lev_label}): efecto proyectado {fmt_pp(-p.effect_pp if p.effect_pp > 0 else p.effect_pp)} con cobertura {p.coverage:.0f}%.")
+        pd_item = p.model_dump()
+        pd_item["lever_label"] = lev_label
+        pd_item["title"] = rcut(p.title, 80)
+        pd_item["description"] = rcut(p.description, 220)
+        prop_processed.append(pd_item)
     if not prop_bullets:
         prop_bullets.append("Propuestas estructuradas en torno a las palancas oficiales de intervención del simulador.")
 
@@ -342,17 +402,31 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="propuestas",
             title="Propuestas de Intervención Cívica",
             subtitle="Estrategias focalizadas articuladas con las palancas institucionales del INE",
-            bullets=[truncate_bullet(b) for b in prop_bullets[:6]],
+            bullets=[rcut(b, 160) for b in prop_bullets[:6]],
             notes=(
                 "Cada propuesta está vinculada a una palanca de política pública del simulador y a una problemática documentada. "
                 "Las metas de cobertura y efecto fueron calibradas en rangos conservadores para garantizar factibilidad técnica y presupuestal."
             ),
-            data={"proposals": [p.model_dump() for p in plan.proposals]},
+            data={"proposals": prop_processed},
         )
     )
 
     # Sl 7: impacto
     imp = plan.impact
+    sum_votos_solo = sum((pi.votos_solo or 0) for pi in imp.per_proposal)
+    per_prop_data = []
+    for pi in imp.per_proposal:
+        v_solo = pi.votos_solo or 0
+        pct_solo = (v_solo / sum_votos_solo * 100.0) if sum_votos_solo > 0 else 0.0
+        per_prop_data.append({
+            "proposal_id": pi.proposal_id,
+            "lever": pi.lever,
+            "lever_label": get_lever_label(pi.lever),
+            "votos_solo": v_solo,
+            "votos_solo_str": f"+{fmt_int(v_solo)} votos",
+            "pct_individual": f"{pct_solo:.1f} %",
+        })
+
     imp_bullets = [
         f"Reducción estimada de abstención: {fmt_pp(imp.delta_pp)} (de {fmt_pct(imp.abstention_base)} a {fmt_pct(imp.abstention_scenario)}).",
         f"Votos adicionales proyectados: {fmt_int(imp.votos_adicionales)} electores movilizados a las urnas.",
@@ -369,7 +443,7 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="impacto",
             title="Proyección de Impacto y Movilización",
             subtitle="Estimación determinista mediante el simulador de escenarios de Atalaya",
-            bullets=[truncate_bullet(b) for b in imp_bullets[:6]],
+            bullets=[rcut(b, 160) for b in imp_bullets[:6]],
             notes=(
                 f"La simulación estima una ganancia neta de {fmt_int(imp.votos_adicionales)} votos y una disminución "
                 f"de {fmt_pp(imp.delta_pp)} en la abstención territorial. La modelación asume rendimientos decrecientes "
@@ -382,9 +456,10 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
                 "votos": fmt_int(imp.votos_adicionales),
                 "category_before": imp.category_before,
                 "category_after": imp.category_after,
-                "overlap_votos": fmt_int(imp.overlap_votos),
+                "overlap_votos": imp.overlap_votos,
+                "overlap_votos_str": f"−{fmt_int(imp.overlap_votos)} votos" if imp.overlap_votos else "0 votos",
                 "municipios_mejoran": imp.municipios_mejoran,
-                "per_proposal": [pi.model_dump() for pi in imp.per_proposal],
+                "per_proposal": per_prop_data,
                 "assumptions": imp.assumptions,
             },
         )
@@ -392,8 +467,24 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
 
     # Sl 8: implementacion
     step_bullets = []
+    steps_processed = []
+    max_acts = 1 if reduced else 2
     for s in plan.steps[:6]:
-        step_bullets.append(f"Paso {s.order} ({s.start} a {s.end}): {s.phase} — Resp: {s.responsible}. Meta: {s.kpi}")
+        clean_actions = [rcut(act, 90) for act in s.actions[:max_acts]]
+        clean_resp = rcut(s.responsible, 110)
+        clean_kpi = rcut(s.kpi, 110)
+        clean_phase = rcut(s.phase, 55)
+
+        step_bullets.append(f"Paso {s.order} ({s.start} a {s.end}): {clean_phase} — Resp: {clean_resp}. Meta: {clean_kpi}")
+        steps_processed.append({
+            "order": s.order,
+            "phase": clean_phase,
+            "start": s.start,
+            "end": s.end,
+            "actions": clean_actions,
+            "responsible": clean_resp,
+            "kpi": clean_kpi,
+        })
     if not step_bullets:
         step_bullets.append("Calendario de implementación cronológico alineado al calendario electoral 2027.")
 
@@ -403,20 +494,26 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="implementacion",
             title="Ruta Crítica de Implementación",
             subtitle="Cronograma operativo de fases rumbo a la jornada electoral de 2027",
-            bullets=[truncate_bullet(b) for b in step_bullets[:6]],
+            bullets=[rcut(b, 160) for b in step_bullets[:6]],
             notes=(
                 "La ruta crítica organiza las acciones operativas en fases secuenciales que concluyen antes del inicio de la veda electoral. "
                 "Cada hito contempla un área responsable y una meta verificable para facilitar la fiscalización y auditoría del proceso."
             ),
-            data={"steps": [s.model_dump() for s in plan.steps]},
+            data={"steps": steps_processed},
         )
     )
 
     # Sl 9: riesgos_kpis
     rk_bullets = []
-    for r in plan.risks[:3]:
-        rk_bullets.append(f"Riesgo: {r.risk}. Mitigación: {r.mitigation}")
-    for kpi in plan.kpis[:3]:
+    risks_processed = []
+    for r in plan.risks[:4]:
+        r_cut = rcut(r.risk, 110)
+        m_cut = rcut(r.mitigation, 180)
+        rk_bullets.append(f"Riesgo: {r_cut}. Mitigación: {m_cut}")
+        risks_processed.append({"risk": r_cut, "mitigation": m_cut})
+
+    kpis_cut = [rcut(kpi, 140) for kpi in plan.kpis[:4]]
+    for kpi in kpis_cut[:3]:
         rk_bullets.append(f"KPI: {kpi}")
     if not rk_bullets:
         rk_bullets.append("Monitoreo continuo de indicadores de contacto ciudadano y avance logístico en campo.")
@@ -427,14 +524,14 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="riesgos_kpis",
             title="Matriz de Riesgos y Métricas de Éxito",
             subtitle="Mitigaciones operativas e indicadores clave de desempeño (KPIs)",
-            bullets=[truncate_bullet(b) for b in rk_bullets[:6]],
+            bullets=[rcut(b, 160) for b in rk_bullets[:6]],
             notes=(
                 "Se identificaron contingencias operativas, climáticas y de seguridad, asociadas a protocolos específicos de mitigación. "
                 "Los indicadores clave permitirán evaluar el cumplimiento semanal de metas y reaccionar oportunamente ante desviaciones."
             ),
             data={
-                "risks": [r.model_dump() for r in plan.risks],
-                "kpis": plan.kpis,
+                "risks": risks_processed,
+                "kpis": kpis_cut,
             },
         )
     )
@@ -454,7 +551,7 @@ def build_slides(plan: CampaignPlan) -> list[Slide]:
             kind="fuentes",
             title="Fuentes Consultadas y Marco Metodológico",
             subtitle="Nivel de verificación documental y principios de neutralidad institucional",
-            bullets=[truncate_bullet(b) for b in src_bullets[:6]],
+            bullets=[rcut(b, 160) for b in src_bullets[:6]],
             notes=(
                 "Todas las fuentes documentales fueron filtradas conforme a los estándares de verificación institucional del INE, "
                 "excluyendo redes sociales o canales no verificables. El plan se apega estrictamente a la imparcialidad y la certeza electoral."
@@ -694,7 +791,6 @@ def _get_logo_data_uri() -> str:
     """Returns data URI for Atalaya logo from report/assets/."""
     candidates = [
         ASSETS_DIR / "atalaya-electoral-logo.svg",
-        ASSETS_DIR / "atalaya-electoral-logo-light.svg",
         ASSETS_DIR / "icon-512.png",
     ]
     for p in candidates:
@@ -709,15 +805,34 @@ def _get_logo_data_uri() -> str:
     return ""
 
 
+def _get_logo_light_data_uri() -> str:
+    """Returns data URI for clear/white Atalaya logo (for dark/magenta backgrounds)."""
+    p = ASSETS_DIR / "atalaya-electoral-logo-light.svg"
+    if p.is_file():
+        try:
+            raw = p.read_bytes()
+            b64 = base64.b64encode(raw).decode("ascii")
+            return f"data:image/svg+xml;base64,{b64}"
+        except Exception:
+            pass
+    return ""
+
+
 def render_html(plan: CampaignPlan, slides: list[Slide] | None = None) -> str:
     """Renders 16:9 presentation HTML with embedded CSS and logo."""
-    slides_to_use = slides if slides is not None else (plan.slides if len(plan.slides) == 10 else build_slides(plan))
+    slides_to_use = slides if slides is not None else build_slides(plan)
+    for s in slides_to_use:
+        if s.subtitle and ("Ámbito MUN" in s.subtitle or "Ambito MUN" in s.subtitle):
+            s.subtitle = s.subtitle.replace("Ámbito MUN", get_level_readable(plan.unit.level)).replace("Ambito MUN", get_level_readable(plan.unit.level))
+        if s.kind == "portada" and s.subtitle and "Ámbito" in s.subtitle:
+            s.subtitle = f"{plan.unit.name}, {plan.unit.ent_name} · {get_level_readable(plan.unit.level)}"
 
     # Read CSS content
     css_file = TEMPLATES_DIR / "deck.css"
     css_content = css_file.read_text(encoding="utf-8") if css_file.is_file() else ""
 
     logo_uri = _get_logo_data_uri()
+    logo_light_uri = _get_logo_light_data_uri()
 
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
@@ -729,20 +844,96 @@ def render_html(plan: CampaignPlan, slides: list[Slide] | None = None) -> str:
         slides=slides_to_use,
         css_content=css_content,
         logo_uri=logo_uri,
+        logo_light_uri=logo_light_uri,
     )
 
 
-# ---------------------------------------------------------------- 4. export_pdf
+# ---------------------------------------------------------------- 4. check_overflow & export_pdf
+
+def check_overflow(html_path: Path, timeout_s: int = 20) -> list[str]:
+    """Runs headless Chrome to detect overflows tagged with data-overflow="1".
+
+    Returns a list of slide IDs that have overflowing cards or text.
+    """
+    try:
+        browser = find_browser()
+    except RuntimeError:
+        logger.warning("No headless browser found to run overflow check.")
+        return []
+
+    file_uri = html_path.resolve().as_uri()
+    cmd = [
+        str(browser),
+        "--headless=new",
+        "--disable-gpu",
+        "--virtual-time-budget=5000",
+        "--dump-dom",
+        file_uri,
+    ]
+    try:
+        res = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_s,
+        )
+        dom = res.stdout or ""
+        if 'data-overflow="1"' not in dom:
+            return []
+
+        overflowing: list[str] = []
+        for match in re.finditer(r'<section[^>]*id="([^"]+)"[\s\S]*?</section>', dom):
+            slide_id = match.group(1)
+            content = match.group(0)
+            if 'data-overflow="1"' in content:
+                overflowing.append(slide_id)
+
+        if not overflowing and 'data-overflow="1"' in dom:
+            overflowing.append("slide-unknown")
+
+        return overflowing
+    except Exception as exc:
+        logger.warning("Failed running browser overflow check: %s", exc)
+        return []
+
 
 def export_pdf(plan: CampaignPlan, out: Path, slides: list[Slide] | None = None) -> Path:
-    """Exports the 16:9 presentation to PDF via headless Chrome/Edge."""
-    html_content = render_html(plan, slides)
+    """Exports the 16:9 presentation to PDF via headless Chrome/Edge.
+
+    Validates slide overflow; if detected, reduces clipping and re-renders once.
+    """
     out = Path(out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
-
     tmp_html = out.parent / f"_tmp_{out.stem}.html"
+
     try:
+        # 1. Initial render
+        slides_to_use = slides if slides is not None else build_slides(plan, reduced=False)
+        html_content = render_html(plan, slides_to_use)
         tmp_html.write_text(html_content, encoding="utf-8")
+
+        # 2. Check overflow
+        overflows = check_overflow(tmp_html)
+        if overflows:
+            logger.info("Overflow detected in slide(s): %s; reducing cuts and re-rendering", ", ".join(overflows))
+            # Reduce clipping: actions to 1, texts to 70%
+            slides_to_use = build_slides(plan, reduced=True)
+            if slides is not None:
+                # If custom overrides were provided in slides, preserve overridden title/subtitle/notes
+                for s_orig, s_red in zip(slides, slides_to_use):
+                    if s_orig.title != s_red.title:
+                        s_red.title = s_orig.title
+                    if s_orig.subtitle != s_red.subtitle:
+                        s_red.subtitle = s_orig.subtitle
+                    if s_orig.notes != s_red.notes:
+                        s_red.notes = s_orig.notes
+            html_content = render_html(plan, slides_to_use)
+            tmp_html.write_text(html_content, encoding="utf-8")
+
+        # 3. Export PDF
         html_to_pdf(tmp_html, out, landscape=True)
 
         # Validate page count equals 10 slides
@@ -801,23 +992,45 @@ def _svg_to_png(svg_str: str, png_path: Path, width: int = 900, height: int = 56
                 pass
 
 
+def _get_or_rasterize_logo_light() -> Path | None:
+    """Returns path to cached rasterized light logo PNG, creating it if needed."""
+    try:
+        cached = exports_dir() / "logo_light.png"
+        if cached.is_file() and cached.stat().st_size > 500:
+            return cached
+        svg_light = ASSETS_DIR / "atalaya-electoral-logo-light.svg"
+        if svg_light.is_file():
+            svg_content = svg_light.read_text(encoding="utf-8")
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            if _svg_to_png(svg_content, cached, width=450, height=96):
+                return cached
+    except Exception as exc:
+        logger.warning("Could not generate logo_light.png: %s", exc)
+
+    for candidate in [ASSETS_DIR / "icon-512.png", ASSETS_DIR / "apple-icon.png"]:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def export_pptx(plan: CampaignPlan, out: Path, slides: list[Slide] | None = None) -> Path:
-    """Exports 16:9 PowerPoint presentation with editable text boxes and notes."""
-    slides_to_use = slides if slides is not None else (plan.slides if len(plan.slides) == 10 else build_slides(plan))
+    """Exports 16:9 PowerPoint presentation with editable text boxes, titles in shapes.title, and notes."""
+    slides_to_use = slides if slides is not None else build_slides(plan)
+    for s in slides_to_use:
+        if s.subtitle and ("Ámbito MUN" in s.subtitle or "Ambito MUN" in s.subtitle):
+            s.subtitle = s.subtitle.replace("Ámbito MUN", get_level_readable(plan.unit.level)).replace("Ambito MUN", get_level_readable(plan.unit.level))
+        if s.kind == "portada" and s.subtitle and "Ámbito" in s.subtitle:
+            s.subtitle = f"{plan.unit.name}, {plan.unit.ent_name} · {get_level_readable(plan.unit.level)}"
     out = Path(out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
 
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
-    blank_layout = prs.slide_layouts[6]
+    # Layout 5: Title Only (provides a native title placeholder recognized in shapes.title and outline)
+    title_layout = prs.slide_layouts[5]
 
-    # Logo PNG candidate
-    logo_png_path: Path | None = None
-    icon_candidate = ASSETS_DIR / "icon-512.png"
-    if icon_candidate.is_file():
-        logo_png_path = icon_candidate
-
+    logo_light_path = _get_or_rasterize_logo_light()
     date_str = plan.generated_at[:10] if plan.generated_at else ""
 
     # Temporary directory for map rasterization
@@ -825,54 +1038,78 @@ def export_pptx(plan: CampaignPlan, out: Path, slides: list[Slide] | None = None
         tmp_path = Path(tmp_dir)
 
         for i, s in enumerate(slides_to_use):
-            slide = prs.slides.add_slide(blank_layout)
+            slide = prs.slides.add_slide(title_layout)
+
+            # Ensure slide.shapes.title contains the slide title for PowerPoint navigation
+            title_shape = slide.shapes.title
+            if title_shape:
+                title_shape.text = s.title
+                title_shape.name = "Title"
+
+            # Remove other unused placeholders from slide layout 5
+            for ph in list(slide.placeholders):
+                if ph != slide.shapes.title:
+                    try:
+                        sp = ph._element
+                        sp.getparent().remove(sp)
+                    except Exception:
+                        pass
 
             # Speaker notes
             if s.notes:
                 slide.notes_slide.notes_text_frame.text = s.notes
 
             if s.kind == "portada":
-                # Cover slide banner
-                banner = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(7.5))
+                # Cover slide banner (top magenta rectangle)
+                banner = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(3.2))
                 banner.fill.solid()
-                banner.fill.fore_color.rgb = COLOR_LIGHT_BG_RGB
-                banner.line.color.rgb = COLOR_LIGHT_BG_RGB
+                banner.fill.fore_color.rgb = COLOR_MAGENTA_RGB
+                banner.line.color.rgb = COLOR_MAGENTA_RGB
 
-                top_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.2))
-                top_bar.fill.solid()
-                top_bar.fill.fore_color.rgb = COLOR_MAGENTA_RGB
-                top_bar.line.color.rgb = COLOR_MAGENTA_RGB
+                # Logo picture in cover banner
+                if logo_light_path and logo_light_path.is_file():
+                    try:
+                        slide.shapes.add_picture(str(logo_light_path), Inches(0.8), Inches(0.35), height=Inches(0.65))
+                    except Exception:
+                        pass
 
-                # Portada Tag
-                tag_box = slide.shapes.add_textbox(Inches(1.0), Inches(1.2), Inches(10.0), Inches(0.4))
+                # Portada Tag / Sello
+                tag_box = slide.shapes.add_textbox(Inches(4.8), Inches(0.45), Inches(7.7), Inches(0.4))
                 tag_p = tag_box.text_frame.paragraphs[0]
-                tag_p.text = "BORRADOR GENERADO CON IA · EQUIPO OXENT"
+                tag_p.text = "BORRADOR GENERADO CON IA — EQUIPO OXENT"
                 tag_p.font.name = "Arial"
                 tag_p.font.size = Pt(11)
                 tag_p.font.bold = True
-                tag_p.font.color.rgb = COLOR_MAGENTA_RGB
+                tag_p.font.color.rgb = RGBColor(0xFA, 0xEB, 0xF3)
 
-                # Title
-                t_box = slide.shapes.add_textbox(Inches(1.0), Inches(1.7), Inches(11.0), Inches(1.2))
-                t_frame = t_box.text_frame
-                t_frame.word_wrap = True
-                t_p = t_frame.paragraphs[0]
-                t_p.text = s.title
-                t_p.font.name = "Arial"
-                t_p.font.size = Pt(36)
-                t_p.font.bold = True
-                t_p.font.color.rgb = COLOR_TINTA_RGB
+                # Format Title shape inside magenta banner
+                if title_shape:
+                    title_shape.left = Inches(0.8)
+                    title_shape.top = Inches(1.2)
+                    title_shape.width = Inches(11.7)
+                    title_shape.height = Inches(0.9)
+                    t_frame = title_shape.text_frame
+                    t_frame.word_wrap = True
+                    t_p = t_frame.paragraphs[0]
+                    t_p.text = s.title
+                    t_p.font.name = "Arial"
+                    t_p.font.size = Pt(32)
+                    t_p.font.bold = True
+                    t_p.font.color.rgb = COLOR_WHITE_RGB
 
-                # Subtitle
+                # Subtitle in cover banner
                 if s.subtitle:
-                    sub_p = t_frame.add_paragraph()
+                    sub_box = slide.shapes.add_textbox(Inches(0.8), Inches(2.2), Inches(11.7), Inches(0.6))
+                    sub_tf = sub_box.text_frame
+                    sub_tf.word_wrap = True
+                    sub_p = sub_tf.paragraphs[0]
                     sub_p.text = s.subtitle
                     sub_p.font.name = "Arial"
-                    sub_p.font.size = Pt(16)
-                    sub_p.font.color.rgb = COLOR_MUTED_RGB
+                    sub_p.font.size = Pt(15)
+                    sub_p.font.color.rgb = RGBColor(0xFD, 0xF0, 0xF7)
 
-                # Bullets
-                b_box = slide.shapes.add_textbox(Inches(1.0), Inches(3.2), Inches(11.0), Inches(2.2))
+                # Metadata & Bullets below banner (starting at top = 3.5 in)
+                b_box = slide.shapes.add_textbox(Inches(0.8), Inches(3.5), Inches(11.7), Inches(3.1))
                 b_frame = b_box.text_frame
                 b_frame.word_wrap = True
                 for idx, b in enumerate(s.bullets):
@@ -881,10 +1118,10 @@ def export_pptx(plan: CampaignPlan, out: Path, slides: list[Slide] | None = None
                     p.font.name = "Arial"
                     p.font.size = Pt(13)
                     p.font.color.rgb = COLOR_DARK_RGB
-                    p.space_after = Pt(6)
+                    p.space_after = Pt(8)
 
                 # Footer
-                ftr = slide.shapes.add_textbox(Inches(1.0), Inches(6.8), Inches(11.0), Inches(0.4))
+                ftr = slide.shapes.add_textbox(Inches(0.8), Inches(6.8), Inches(11.7), Inches(0.4))
                 ftr_p = ftr.text_frame.paragraphs[0]
                 ftr_p.text = f"Atalaya Electoral · Borrador generado con IA · {date_str}       |       Diapositiva 1 de {len(slides_to_use)}"
                 ftr_p.font.name = "Arial"
@@ -893,33 +1130,40 @@ def export_pptx(plan: CampaignPlan, out: Path, slides: list[Slide] | None = None
 
             else:
                 # Top brand line
-                top_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.1))
+                top_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(0.08))
                 top_bar.fill.solid()
                 top_bar.fill.fore_color.rgb = COLOR_MAGENTA_RGB
                 top_bar.line.color.rgb = COLOR_MAGENTA_RGB
 
-                # Header box
-                hdr_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.35), Inches(10.5), Inches(0.9))
-                hdr_frame = hdr_box.text_frame
-                hdr_frame.word_wrap = True
-                hdr_p = hdr_frame.paragraphs[0]
-                hdr_p.text = s.title
-                hdr_p.font.name = "Arial"
-                hdr_p.font.size = Pt(22)
-                hdr_p.font.bold = True
-                hdr_p.font.color.rgb = COLOR_TINTA_RGB
+                # Header box via slide.shapes.title
+                if title_shape:
+                    title_shape.left = Inches(0.8)
+                    title_shape.top = Inches(0.28)
+                    title_shape.width = Inches(10.5)
+                    title_shape.height = Inches(0.55)
+                    hdr_frame = title_shape.text_frame
+                    hdr_frame.word_wrap = True
+                    hdr_p = hdr_frame.paragraphs[0]
+                    hdr_p.text = s.title
+                    hdr_p.font.name = "Arial"
+                    hdr_p.font.size = Pt(22)
+                    hdr_p.font.bold = True
+                    hdr_p.font.color.rgb = COLOR_TINTA_RGB
 
                 if s.subtitle:
-                    sub_p = hdr_frame.add_paragraph()
+                    sub_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.85), Inches(10.5), Inches(0.4))
+                    sub_tf = sub_box.text_frame
+                    sub_tf.word_wrap = True
+                    sub_p = sub_tf.paragraphs[0]
                     sub_p.text = s.subtitle
                     sub_p.font.name = "Arial"
                     sub_p.font.size = Pt(12)
                     sub_p.font.color.rgb = COLOR_MUTED_RGB
 
-                # Logo icon
-                if logo_png_path:
+                # Logo icon at top right
+                if logo_light_path and logo_light_path.is_file():
                     try:
-                        slide.shapes.add_picture(str(logo_png_path), Inches(12.0), Inches(0.3), width=Inches(0.6))
+                        slide.shapes.add_picture(str(logo_light_path), Inches(11.4), Inches(0.35), height=Inches(0.45))
                     except Exception:
                         pass
 
@@ -966,9 +1210,9 @@ def export_pptx(plan: CampaignPlan, out: Path, slides: list[Slide] | None = None
                         p = tf.paragraphs[0] if b_idx == 0 else tf.add_paragraph()
                         p.text = f"▸  {b}"
                         p.font.name = "Arial"
-                        p.font.size = Pt(13.5)
+                        p.font.size = Pt(13)
                         p.font.color.rgb = COLOR_DARK_RGB
-                        p.space_after = Pt(10)
+                        p.space_after = Pt(8)
 
                 # Footer
                 ftr = slide.shapes.add_textbox(Inches(0.8), Inches(6.9), Inches(11.733), Inches(0.35))

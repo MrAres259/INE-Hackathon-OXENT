@@ -396,6 +396,9 @@ def run_scan(
     sources_scanned_count = 0
     model_name = getattr(settings, "gemini_model", "gemini-3.8-flash")
     stage_notes: list[str] = []
+    stage1_mode = "none"
+    stage2_mode = "none"
+    stage3_mode = "none"
 
     # ---------------- STAGE 1: Recognized Media
     report("Buscando noticias en medios reconocidos", 10)
@@ -403,12 +406,27 @@ def run_scan(
     try:
         news_prompt = prompts_monitor.build_news_prompt(today, req.window_days)
         cache_key_news = f"monitor:noticias:w{req.window_days}:{today.isoformat()}"
-        news_data, news_grounded = gemini.grounded_json(
-            news_prompt,
-            system=prompts_monitor.SYSTEM_NEWS,
-            cache_key=cache_key_news,
-            cache_ttl_s=ttl_s,
-        )
+        try:
+            news_data, news_grounded = gemini.grounded_json(
+                news_prompt,
+                system=prompts_monitor.SYSTEM_NEWS,
+                cache_key=cache_key_news,
+                cache_ttl_s=ttl_s,
+                fallback_queries=prompts_monitor.STAGE1_FALLBACK_QUERIES,
+                fallback_days=req.window_days,
+            )
+        except TypeError as type_err:
+            if "fallback_queries" in str(type_err):
+                news_data, news_grounded = gemini.grounded_json(
+                    news_prompt,
+                    system=prompts_monitor.SYSTEM_NEWS,
+                    cache_key=cache_key_news,
+                    cache_ttl_s=ttl_s,
+                )
+            else:
+                raise
+
+        stage1_mode = getattr(news_grounded, "mode", "grounding")
         if isinstance(news_data, dict) and "items" in news_data:
             raw_news_items = news_data["items"] or []
         elif isinstance(news_data, list):
@@ -433,12 +451,27 @@ def run_scan(
     try:
         rumors_prompt = prompts_monitor.build_rumors_prompt(today, req.window_days)
         cache_key_rumors = f"monitor:rumores:w{req.window_days}:{today.isoformat()}"
-        rumors_data, rumors_grounded = gemini.grounded_json(
-            rumors_prompt,
-            system=prompts_monitor.SYSTEM_RUMORS,
-            cache_key=cache_key_rumors,
-            cache_ttl_s=ttl_s,
-        )
+        try:
+            rumors_data, rumors_grounded = gemini.grounded_json(
+                rumors_prompt,
+                system=prompts_monitor.SYSTEM_RUMORS,
+                cache_key=cache_key_rumors,
+                cache_ttl_s=ttl_s,
+                fallback_queries=prompts_monitor.STAGE2_FALLBACK_QUERIES,
+                fallback_days=req.window_days,
+            )
+        except TypeError as type_err:
+            if "fallback_queries" in str(type_err):
+                rumors_data, rumors_grounded = gemini.grounded_json(
+                    rumors_prompt,
+                    system=prompts_monitor.SYSTEM_RUMORS,
+                    cache_key=cache_key_rumors,
+                    cache_ttl_s=ttl_s,
+                )
+            else:
+                raise
+
+        stage2_mode = getattr(rumors_grounded, "mode", "grounding")
         if isinstance(rumors_data, dict) and "items" in rumors_data:
             raw_rumor_items = rumors_data["items"] or []
         elif isinstance(rumors_data, list):
@@ -460,7 +493,17 @@ def run_scan(
     # Handle full failure of both retrieval stages
     if not raw_news_items and not raw_rumor_items:
         report("Sin elementos recuperados", 100)
-        err_msg = "; ".join(stage_notes) or "No se identificaron notas ni rumores en la ventana."
+        empty_note_parts = []
+        if any(m == "rss_url_context" for m in (stage1_mode, stage2_mode)):
+            empty_note_parts.append(
+                "Búsqueda de respaldo activa: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa."
+            )
+        empty_note_parts.append(f"Modo por etapa: noticias={stage1_mode}, rumores={stage2_mode}, verificación=none.")
+        if stage_notes:
+            empty_note_parts.append("; ".join(stage_notes))
+        else:
+            empty_note_parts.append("No se identificaron notas ni rumores en la ventana.")
+        err_msg = " ".join(empty_note_parts)
         snapshot = MonitorSnapshot(
             generated_at=now_dt.isoformat(),
             window_days=req.window_days,
@@ -476,8 +519,8 @@ def run_scan(
             queries=sorted(list(set(queries_collected))),
             sources_scanned=sources_scanned_count,
             model=model_name,
-            degraded=bool(stage_notes),
-            note=err_msg if stage_notes else None,
+            degraded=bool(stage_notes) or any(m == "rss_url_context" for m in (stage1_mode, stage2_mode)),
+            note=err_msg,
             next_scan_allowed_at=(now_dt + timedelta(minutes=cooldown_min)).isoformat(),
         )
         _persist_snapshot(snapshot, now_dt)
@@ -556,12 +599,28 @@ def run_scan(
         try:
             verif_prompt = prompts_monitor.build_verification_prompt(preliminary_items, today)
             cache_key_verif = f"monitor:verificacion:w{req.window_days}:{today.isoformat()}"
-            verif_data, verif_grounded = gemini.grounded_json(
-                verif_prompt,
-                system=prompts_monitor.SYSTEM_VERIFICATION,
-                cache_key=cache_key_verif,
-                cache_ttl_s=ttl_s,
-            )
+            stage3_fallback_queries = prompts_monitor.build_verification_fallback_queries(preliminary_items)
+            try:
+                verif_data, verif_grounded = gemini.grounded_json(
+                    verif_prompt,
+                    system=prompts_monitor.SYSTEM_VERIFICATION,
+                    cache_key=cache_key_verif,
+                    cache_ttl_s=ttl_s,
+                    fallback_queries=stage3_fallback_queries,
+                    fallback_days=req.window_days,
+                )
+            except TypeError as type_err:
+                if "fallback_queries" in str(type_err):
+                    verif_data, verif_grounded = gemini.grounded_json(
+                        verif_prompt,
+                        system=prompts_monitor.SYSTEM_VERIFICATION,
+                        cache_key=cache_key_verif,
+                        cache_ttl_s=ttl_s,
+                    )
+                else:
+                    raise
+
+            stage3_mode = getattr(verif_grounded, "mode", "grounding")
             raw_verifs = []
             if isinstance(verif_data, dict) and "verifications" in verif_data:
                 raw_verifs = verif_data["verifications"] or []
@@ -858,9 +917,21 @@ def run_scan(
         "pendientes": len(processed_items),
     }
 
-    note_text: str | None = None
+    # Construct institutional note including modes per stage and explanation if RSS mode was used
+    note_parts: list[str] = []
+    if any(m == "rss_url_context" for m in (stage1_mode, stage2_mode, stage3_mode)):
+        note_parts.append(
+            "Búsqueda de respaldo activa: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa. "
+            "En modo RSS los rumores provienen de notas de verificadores y sitios no reconocidos; "
+            "las publicaciones en redes solo se registran si el material muestra su URL, y las métricas solo si el verificador las reporta."
+        )
+
+    note_parts.append(f"Modo por etapa: noticias={stage1_mode}, rumores={stage2_mode}, verificación={stage3_mode}.")
+
     if stage_notes:
-        note_text = f"Escaneo parcial: {'; '.join(stage_notes)}."
+        note_parts.append(f"Escaneo parcial: {'; '.join(stage_notes)}.")
+
+    note_text: str | None = " ".join(note_parts) if note_parts else None
 
     snapshot = MonitorSnapshot(
         generated_at=now_dt.isoformat(),

@@ -111,6 +111,12 @@ def main() -> int:
     print(f"  Riesgos:           {len(plan.risks)}")
     print(f"  KPIs:              {len(plan.kpis)}")
 
+    if args.unit_id == "32":
+        if len(plan.research.findings) >= 3 and len(plan.research.sources) >= 3:
+            print(f"\n  [OK] Verificación Zacatecas: {len(plan.research.findings)} hallazgos y {len(plan.research.sources)} fuentes reales (cumple >= 3).")
+        else:
+            print(f"\n  [AVISO] Verificación Zacatecas: {len(plan.research.findings)} hallazgos y {len(plan.research.sources)} fuentes (esperado >= 3).")
+
     print(f"\n{'='*70}")
     print(f"PRUEBA DE HUMO CONCLUIDA EXITOSAMENTE")
     print(f"{'='*70}\n")

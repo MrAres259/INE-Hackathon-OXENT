@@ -116,23 +116,23 @@ export function TopBar() {
   return (
     <header className="shrink-0 bg-card border-b border-border pt-[env(safe-area-inset-top,0px)] sticky top-0 z-30 select-none">
       {/* PC single-row layout (>= 1024px) */}
-      <div className="hidden lg:flex h-14 items-center justify-between px-4 gap-3">
+      <div className="hidden lg:flex h-14 items-center justify-between px-4 gap-3 min-w-0 w-full">
         {/* Brand Lockup & Section Navigation Tabs */}
-        <div className="flex items-center gap-4">
-          <BrandLockup />
+        <div className="flex items-center gap-3 xl:gap-4 shrink-0">
+          <BrandLockup className="shrink-0" />
 
           {/* Section Tabs */}
           <nav
-            className="flex items-center gap-1 rounded-lg bg-muted p-0.5 border border-border"
+            className="flex items-center gap-1 rounded-lg bg-muted p-0.5 border border-border shrink-0"
             aria-label="Secciones principales"
           >
             {SECTIONS.map((sec) => {
               const isActive = sec.href === "/" ? isHome : pathname.startsWith(sec.href);
               return (
-                <div key={sec.id} className="flex items-center">
+                <div key={sec.id} className="flex items-center shrink-0">
                   <Link
                     href={sec.href}
-                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                       isActive
                         ? "bg-card text-primary shadow-xs"
                         : "text-muted-foreground hover:text-foreground"
@@ -140,7 +140,10 @@ export function TopBar() {
                     aria-current={isActive ? "page" : undefined}
                   >
                     {sec.icon}
-                    <span>{sec.label}</span>
+                    <span className="whitespace-nowrap">
+                      <span className="hidden 2xl:inline">{sec.label}</span>
+                      <span className="2xl:hidden">{sec.shortLabel}</span>
+                    </span>
                   </Link>
                   {sec.infoTerm && <InfoTip term={sec.infoTerm} size="xs" />}
                 </div>
@@ -151,14 +154,14 @@ export function TopBar() {
 
         {/* Center: Scenario switcher + Adjust (Visible ONLY on /) */}
         {isHome ? (
-          <div className="flex items-center gap-1.5" data-tour="escenario">
-            <div className="flex rounded-lg bg-muted p-0.5 border border-border">
+          <div className="flex items-center gap-1.5 shrink-0" data-tour="escenario">
+            <div className="flex rounded-lg bg-muted p-0.5 border border-border shrink-0">
               {SCENARIOS.map((s) => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => setScenario(s.id)}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                  className={`rounded-md px-2.5 xl:px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                     scenario === s.id
                       ? "bg-card text-primary shadow-xs"
                       : "text-muted-foreground hover:text-foreground"
@@ -171,15 +174,15 @@ export function TopBar() {
             <InfoTip term="escenarios" size="sm" />
 
             {scenario !== "base" && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsScenarioModalOpen(true)}
-                  className="h-8 px-2.5 text-xs font-semibold rounded-md border border-border bg-card hover:bg-accent text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                  className="h-8 px-2.5 text-xs font-semibold rounded-md border border-border bg-card hover:bg-accent text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
                   aria-label="Ajustar parámetros"
                 >
                   <svg
-                    className="w-3.5 h-3.5 text-primary"
+                    className="w-3.5 h-3.5 text-primary shrink-0"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -191,24 +194,24 @@ export function TopBar() {
                       d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
                     />
                   </svg>
-                  <span>Ajustar</span>
+                  <span className="whitespace-nowrap">Ajustar</span>
                 </button>
 
                 {isScenarioModified(scenario) && (
                   <button
                     type="button"
                     onClick={() => resetScenarioParams(scenario)}
-                    className="h-8 px-2 text-xs font-medium rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                    className="h-8 px-2 text-xs font-medium rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
                     title="Restablecer valores originales"
                     aria-label="Restablecer valores originales"
                   >
-                    <span>
+                    <span className="whitespace-nowrap">
                       {scenario === "intervencion" && campaignsCount >= 2
-                        ? `${campaignsCount} campañas`
+                        ? `${campaignsCount} camp.`
                         : "Modificado"}
                     </span>
                     <span className="text-muted-foreground/60">·</span>
-                    <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="size-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -226,18 +229,18 @@ export function TopBar() {
         )}
 
         {/* Right side: Search (only on /), Engine indicator, Metodología, Help */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
           {/* Global Search - mounted ONLY on / so shortcut '/' is only active on / */}
-          {isHome && <RegionSearch className="w-56 xl:w-64" />}
+          {isHome && <RegionSearch className="min-w-0 flex-1 max-w-[22rem]" />}
 
           {/* Engine indicator */}
-          <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground rounded-full border border-border bg-muted/50">
+          <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground rounded-full border border-border bg-muted/50 shrink-0">
             <span
-              className={`size-2 rounded-full ${
+              className={`size-2 rounded-full shrink-0 ${
                 isDemo ? "bg-risk-mid animate-pulse" : "bg-good"
               }`}
             />
-            <span className="hidden xl:inline text-[11px] font-medium font-mono">
+            <span className="hidden 2xl:inline text-[11px] font-medium font-mono whitespace-nowrap">
               {storeLabel}
             </span>
             <InfoTip term="motor" size="xs" />
@@ -246,10 +249,12 @@ export function TopBar() {
           {/* Metodología */}
           <Link
             href="/metodologia"
-            className="h-8 px-2.5 text-xs font-medium rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors"
+            className="h-8 px-2.5 text-xs font-medium rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap"
+            title="Metodología"
+            aria-label="Metodología"
           >
             <svg
-              className="w-3.5 h-3.5"
+              className="w-3.5 h-3.5 shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -261,18 +266,19 @@ export function TopBar() {
                 d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
               />
             </svg>
-            <span className="hidden xl:inline">Metodología</span>
+            <span className="hidden 2xl:inline whitespace-nowrap">Metodología</span>
           </Link>
 
           {/* Help button (dispatches C1) */}
           <button
             type="button"
             onClick={handleOpenGuide}
-            className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
+            className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
             aria-label="Ayuda y guía del sistema"
+            title="Ayuda y guía del sistema"
           >
             <svg
-              className="w-4 h-4"
+              className="w-4 h-4 shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

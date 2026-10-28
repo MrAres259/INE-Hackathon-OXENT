@@ -235,48 +235,46 @@ def test_virality_formula_cases():
     """Test virality score calculation across 4 distinct cases: empty, views, multi-platform, recent."""
     now = datetime(2026, 10, 28, 12, 0, 0)
 
-    # Case 1: Post without engagement metrics -> fallback e = 50
-    p1 = SocialPost(platform="x", url="https://x.com/post1", published="2026-10-25T10:00:00")
+    # Case 1: 1 post sin métricas (fallback e = 50, R = 0) -> baja (≈ 14)
+    p1 = SocialPost(platform="x", url="https://x.com/post1")
     v1 = virality([p1], topic="otra", today=now)
-    # e = 50; n_plat = 1; min(n_posts, 5) = 1; age = 74h -> R = 5
-    # score = round(22*log10(51) + 8*0 + 4*1 + 5) = round(22*1.70757 + 9) = round(37.56 + 9) = 47
-    assert v1.score == 47
-    assert v1.level == "media"
+    # 15*log10(51) + 0 + 3*1 + 0 - 15 = 25.61 + 3 - 15 = 13.61 -> round = 14
+    assert v1.score == 14
+    assert v1.level == "baja"
 
-    # Case 2: Post with views and reactions
+    # Case 2: 1 post con 5 mil vistas reciente (views=5000 -> e=250, R=8) -> media (32)
     p2 = SocialPost(
         platform="facebook",
         url="https://fb.com/post2",
-        published="2026-10-20T10:00:00",
-        engagement=Engagement(likes=500, shares=200, comments=100, views=20000),
-    )
-    # e = 3*200 + 2*100 + 500 + 0.05*20000 = 600 + 200 + 500 + 1000 = 2300; age > 7d -> R = 0
-    # score = round(22*log10(2301) + 4*1) = round(22*3.3619 + 4) = round(73.96 + 4) = 78
-    v2 = virality([p2], topic="otra", today=now)
-    assert v2.score == 78
-    assert v2.level == "critica"
-    assert v2.reach_estimate == 20000
-
-    # Case 3: Multi-platform (x, tiktok, youtube)
-    posts_multi = [
-        SocialPost(platform="x", url="https://x.com/p1", engagement=Engagement(likes=10)),
-        SocialPost(platform="tiktok", url="https://tiktok.com/p2", engagement=Engagement(likes=20)),
-        SocialPost(platform="youtube", url="https://youtube.com/p3", engagement=Engagement(likes=30)),
-    ]
-    v3 = virality(posts_multi, topic="otra", today=now)
-    assert len(v3.platforms) == 3
-    assert v3.platforms == ["x", "tiktok", "youtube"]
-
-    # Case 4: Recent post within 48h -> R = 10 recency bonus
-    recent_p = SocialPost(
-        platform="x",
-        url="https://x.com/recent",
         published=(now - timedelta(hours=12)).isoformat(),
-        engagement=Engagement(likes=10),
+        engagement=Engagement(views=5000),
     )
-    v_recent = virality([recent_p], topic="otra", today=now)
-    # e = 10; score = round(22*log10(11) + 0 + 4*1 + 10) = round(22*1.041 + 14) = round(22.9 + 14) = 37
-    assert v_recent.score == 37
+    v2 = virality([p2], topic="otra", today=now)
+    # 15*log10(251) + 0 + 3*1 + 8 - 15 = 35.995 + 3 + 8 - 15 = 31.995 -> round = 32
+    assert v2.score == 32
+    assert v2.level == "media"
+    assert v2.reach_estimate == 5000
+
+    # Case 3: 3 posts en 3 plataformas con ~340 mil vistas -> alta (75–85)
+    posts_340k = [
+        SocialPost(platform="x", url="https://x.com/p1", engagement=Engagement(views=110000), published=(now - timedelta(hours=10)).isoformat()),
+        SocialPost(platform="facebook", url="https://fb.com/p2", engagement=Engagement(views=110000), published=(now - timedelta(hours=20)).isoformat()),
+        SocialPost(platform="tiktok", url="https://tiktok.com/p3", engagement=Engagement(views=120000), published=(now - timedelta(hours=30)).isoformat()),
+    ]
+    v3 = virality(posts_340k, topic="otra", today=now)
+    assert 75 <= v3.score <= 85
+    assert len(v3.platforms) == 3
+    assert v3.reach_estimate == 340000
+
+    # Case 4: >= 2.5 M vistas en 3 plataformas -> crítica
+    posts_2_5m = [
+        SocialPost(platform="x", url="https://x.com/p1", engagement=Engagement(views=1000000), published=(now - timedelta(hours=10)).isoformat()),
+        SocialPost(platform="facebook", url="https://fb.com/p2", engagement=Engagement(views=1000000), published=(now - timedelta(hours=20)).isoformat()),
+        SocialPost(platform="tiktok", url="https://tiktok.com/p3", engagement=Engagement(views=500000), published=(now - timedelta(hours=30)).isoformat()),
+    ]
+    v4 = virality(posts_2_5m, topic="otra", today=now)
+    assert v4.score >= 85
+    assert v4.level == "critica"
 
 
 def test_virality_growth_and_projection():

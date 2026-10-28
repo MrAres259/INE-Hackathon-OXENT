@@ -1,4 +1,4 @@
-"""Tests for MaaS GLM reasoning effort, extra_body resolution, headroom and fallback memory."""
+"""Tests for MaaS GLM reasoning effort, extra_body resolution, headroom, 400 fallback and memory."""
 
 from __future__ import annotations
 
@@ -137,44 +137,8 @@ def test_headroom_levels(monkeypatch):
     assert payloads[2]["max_tokens"] == 10 + 4096
 
 
-def test_400_retry_with_fallback_and_memory(monkeypatch):
-    """A 400 error triggers 1 retry with fallback, and subsequent requests remember working mode."""
-    monkeypatch.setenv("MAAS_MODEL", "glm-5.3")
-    monkeypatch.setenv("MAAS_REASONING_EFFORT", "low")
-    get_settings.cache_clear()
-
-    call_count = 0
-    received_payloads = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal call_count
-        call_count += 1
-        p = json.loads(request.content)
-        received_payloads.append(p)
-        # First call with "low" fails with 400
-        if call_count == 1:
-            return httpx.Response(400, json={"error": {"message": "unsupported reasoning_effort: low"}})
-        # Second call (retry with "high") succeeds
-        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "fallback success"}}]})
-
-    transport = httpx.MockTransport(handler)
-
-    # 1. First chat invocation
-    res1 = llm.chat([{"role": "user", "content": "attempt1"}], transport=transport)
-    assert res1 == "fallback success"
-    assert call_count == 2
-    assert received_payloads[0]["reasoning_effort"] == "low"
-    assert received_payloads[1]["reasoning_effort"] == "high"
-
-    # 2. Second chat invocation should remember working mode ("high"), without starting at "low" and without 400
-    res2 = llm.chat([{"role": "user", "content": "attempt2"}], transport=transport)
-    assert res2 == "fallback success"
-    assert call_count == 3
-    assert received_payloads[2]["reasoning_effort"] == "high"
-
-
-def test_400_fallback_to_empty(monkeypatch):
-    """If effort='high' receives 400, it falls back to empty extra_body {}. Subsequent requests remember it."""
+def test_400_messages_too_long_raises_without_retry(monkeypatch):
+    """A 400 error not related to reasoning/thinking raises LLMError without retry or memory."""
     monkeypatch.setenv("MAAS_MODEL", "glm-5.3")
     monkeypatch.setenv("MAAS_REASONING_EFFORT", "high")
     get_settings.cache_clear()
@@ -188,12 +152,82 @@ def test_400_fallback_to_empty(monkeypatch):
         p = json.loads(request.content)
         received_payloads.append(p)
         if call_count == 1:
-            return httpx.Response(400, json={"error": {"message": "thinking not supported"}})
-        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "no extra body"}}]})
+            return httpx.Response(400, json={"error": {"message": "messages too long: maximum context exceeded"}})
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]})
+
+    transport = httpx.MockTransport(handler)
+
+    # First request fails with LLMError
+    with pytest.raises(llm.LLMError, match="messages too long"):
+        llm.chat([{"role": "user", "content": "huge prompt"}], transport=transport)
+
+    assert call_count == 1
+
+    # Second request still sends reasoning_effort: high (no memory of failure)
+    res = llm.chat([{"role": "user", "content": "normal prompt"}], transport=transport)
+    assert res == "ok"
+    assert call_count == 2
+    assert received_payloads[1]["reasoning_effort"] == "high"
+
+
+def test_400_reasoning_high_to_low_and_memory(monkeypatch):
+    """A 400 mentioning reasoning/thinking triggers retry with low effort and remembers it."""
+    monkeypatch.setenv("MAAS_MODEL", "glm-5.3")
+    monkeypatch.setenv("MAAS_REASONING_EFFORT", "high")
+    get_settings.cache_clear()
+
+    call_count = 0
+    received_payloads = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        p = json.loads(request.content)
+        received_payloads.append(p)
+        if call_count == 1:
+            return httpx.Response(400, json={"error": {"message": "reasoning_effort high is not supported"}})
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "low success"}}]})
+
+    transport = httpx.MockTransport(handler)
+
+    res1 = llm.chat([{"role": "user", "content": "attempt1"}], max_tokens=100, transport=transport)
+    assert res1 == "low success"
+    assert call_count == 2
+    # First attempt was high (headroom 1024)
+    assert received_payloads[0]["reasoning_effort"] == "high"
+    assert received_payloads[0]["max_tokens"] == 100 + 1024
+    # Retry was low (headroom 256)
+    assert received_payloads[1]["reasoning_effort"] == "low"
+    assert received_payloads[1]["max_tokens"] == 100 + 256
+
+    # Subsequent request uses remembered "low" directly
+    res2 = llm.chat([{"role": "user", "content": "attempt2"}], max_tokens=50, transport=transport)
+    assert res2 == "low success"
+    assert call_count == 3
+    assert received_payloads[2]["reasoning_effort"] == "low"
+    assert received_payloads[2]["max_tokens"] == 50 + 256
+
+
+def test_400_legacy_fallback_to_empty(monkeypatch):
+    """Legacy model (glm-5.2) with thinking:disabled receiving 400 falls back to empty {} and remembers it."""
+    monkeypatch.setenv("MAAS_MODEL", "glm-5.2")
+    get_settings.cache_clear()
+
+    call_count = 0
+    received_payloads = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        p = json.loads(request.content)
+        received_payloads.append(p)
+        if call_count == 1:
+            return httpx.Response(400, json={"error": {"message": "thinking type disabled not supported"}})
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "legacy ok"}}]})
 
     transport = httpx.MockTransport(handler)
     res = llm.chat([{"role": "user", "content": "test"}], transport=transport)
-    assert res == "no extra body"
+    assert res == "legacy ok"
     assert call_count == 2
     assert "thinking" in received_payloads[0]
     assert "thinking" not in received_payloads[1]
@@ -202,6 +236,42 @@ def test_400_fallback_to_empty(monkeypatch):
     llm.chat([{"role": "user", "content": "test2"}], transport=transport)
     assert call_count == 3
     assert "thinking" not in received_payloads[2]
+
+
+def test_stream_400_no_response_not_read(monkeypatch):
+    """Streaming with 400 reads response safely and handles reasoning fallback without ResponseNotRead."""
+    monkeypatch.setenv("MAAS_MODEL", "glm-5.3")
+    monkeypatch.setenv("MAAS_REASONING_EFFORT", "high")
+    get_settings.cache_clear()
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(400, json={"error": {"message": "unsupported reasoning_effort: high"}})
+        content = b'data: {"choices": [{"delta": {"content": "streamed success"}}]}\ndata: [DONE]\n'
+        return httpx.Response(200, content=content)
+
+    transport = httpx.MockTransport(handler)
+    stream = llm.chat_stream([{"role": "user", "content": "hello"}], transport=transport)
+    result = "".join(list(stream))
+    assert result == "streamed success"
+    assert call_count == 2
+
+
+def test_stream_400_non_reasoning_error(monkeypatch):
+    """Streaming with non-reasoning 400 raises LLMError cleanly without ResponseNotRead."""
+    monkeypatch.setenv("MAAS_MODEL", "glm-5.3")
+    get_settings.cache_clear()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"message": "messages too long"}})
+
+    transport = httpx.MockTransport(handler)
+    with pytest.raises(llm.LLMError, match="messages too long"):
+        list(llm.chat_stream([{"role": "user", "content": "hello"}], transport=transport))
 
 
 def test_describe_without_secrets(monkeypatch):
@@ -217,7 +287,6 @@ def test_describe_without_secrets(monkeypatch):
         "reasoning_effort": "high",
         "extra_body_mode": "enabled",
     }
-    # Ensure no secrets in repr or dict
     assert "super_secret" not in str(info)
 
 

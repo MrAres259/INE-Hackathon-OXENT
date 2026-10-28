@@ -185,3 +185,20 @@ Genera el borrador completo del plan cumpliendo estrictamente con el esquema JSO
         {"role": "system", "content": CAMPAIGN_PLANNER_SYSTEM_PROMPT},
         {"role": "user", "content": user_content},
     ]
+
+
+def build_campaign_fallback_queries(snapshot: DataSnapshot, focus: str | None = None) -> list[str]:
+    """Construct 4-6 fallback search queries in Spanish for news RSS fallback."""
+    lugar = snapshot.name
+    estado = snapshot.ent_name or snapshot.name
+
+    queries = [
+        f"{lugar} abstención electoral",
+        f"{lugar} participación ciudadana elecciones",
+        f"{lugar} inseguridad elecciones",
+        f"{estado} INE casillas",
+        f"{lugar} jóvenes voto",
+    ]
+    if focus and focus.strip():
+        queries.append(f"{lugar} {focus.strip()}")
+    return queries

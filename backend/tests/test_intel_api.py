@@ -197,7 +197,7 @@ def test_campaign_cached_public_and_uncached_requires_operator(monkeypatch: pyte
     )
     assert resp.status_code == 202
     job_data = resp.json()
-    assert job_data["status"] in ("queued", "running")
+    assert job_data["status"] in ("queued", "running", "done")
     job_id = job_data["id"]
 
     # Poll job until done

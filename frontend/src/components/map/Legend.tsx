@@ -46,7 +46,13 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
   } = useAtalaya();
 
   // Collapsed by default on compact screens (< 1024px)
-  const [isCollapsed, setIsCollapsed] = useState(defaultOpen !== undefined ? !defaultOpen : false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (defaultOpen !== undefined) return !defaultOpen;
+    if (typeof window !== "undefined") {
+      return window.innerWidth < 1024;
+    }
+    return false;
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;

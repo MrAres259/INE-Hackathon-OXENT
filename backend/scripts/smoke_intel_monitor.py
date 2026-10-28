@@ -133,12 +133,27 @@ def main() -> None:
     except Exception:
         resolve_fn = lambda u: u
 
+    import httpx
     for u in sample_urls[:5]:
         try:
             resolved = resolve_fn(u)
-            print(f"  • {u} -> {resolved}")
+            status_desc = "sin verificar HTTP"
+            try:
+                with httpx.Client(timeout=5.0, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"}) as client:
+                    resp = client.head(resolved)
+                    if resp.status_code == 405:
+                        resp = client.get(resolved)
+                    status_desc = f"HTTP {resp.status_code}"
+            except Exception as h_err:
+                status_desc = f"HTTP error ({h_err.__class__.__name__})"
+            print(f"  • {u} -> {resolved} [{status_desc}]")
         except Exception as exc:
             print(f"  • {u} -> Error ({exc})")
+
+    if len(snapshot.items) >= 4:
+        print(f"\n[OK] Verificación monitor: {len(snapshot.items)} items hallados (cumple >= 4).")
+    else:
+        print(f"\n[AVISO] Verificación monitor: {len(snapshot.items)} items hallados (esperado >= 4).")
 
     print("\n" + "=" * 70)
     print("SMOKE TEST COMPLETADO EXITOSAMENTE")

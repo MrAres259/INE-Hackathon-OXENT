@@ -211,7 +211,7 @@ def verify_operator(request: Request) -> None:
             detail="Funciones de operador deshabilitadas: configura ATALAYA_OPERATOR_TOKEN.",
         )
     provided = request.headers.get("x-operator-token", "")
-    if not provided or not hmac.compare_digest(provided, expected):
+    if not provided or not hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Clave de operador inválida.")
 
 

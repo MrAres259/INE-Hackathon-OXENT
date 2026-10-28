@@ -137,4 +137,25 @@ describe("Intel Navigation Suite (intelNav.test.tsx)", () => {
     expect(html).toContain("Campañas");
     expect(html).toContain("Monitor");
   });
+
+  it("applies responsive layout classes to prevent horizontal scroll at 1024-1440px", () => {
+    mockPathname = "/";
+    const html = renderToStaticMarkup(
+      <AtalayaContext.Provider value={createMockContext()}>
+        <TopBar />
+      </AtalayaContext.Provider>
+    );
+
+    // Section tabs with whitespace-nowrap and responsive labels
+    expect(html).toContain("whitespace-nowrap");
+    expect(html).toContain("hidden 2xl:inline");
+    expect(html).toContain("2xl:hidden");
+
+    // Search input shrinks with min-w-0 flex-1 max-w-[22rem]
+    expect(html).toContain("min-w-0 flex-1 max-w-[22rem]");
+
+    // Metodologia and store engine label hidden below 2xl
+    expect(html).toContain('hidden 2xl:inline whitespace-nowrap">Metodología');
+    expect(html).toContain('hidden 2xl:inline text-[11px] font-medium font-mono whitespace-nowrap');
+  });
 });

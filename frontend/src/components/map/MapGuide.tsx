@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 export const GUIDE_STORAGE_KEY = "atalaya.guide.v1";
 
@@ -415,16 +416,27 @@ export interface MapGuideProps {
   open?: boolean;
   onClose?: () => void;
   className?: string;
+  portal?: boolean;
 }
 
 // Safe useLayoutEffect fallback for SSR
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
-export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
+export function MapGuide({
+  open,
+  onClose,
+  className = "",
+  portal = true,
+}: MapGuideProps) {
   const isControlled = open !== undefined;
   const [internalOpen, setInternalOpen] = useState(false);
   const effectiveOpen = isControlled ? Boolean(open) : internalOpen;
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Sync body dataset during render as well for SSR/testing
   syncGuideBodyAttr(effectiveOpen);
@@ -653,10 +665,11 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
 
   const hasMoreSteps = getValidStepAndRect(activeMatch.index + 1) !== null;
 
-  return (
+  const guideElements = (
     <>
       {/* Dimmed backdrop capturing all events with cutout over targeted anchor */}
       <div
+        data-guide-backdrop="true"
         className="fixed inset-0 z-[65] pointer-events-auto select-none"
         style={{ position: "fixed", inset: 0, zIndex: 65 }}
         onClick={(e) => {
@@ -704,6 +717,7 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
 
       {/* Spotlight ring surrounding targeted anchor */}
       <div
+        data-guide-spotlight="true"
         className="pointer-events-none fixed z-[70] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
         style={{
           position: "fixed",
@@ -713,6 +727,7 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
           width: ringWidth,
           height: ringHeight,
           pointerEvents: "none",
+          boxShadow: "0 0 0 2px var(--color-background, #ffffff), 0 0 0 4px var(--color-primary, #b5186b)",
         }}
       />
 
@@ -775,4 +790,13 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
       </div>
     </>
   );
+
+  const isClient = typeof window !== "undefined" && typeof document !== "undefined";
+  const shouldPortal = portal && (mounted || process.env.NODE_ENV === "test");
+
+  if (shouldPortal && isClient && document?.body) {
+    return createPortal(guideElements, document.body);
+  }
+
+  return guideElements;
 }

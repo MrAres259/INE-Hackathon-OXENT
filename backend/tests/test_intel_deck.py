@@ -11,9 +11,12 @@ from pptx import Presentation
 from atalaya.intel.deck import (
     SLIDE_KINDS_ORDER,
     build_slides,
+    check_overflow,
     export_filename,
     export_pdf,
     export_pptx,
+    get_lever_label,
+    get_level_readable,
     region_svg,
     render_html,
 )
@@ -33,6 +36,7 @@ from atalaya.intel.schemas import (
     SourceRef,
     TargetGroup,
 )
+from atalaya.intel.storage import exports_dir
 from atalaya.report.charts import CATEGORY_COLORS, find_browser
 
 
@@ -44,14 +48,19 @@ def _make_synthetic_plan(
     ent: str = "07",
     degraded: bool = False,
     xss: bool = False,
+    extreme_texts: bool = False,
 ) -> CampaignPlan:
     """Builds a valid CampaignPlan with all contract fields."""
-    finding_title = "<script>alert('xss')</script> Falta de casillas rurales" if xss else "Falta de casillas rurales en zonas dispersas"
-    finding_summary = (
-        "Los electores deben desplazarse más de 2 horas en transporte público para votar. "
-        "<img src=x onerror=alert(1)>" if xss else
-        "Los electores deben desplazarse más de 2 horas en transporte público para llegar a su mesa de votación."
-    )
+    if extreme_texts:
+        long_tail = " Texto extenso de prueba para verificar algoritmos de recorte y detección de desbordes en tarjetas. " * 8
+        finding_title = "Falta de casillas rurales en zonas dispersas" + long_tail[:60]
+        finding_summary = "Los electores deben desplazarse más de 2 horas en transporte público para llegar a su mesa de votación." + long_tail
+    elif xss:
+        finding_title = "<script>alert('xss')</script> Falta de casillas rurales"
+        finding_summary = "Los electores deben desplazarse más de 2 horas en transporte público para votar. <img src=x onerror=alert(1)>"
+    else:
+        finding_title = "Falta de casillas rurales en zonas dispersas"
+        finding_summary = "Los electores deben desplazarse más de 2 horas en transporte público para llegar a su mesa de votación."
 
     sources = [
         SourceRef(
@@ -146,7 +155,10 @@ def _make_synthetic_plan(
     target_groups = [
         TargetGroup(
             name="Jóvenes universitarios y primerizos (18-24)",
-            description="Electores que sufragan por primera vez, concentrados en cabeceras distritales.",
+            description=(
+                "Electores que sufragan por primera vez, concentrados en cabeceras distritales."
+                + (" Descripción muy extensa de prueba sobre hábitos de votación juvenil." * 6 if extreme_texts else "")
+            ),
             size_estimate=546000,
             size_basis="Cálculo demográfico sobre el 14.2% de la Lista Nominal.",
         ),
@@ -158,11 +170,15 @@ def _make_synthetic_plan(
         ),
     ]
 
+    prop_desc1 = (
+        "Instalación de casillas extraordinarias y rutas de transporte comunitario."
+        + (" Despliegue masivo territorial con logística extendida y convenios ejidales múltiples." * 5 if extreme_texts else "")
+    )
     proposals = [
         Proposal(
             id="p1",
             title="Módulos Móviles y Transporte Cívico Rural",
-            description="Instalación de casillas extraordinarias y rutas de transporte comunitario.",
+            description=prop_desc1,
             lever="casillas_rurales",
             channels=["Rutas comunitarias", "Convocatoria con autoridades ejidales"],
             target_group="Comunidades rurales de alta dispersión",
@@ -210,40 +226,68 @@ def _make_synthetic_plan(
         ],
     )
 
+    step_actions_long = [
+        "Mapeo de rutas de transporte comunitario con autoridades ejidales y municipales en zonas serranas de difícil acceso " * 2,
+        "Convenios con tecnológicos y universidades públicas para instalar módulos de credencialización y brigadas juveniles " * 2,
+        "Supervisión previa en campo de caminos rurales y validación de cobertura de telecomunicaciones móviles " * 2,
+    ] if extreme_texts else ["Mapeo de rutas de transporte", "Convenios con universidades"]
+
     steps = [
         ImplementationStep(
             order=1,
-            phase="Diagnóstico preparatorio",
+            phase="Diagnóstico preparatorio y censado territorial",
             start="2026-11-01",
             end="2026-12-15",
-            actions=["Mapeo de rutas de transporte", "Convenios con universidades"],
-            responsible="Junta Local Ejecutiva",
-            kpi="100% de rutas críticas censadas",
+            actions=step_actions_long,
+            responsible="Junta Local Ejecutiva y Vocalías Distritales",
+            kpi="100% de rutas críticas censadas y validadas operativamente",
         ),
         ImplementationStep(
             order=2,
             phase="Despliegue operativo y materiales",
             start="2027-01-15",
             end="2027-04-30",
-            actions=["Distribución de materiales", "Activación de brigadas"],
-            responsible="Vocalía de Capacitación Electoral",
-            kpi="85% de planteles visitados",
+            actions=step_actions_long,
+            responsible="Vocalía de Capacitación Electoral y Educación Cívica",
+            kpi="85% de planteles visitados con talleres presenciales",
         ),
         ImplementationStep(
             order=3,
             phase="Movilización previa y veda",
             start="2027-05-01",
             end="2027-05-31",
-            actions=["Recordatorio de ubicación de casillas", "Cierre antes de veda"],
-            responsible="Coordinación Nacional de Comunicación",
-            kpi="Alcance territorial del 90%",
+            actions=step_actions_long,
+            responsible="Coordinación Nacional de Comunicación Social",
+            kpi="Alcance territorial del 90% en medios comunitarios",
+        ),
+        ImplementationStep(
+            order=4,
+            phase="Intensificación territorial",
+            start="2027-05-15",
+            end="2027-05-31",
+            actions=step_actions_long,
+            responsible="Vocalías Ejecutivas Distritales",
+            kpi="Despliegue completo de brigadas en campo",
+        ),
+        ImplementationStep(
+            order=5,
+            phase="Cierre de jornada y evaluación cívica",
+            start="2027-06-01",
+            end="2027-06-06",
+            actions=step_actions_long,
+            responsible="Junta Local Ejecutiva",
+            kpi="Reporte de participación ciudadana consolidado",
         ),
     ]
 
+    mitig_text = (
+        "Previsión de vehículos 4x4 y resguardo anticipado de materiales electorales con apoyo logístico interinstitucional."
+        + (" Protocolos de contingencia y resguardo ampliado en bodegas electorales." * 3 if extreme_texts else "")
+    )
     risks = [
         RiskItem(
             risk="Dificultades de acceso por condiciones climáticas en la sierra.",
-            mitigation="Previsión de vehículos 4x4 y resguardo anticipado de materiales electorales.",
+            mitigation=mitig_text,
         ),
         RiskItem(
             risk="Desconfianza hacia brigadas institucionales en comunidades indígenas.",
@@ -296,11 +340,53 @@ def test_build_slides_structure_and_limits():
         sentences = [sent for sent in re.split(r"[.!?]+", s.notes) if sent.strip()]
         assert 2 <= len(sentences) <= 5, f"Notes in {s.id} sentence count {len(sentences)} not in [2, 5]"
 
+    # Slide 1 (portada): uses natural readable level, no "Ámbito MUN"
+    sl1 = slides[0]
+    assert "Ámbito MUN" not in sl1.subtitle
+    assert "Estado" in sl1.subtitle or "Municipio" in sl1.subtitle
+
     # Slide 3 (problematicas) should contain [s1] or [s2]
     sl3 = slides[2]
     assert sl3.kind == "problematicas"
     bullets_text = " ".join(sl3.bullets)
     assert "[s1" in bullets_text or "[s2" in bullets_text
+
+    # Slide 6 (propuestas): uses canonical labels from SCENARIOS
+    sl6 = slides[5]
+    assert sl6.kind == "propuestas"
+    prop_labels = [p["lever_label"] for p in sl6.data.get("proposals", [])]
+    assert "Casillas y traslado en zonas rurales" in prop_labels
+    assert "Promoción del voto joven" in prop_labels
+
+    # Slide 7 (impacto): relative contribution and overlap
+    sl7 = slides[6]
+    assert sl7.kind == "impacto"
+    assert sl7.data.get("overlap_votos") == 9050
+    assert "overlap_votos_str" in sl7.data
+    per_prop = sl7.data.get("per_proposal", [])
+    assert len(per_prop) == 2
+    for pi in per_prop:
+        assert "%" in pi["pct_individual"]
+
+    # Slide 8 (implementacion): steps limits
+    sl8 = slides[7]
+    assert sl8.kind == "implementacion"
+    steps_data = sl8.data.get("steps", [])
+    assert len(steps_data) == 5
+    for st in steps_data:
+        assert len(st["actions"]) <= 2
+        for a in st["actions"]:
+            assert len(a) <= 90
+        assert len(st["responsible"]) <= 110
+        assert len(st["kpi"]) <= 110
+
+    # Slide 9 (riesgos_kpis): max 4 risks, mitigation <= 180
+    sl9 = slides[8]
+    assert sl9.kind == "riesgos_kpis"
+    risks_data = sl9.data.get("risks", [])
+    assert len(risks_data) <= 4
+    for r in risks_data:
+        assert len(r["mitigation"]) <= 180
 
 
 def test_build_slides_degraded_mode():
@@ -346,7 +432,7 @@ def test_region_svg_state_and_mun():
 
 
 def test_render_html_escaping_and_logo():
-    """Verifies HTML has 10 sections, embeds logo data URI, and properly escapes XSS."""
+    """Verifies HTML has 10 sections, embeds logo data URI, properly escapes XSS, and keeps CSS unescaped."""
     plan = _make_synthetic_plan(xss=True)
     slides = build_slides(plan)
     html_out = render_html(plan, slides)
@@ -358,6 +444,22 @@ def test_render_html_escaping_and_logo():
     # Logo data URI present
     assert "data:image/" in html_out
 
+    # Verify CSS is safe: <style> block does NOT contain &#39;
+    style_match = re.search(r"<style>([\s\S]*?)</style>", html_out)
+    assert style_match is not None
+    style_content = style_match.group(1)
+    assert "&#39;" not in style_content
+    assert "'Montserrat'" in style_content
+
+    # Portada features: magenta banner, sello, clean title
+    assert "portada-banner" in html_out
+    assert "Borrador generado con IA — propuesta del equipo OXENT" in html_out
+    assert "Ámbito MUN" not in html_out
+
+    # Slide 7 table features: % del total individual and Traslape row
+    assert "% del total individual" in html_out
+    assert "Traslape (personas alcanzadas por más de una campaña)" in html_out
+
     # XSS escaping: <script> should NOT be present unescaped
     assert "<script>alert('xss')</script>" not in html_out
     assert "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;" in html_out or "&lt;script&gt;" in html_out
@@ -365,7 +467,7 @@ def test_render_html_escaping_and_logo():
 
 
 def test_export_pptx(tmp_path: Path):
-    """Verifies PowerPoint creation, 10 slides, editable titles, notes, and slide override."""
+    """Verifies PowerPoint creation, 10 slides, titles in shapes.title, notes, and slide override."""
     plan = _make_synthetic_plan()
     slides = build_slides(plan)
     pptx_path = tmp_path / "plan_test.pptx"
@@ -378,10 +480,19 @@ def test_export_pptx(tmp_path: Path):
     prs = Presentation(str(pptx_path))
     assert len(prs.slides) == 10
 
-    # Verify titles and notes
+    # Verify every slide has slide.shapes.title populated and notes
     for i, slide in enumerate(prs.slides):
+        assert slide.shapes.title is not None, f"Slide {i+1} missing shapes.title placeholder"
+        assert len(slide.shapes.title.text.strip()) > 0, f"Slide {i+1} shapes.title has empty text"
         notes_text = slide.notes_slide.notes_text_frame.text
         assert len(notes_text.strip()) > 0, f"Slide {i+1} missing speaker notes"
+
+    # Verify title of slide 1 matches portada
+    assert plan.unit.name in prs.slides[0].shapes.title.text
+
+    # Verify cached logo_light.png exists in exports_dir()
+    cached_logo = exports_dir() / "logo_light.png"
+    assert cached_logo.is_file()
 
     # Test override of slides
     overridden_slides = build_slides(plan)
@@ -391,11 +502,8 @@ def test_export_pptx(tmp_path: Path):
 
     prs_ov = Presentation(str(overridden_path))
     slide2 = prs_ov.slides[1]
-    slide2_texts = []
-    for shape in slide2.shapes:
-        if shape.has_text_frame:
-            slide2_texts.append(shape.text_frame.text)
-    assert any("TITULO EDITADO POR OPERADOR" in t for t in slide2_texts)
+    assert slide2.shapes.title is not None
+    assert slide2.shapes.title.text == "TITULO EDITADO POR OPERADOR"
 
 
 def test_export_pdf(tmp_path: Path):
@@ -417,6 +525,30 @@ def test_export_pdf(tmp_path: Path):
     pdf_bytes = pdf_path.read_bytes()
     page_count = len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
     assert page_count == 10, f"PDF has {page_count} pages, expected exactly 10"
+
+
+def test_overflow_detection_and_reduction(tmp_path: Path):
+    """Verifies that a plan with extreme texts has 0 overflows after PDF export check."""
+    try:
+        find_browser()
+    except RuntimeError:
+        pytest.skip("Chrome/Edge browser not found for overflow test")
+
+    # Plan with 5 steps and huge texts
+    plan = _make_synthetic_plan(extreme_texts=True)
+    pdf_path = tmp_path / "plan_extreme.pdf"
+
+    export_pdf(plan, pdf_path)
+    assert pdf_path.is_file()
+
+    # Render HTML from the resulting reduced plan and verify check_overflow reports []
+    reduced_slides = build_slides(plan, reduced=True)
+    html_content = render_html(plan, reduced_slides)
+    html_path = tmp_path / "reduced_plan.html"
+    html_path.write_text(html_content, encoding="utf-8")
+
+    overflows = check_overflow(html_path)
+    assert len(overflows) == 0, f"Unexpected overflows detected: {overflows}"
 
 
 def test_export_filename():

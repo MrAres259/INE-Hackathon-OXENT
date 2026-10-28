@@ -112,6 +112,7 @@ class DummyGroundedResult:
     latency_ms: int = 150
     supports: list[dict] = None  # type: ignore
     from_cache: bool = False
+    mode: str = "grounding"
 
     def __post_init__(self):
         if self.sources is None:
@@ -384,6 +385,97 @@ def test_research_unit_degraded_when_gemini_unavailable(monkeypatch):
     assert len(bundle.sources) == 0
     assert bundle.note is not None
     assert "No se pudo investigar en internet" in bundle.note
+
+
+def test_research_unit_rss_fallback_mode(monkeypatch):
+    """Test fallback_queries generation, fallback_days, and ResearchBundle.note on rss_url_context mode."""
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    captured_kwargs = {}
+
+    def fake_grounded_json(prompt, system=None, **kw):
+        captured_kwargs.update(kw)
+        raw_json = {
+            "findings": [
+                {
+                    "title": "Participación cívica y casillas",
+                    "summary": "Estudio documenta ubicación de casillas en zonas rurales.",
+                    "category": "acceso_casillas_distancia",
+                    "sources": [
+                        {"url": "https://www.ine.mx/casillas-rurales", "title": "Casillas INE", "published": "2024-01-10"},
+                    ],
+                    "scope": "estado",
+                    "confidence": "alta",
+                }
+            ]
+        }
+        res = DummyGroundedResult(
+            sources=[DummyGroundedSource(url="https://www.ine.mx/casillas-rurales", domain="ine.mx")],
+            queries=["participacion zacatecas"],
+            mode="rss_url_context",
+        )
+        return raw_json, res
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", fake_grounded_json)
+
+    snap = DataSnapshot(
+        unit_id="32",
+        name="Zacatecas",
+        level="state",
+        ent="32",
+        ent_name="Zacatecas",
+        lista_nominal=1200000,
+        pred_abstention=0.48,
+        pred_low=0.44,
+        pred_high=0.52,
+        category="amarillo",
+        risk_score=48.0,
+        last_participation=0.52,
+        last_year=2024,
+        trend_pp=-1.2,
+        abstencion_esperada=576000,
+    )
+
+    bundle = research_unit(snap, focus="jóvenes universitarios")
+
+    assert "fallback_queries" in captured_kwargs
+    fb_q = captured_kwargs["fallback_queries"]
+    assert len(fb_q) == 6
+    assert "Zacatecas abstención electoral" in fb_q
+    assert "Zacatecas participación ciudadana elecciones" in fb_q
+    assert "Zacatecas inseguridad elecciones" in fb_q
+    assert "Zacatecas INE casillas" in fb_q
+    assert "Zacatecas jóvenes voto" in fb_q
+    assert "Zacatecas jóvenes universitarios" in fb_q
+    assert captured_kwargs.get("fallback_days") == 1460
+
+    assert bundle.degraded is False
+    assert bundle.note == "Búsqueda de respaldo: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa."
+    assert len(bundle.findings) == 1
+    assert bundle.findings[0].category == "acceso_casillas_distancia"
+
+
+def test_verify_operator_non_ascii_header(monkeypatch):
+    """Test verify_operator handles non-ASCII characters without raising TypeError and returns 401."""
+    from fastapi import HTTPException
+    from starlette.requests import Request
+    from atalaya.api.security import verify_operator
+    from atalaya.config import get_settings
+
+    monkeypatch.setenv("ATALAYA_OPERATOR_TOKEN", "token-secreto-123")
+    get_settings.cache_clear()
+
+    # Valid token works
+    valid_req = Request({"type": "http", "headers": [(b"x-operator-token", b"token-secreto-123")]})
+    verify_operator(valid_req)  # does not raise
+
+    # Non-ASCII header raises 401 HTTPException, NOT 500 TypeError
+    non_ascii_req = Request({"type": "http", "headers": [(b"x-operator-token", "clave-inválida-ñ".encode("utf-8"))]})
+    with pytest.raises(HTTPException) as exc_info:
+        verify_operator(non_ascii_req)
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Clave de operador inválida."
 
 
 # ---------------------------------------------------------------- tests: plan_campaign

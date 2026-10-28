@@ -10,11 +10,32 @@ import { MapErrorBoundary } from "./MapErrorBoundary";
 
 export interface CompareSummaryProps {
   data: MapRiskData;
+  defaultCollapsed?: boolean;
   className?: string;
 }
 
-export function CompareSummary({ data, className = "" }: CompareSummaryProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+export function CompareSummary({
+  data,
+  defaultCollapsed,
+  className = "",
+}: CompareSummaryProps) {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (defaultCollapsed !== undefined) return defaultCollapsed;
+    if (typeof window !== "undefined") {
+      return window.innerWidth < 1024;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || defaultCollapsed !== undefined) return;
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const handler = (e: MediaQueryListEvent) => {
+      setIsCollapsed(e.matches);
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [defaultCollapsed]);
 
   const summary =
     data?.base?.mun && data?.alt?.mun
@@ -305,11 +326,12 @@ export function CompareSwipe({
         {/* Divider line: white with subtle shadow */}
         <div className="absolute inset-y-0 left-0 -translate-x-1/2 w-0.5 bg-white shadow-[0_0_6px_rgba(0,0,0,0.25)]" />
 
-        {/* Labels attached to handle at top-1/3 height (avoids legend / view-toggle collision) */}
+        {/* Labels attached to handle just above divider knob (avoids collision with legend, summary, or toolbar) */}
         {comparePos >= 15 && (
           <div
             data-map-overlay="swipe-left-label"
-            className="absolute right-7 top-1/3 -translate-y-1/2 pointer-events-none whitespace-nowrap"
+            className="absolute right-7 bottom-[calc(50%+24px)] pointer-events-none whitespace-nowrap"
+            style={{ bottom: "calc(50% + 24px)" }}
           >
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-border text-foreground shadow-float">
               ◀ Sin intervención
@@ -320,7 +342,8 @@ export function CompareSwipe({
         {comparePos <= 85 && (
           <div
             data-map-overlay="swipe-right-label"
-            className="absolute left-7 top-1/3 -translate-y-1/2 pointer-events-none whitespace-nowrap"
+            className="absolute left-7 bottom-[calc(50%+24px)] pointer-events-none whitespace-nowrap"
+            style={{ bottom: "calc(50% + 24px)" }}
           >
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-primary text-foreground shadow-float">
               Con intervención ▶

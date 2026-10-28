@@ -63,6 +63,7 @@ REGLAS INSTITUCIONALES Y DE PRIVACIDAD:
 2. Los autores de publicaciones se registran ÚNICAMENTE con el handle público (@usuario) o nombre de página que aparece en el post original. NUNCA enriquezcas ni cruces datos de personas.
 3. NUNCA inventes URLs ni métricas de interacción. Registra SOLO las métricas visibles en la fuente; si no son visibles, usa null.
 4. No generes ni reproduzcas insultos o lenguaje denigrante.
+5. Modo de respaldo (RSS/noticias indexadas): los rumores provienen de notas de verificadores (Verificado, AFP Factual, El Sabueso, etc.) y sitios web. Registra un post en 'posts' ÚNICAMENTE si el material cita la URL exacta de la publicación en redes sociales; si la URL del post no aparece, deja 'posts' como lista vacía ([]). Registra métricas de engagement SOLO si el verificador o reporte las menciona explícitamente; si no se reportan, usa null.
 
 FORMATO DE RESPUESTA:
 Devuelve ÚNICAMENTE un objeto JSON con la clave 'items' (máximo 8 items):
@@ -238,3 +239,37 @@ def build_glm_remediation_messages(items_payload: list[dict[str, Any]]) -> list[
         {"role": "system", "content": SYSTEM_GLM_REMEDIATION},
         {"role": "user", "content": user_content},
     ]
+
+
+STAGE1_FALLBACK_QUERIES: list[str] = [
+    "INE",
+    "Instituto Nacional Electoral",
+    "INE presupuesto",
+    "INE casillas",
+    "INE credencial",
+    "consejeros INE",
+    "elección judicial INE",
+]
+
+STAGE2_FALLBACK_QUERIES: list[str] = [
+    "INE falso",
+    "INE desinformación",
+    "Verificado INE",
+    "AFP Factual INE",
+    "El Sabueso INE",
+    "INE desmiente",
+    "circula en redes INE",
+]
+
+
+def build_verification_fallback_queries(preliminary_items: list[dict[str, Any]]) -> list[str]:
+    """Construct verification search queries from preliminary item claims."""
+    queries: list[str] = []
+    for it in preliminary_items:
+        claim = str(it.get("claim") or it.get("headline") or "").strip()
+        if claim:
+            snippet = claim[:80].strip()
+            queries.append(f"{snippet} verificación")
+    if not queries:
+        queries = ["INE verificación", "INE desmiente"]
+    return queries[:8]
