@@ -908,6 +908,45 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
       expect(createPortal).toHaveBeenCalledWith(expect.anything(), mockBody);
       expect(mockBody.children.length).toBeGreaterThan(0);
     });
+
+    it("los 4 rectángulos del fondo tienen style.backgroundColor no transparente (rgba(26,16,25,0.55))", () => {
+      const visibleAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({
+          top: 50,
+          bottom: 90,
+          left: 100,
+          right: 300,
+          width: 200,
+          height: 40,
+        }),
+      };
+
+      (globalThis as any).document = {
+        body: { dataset: {} },
+        querySelectorAll: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? [visibleAnchor] : [])),
+        querySelector: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? visibleAnchor : null)),
+      };
+      (globalThis as any).window = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: { getItem: () => null, setItem: () => {} },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+
+      const html = renderToStaticMarkup(React.createElement(MapGuide, { open: true }));
+      // Ensure data-guide-backdrop is rendered
+      expect(html).toContain('data-guide-backdrop="true"');
+
+      // The 4 cutout rectangles must have inline style background-color:rgba(26,16,25,0.55)
+      const matches = html.match(/background-color:rgba\(26,16,25,0\.55\)/g);
+      expect(matches).not.toBeNull();
+      expect(matches?.length).toBe(4);
+      // None of the 4 rectangles should be transparent
+      expect(html).not.toContain("background-color:transparent");
+    });
   });
 });
+
 

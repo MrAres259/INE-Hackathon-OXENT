@@ -37,6 +37,7 @@ from atalaya.intel.schemas import (
     Verdict,
     Virality,
 )
+from atalaya.intel import monitor
 from atalaya.intel.monitor import _GLMItemRemediation, _GLMRemediationResponse
 
 
@@ -46,8 +47,8 @@ from atalaya.intel.monitor import _GLMItemRemediation, _GLMRemediationResponse
 @dataclass
 class DummyGroundedSource:
     url: str
-    title: str
-    domain: str
+    title: str = ""
+    domain: str = ""
 
 
 @dataclass
@@ -899,4 +900,173 @@ def test_monitor_run_scan_fallback_queries_and_rss_mode(monkeypatch):
     assert rumor_item.virality.posts[0].url == "https://x.com/post_viral/1"
     assert rumor_item.virality.posts[0].engagement.likes == 50
     assert rumor_item.virality.posts[0].engagement.shares is None
+
+
+def test_monitor_discard_unbacked_items(monkeypatch, tmp_path):
+    """Test that items without retained sources and without platform posts are discarded."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            data = {
+                "items": [
+                    {
+                        "headline": "Afirmación sin respaldo documental",
+                        "summary": "Rumor sin fuentes ni posts.",
+                        "claim": "Presuntos vínculos del INE sin ninguna fuente",
+                        "topic": "confianza_institucional",
+                        "geo": {"level": "nacional"},
+                        "sources": [],
+                        "posts": [],
+                    },
+                    {
+                        "headline": "INE aprueba presupuesto",
+                        "summary": "Consejo General aprueba anteproyecto.",
+                        "claim": "El Consejo General del INE aprueba presupuesto",
+                        "topic": "presupuesto_recortes",
+                        "geo": {"level": "nacional"},
+                        "sources": [
+                            {"url": "https://www.eluniversal.com.mx/nacion/presupuesto", "title": "Nota El Universal"}
+                        ],
+                    },
+                ]
+            }
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource(url="https://www.eluniversal.com.mx/nacion/presupuesto", domain="eluniversal.com.mx")],
+                queries=["INE presupuesto"],
+                mode="rss_url_context",
+            )
+            return data, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult()
+        elif "verificacion" in cache_key:
+            return {"verifications": []}, DummyGroundedResult()
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    # The unsupported item must be discarded
+    assert len(snap.items) == 1
+    assert "presupuesto" in snap.items[0].headline.lower()
+    # Note must record the discarded count
+    assert snap.note is not None
+    assert "1 afirmaciones descartadas por no tener fuente verificable" in snap.note
+
+
+def test_monitor_rss_verdict_rules_and_accusation(monkeypatch, tmp_path):
+    """Test that news with >= 2 verifiable media becomes 'verdadera' and accusation maintains verdadera with note."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            data = {
+                "items": [
+                    {
+                        "headline": "Diputados señalan presuntas irregularidades en contratos del INE",
+                        "summary": "Comisión legislativa cita a declarar a funcionarios del INE por contratos.",
+                        "claim": "Diputados señalan presuntas irregularidades en contratos del INE",
+                        "topic": "conducta_funcionarios",
+                        "geo": {"level": "nacional"},
+                        "sources": [
+                            {"url": "https://www.reforma.com/contratos-ine", "title": "Nota Reforma"},
+                            {"url": "https://www.eluniversal.com.mx/contratos-ine", "title": "Nota El Universal"},
+                        ],
+                    }
+                ]
+            }
+            res = DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource(url="https://www.reforma.com/contratos-ine", domain="reforma.com"),
+                    DummyGroundedSource(url="https://www.eluniversal.com.mx/contratos-ine", domain="eluniversal.com.mx"),
+                ],
+                queries=["INE contratos"],
+                mode="rss_url_context",
+            )
+            return data, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult()
+        elif "verificacion" in cache_key:
+            # Fact check has no contradiction
+            return {"verifications": []}, DummyGroundedResult()
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    item = snap.items[0]
+
+    # Rule: >= 2 verifiable media without contradiction => verdadera
+    assert item.verdict == "verdadera"
+    assert item.verdict_confidence in ("alta", "media")
+    # Accusation disclaimer present
+    assert "Veredicto respecto a la existencia de la denuncia o señalamiento" in item.verdict_rationale
+    # Realistic impact computed for verdadera
+    assert item.impact is not None
+
+
+def test_monitor_candidate_mapping_aggregator(monkeypatch, tmp_path):
+    """Test that Google News aggregator candidate maps to real domain and outlet in monitor."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            data = {
+                "items": [
+                    {
+                        "headline": "INE inicia preparativos para comicios 2027",
+                        "summary": "Cobertura en medios nacionales.",
+                        "claim": "El INE inicia formalmente los preparativos de la elección 2027",
+                        "topic": "organizacion_casillas",
+                        "geo": {"level": "nacional"},
+                        "sources": [
+                            {"url": "https://news.google.com/rss/articles/CBMiABC123", "title": "Nota Google News"},
+                        ],
+                    }
+                ]
+            }
+            # Candidate has real domain elpais.com
+            res = DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource(
+                        url="https://news.google.com/rss/articles/CBMiABC123",
+                        title="Nota Google News",
+                        domain="elpais.com",
+                    )
+                ],
+                queries=["INE preparativos 2027"],
+                mode="rss_url_context",
+            )
+            return data, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult()
+        elif "verificacion" in cache_key:
+            return {"verifications": []}, DummyGroundedResult()
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    src = snap.items[0].sources[0]
+    # Google News URL preserved, domain is elpais.com, tier is medio_reconocido
+    assert src.url == "https://news.google.com/rss/articles/CBMiABC123"
+    assert src.domain == "elpais.com"
+    assert src.tier == "medio_reconocido"
 

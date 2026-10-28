@@ -8,6 +8,158 @@ import { CATEGORY_COLORS, CATEGORY_LABELS } from "@/lib/format";
 import { GLOSSARY, type GlossaryEntry } from "@/lib/glossary";
 import { BrandLockup } from "@/components/brand/BrandMark";
 
+export interface NewsImpactParam {
+  topic: string;
+  s_topic_pp: number;
+  harm: number;
+  susc_var: string;
+  label_es: string;
+  rationale_es: string;
+}
+
+export const NEWS_IMPACT_PARAMS: NewsImpactParam[] = [
+  {
+    topic: "seguridad_violencia",
+    s_topic_pp: 2.5,
+    harm: 0.7,
+    susc_var: "r_vuln",
+    label_es: "Seguridad y violencia",
+    rationale_es: "Eventos de inseguridad en zonas específicas pueden inhibir directamente la afluencia a casillas",
+  },
+  {
+    topic: "resultados_fraude",
+    s_topic_pp: 1.5,
+    harm: 0.8,
+    susc_var: "pct_internet",
+    label_es: "Resultados y fraude",
+    rationale_es: "Cuestionamientos a la certeza de los resultados debilitan la motivación cívica para emitir el voto",
+  },
+  {
+    topic: "organizacion_casillas",
+    s_topic_pp: 1.5,
+    harm: 0.8,
+    susc_var: "pct_rural",
+    label_es: "Organización y casillas",
+    rationale_es: "Problemas logísticos o reubicación de casillas impactan la accesibilidad física del electorado",
+  },
+  {
+    topic: "confianza_institucional",
+    s_topic_pp: 1.0,
+    harm: 0.6,
+    susc_var: "pct_internet",
+    label_es: "Confianza institucional",
+    rationale_es: "Los choques de confianza suelen mover la participación electoral en el orden de décimas de punto",
+  },
+  {
+    topic: "presupuesto_recortes",
+    s_topic_pp: 1.0,
+    harm: 0.5,
+    susc_var: "pct_rural",
+    label_es: "Presupuesto y recortes",
+    rationale_es: "Limitaciones presupuestales pueden mermar capacidades operativas y de despliegue territorial",
+  },
+  {
+    topic: "credencial_padron",
+    s_topic_pp: 1.0,
+    harm: 1.0,
+    susc_var: "pct_18_24",
+    label_es: "Credencial y padrón",
+    rationale_es: "Incertidumbre sobre vigencia de credencial desmoviliza especialmente a primeros votantes",
+  },
+  {
+    topic: "procedimiento_votacion",
+    s_topic_pp: 1.0,
+    harm: 1.0,
+    susc_var: "pct_internet",
+    label_es: "Procedimiento de votación",
+    rationale_es: "Confusión sobre requisitos u horarios de votación induce desinformación operativa directa",
+  },
+  {
+    topic: "conducta_funcionarios",
+    s_topic_pp: 0.5,
+    harm: 0.4,
+    susc_var: "vulnerability_pp",
+    label_es: "Conducta de funcionarios",
+    rationale_es: "Señalamientos a funcionarios individuales tienen impacto moderado en la conducta agregada",
+  },
+  {
+    topic: "otra",
+    s_topic_pp: 0.5,
+    harm: 0.4,
+    susc_var: "vulnerability_pp",
+    label_es: "Otra temática",
+    rationale_es: "Noticias no clasificadas presentan efectos acotados sobre la participación global",
+  },
+];
+
+export interface SeverityActionRule {
+  news_kind: string;
+  threshold: string;
+  action_label: string;
+  secondary_actions?: string;
+  deadline_hours: number;
+  description: string;
+}
+
+export const SEVERITY_ACTIONS_RULES: SeverityActionRule[] = [
+  {
+    news_kind: "Falsa / Engañosa / Rumor",
+    threshold: "Crítica (score ≥ 75 pts)",
+    action_label: "Desmentido oficial (#INEdesmiente)",
+    secondary_actions: "Reportar a plataforma + Responder y corregir",
+    deadline_hours: 12,
+    description: "Falsedades sobre requisitos de votación, fechas, anulación de credenciales o fraude viral.",
+  },
+  {
+    news_kind: "Falsa / Engañosa / Rumor",
+    threshold: "Alta (50 ≤ score < 75 pts)",
+    action_label: "Reportar a plataforma",
+    secondary_actions: "Responder y corregir con fuente verificada",
+    deadline_hours: 24,
+    description: "Rumores virales con alcance significativo en redes sociales.",
+  },
+  {
+    news_kind: "Falsa / Engañosa / Rumor",
+    threshold: "Media (25 ≤ score < 50 pts)",
+    action_label: "Responder y corregir",
+    secondary_actions: "Monitoreo de viralidad",
+    deadline_hours: 48,
+    description: "Afirmaciones engañosas o imprecisas en medios o redes sin viralidad extrema.",
+  },
+  {
+    news_kind: "Falsa / Engañosa / Rumor",
+    threshold: "Baja (score < 25 pts)",
+    action_label: "Registrar en bitácora",
+    secondary_actions: "Sin acción pública requerida",
+    deadline_hours: 168,
+    description: "Rumores incipientes o comentarios aislados con bajo enganche.",
+  },
+  {
+    news_kind: "Verdadera / Crítica",
+    threshold: "Impacto severo (Δ_max ≥ 1.0 pp o > 50k votos)",
+    action_label: "Campaña de intervención",
+    secondary_actions: "Comunicado oficial aclaratorio",
+    deadline_hours: 48,
+    description: "Eventos reales de alto impacto territorial que amenazan la afluencia en municipios prioritarios.",
+  },
+  {
+    news_kind: "Verdadera / Crítica",
+    threshold: "Impacto moderado (0.3 pp ≤ Δ_max < 1.0 pp)",
+    action_label: "Comunicado oficial",
+    secondary_actions: "Medidas operativas locales",
+    deadline_hours: 72,
+    description: "Dificultades operativas o presupuestales con impacto acotado a ciertas zonas.",
+  },
+  {
+    news_kind: "Verdadera / Crítica",
+    threshold: "Impacto leve (Δ_max < 0.3 pp y < 50k votos)",
+    action_label: "Registrar en bitácora",
+    secondary_actions: "Seguimiento en comisiones",
+    deadline_hours: 168,
+    description: "Controversias menores o de impacto marginal en el electorado.",
+  },
+];
+
 export default function MetodologiaPage() {
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -36,6 +188,7 @@ export default function MetodologiaPage() {
     () => [
       { href: "#como-usar", label: "Cómo usar Atalaya Electoral" },
       { href: "#glosario", label: "Glosario" },
+      { href: "#inteligencia-ia", label: "Inteligencia con IA" },
       { href: "#campanas-combinadas", label: "Campañas combinadas" },
       { href: "#mapa-3d", label: "El mapa 3D" },
       { href: "#guardrails", label: "Límites del asistente" },
@@ -279,6 +432,12 @@ export default function MetodologiaPage() {
         items: [],
       },
       {
+        category: "Inteligencia con IA",
+        description:
+          "Planes estratégicos de campaña, investigación neutral en fuentes verificadas, monitor de medios y desinformación, y registro institucional.",
+        items: [],
+      },
+      {
         category: "Semáforo e indicadores",
         description:
           "Índice de riesgo, componentes estadísticos, ranking de atención e indicadores del CCPC.",
@@ -298,9 +457,40 @@ export default function MetodologiaPage() {
       },
     ];
 
+    const INTEL_KEYS = new Set([
+      "plan_campana",
+      "investigacion_gemini",
+      "fuentes_verificadas",
+      "nivel_verificacion",
+      "hallazgo",
+      "grupo_objetivo",
+      "propuesta_palanca",
+      "impacto_simulado",
+      "diapositivas_editables",
+      "clave_operador",
+      "monitor_ine",
+      "veredicto",
+      "noticia_verdadera",
+      "fake_news",
+      "noticia_enganosa",
+      "sin_verificar",
+      "impacto_noticia",
+      "decaimiento_noticia",
+      "exposicion",
+      "susceptibilidad",
+      "viralidad",
+      "riesgo_ignorar",
+      "severidad",
+      "accion_remediacion",
+      "registro_ine",
+      "fragmento_mapa",
+    ]);
+
     for (const item of filteredGlossary) {
       const [key] = item;
-      if (
+      if (INTEL_KEYS.has(key)) {
+        groups[1].items.push(item);
+      } else if (
         key.startsWith("escenario") ||
         key.startsWith("param.") ||
         key.startsWith("lever.") ||
@@ -321,11 +511,11 @@ export default function MetodologiaPage() {
         key === "navegacion" ||
         key === "guia"
       ) {
-        groups[2].items.push(item);
-      } else if (key.startsWith("asistente")) {
         groups[3].items.push(item);
+      } else if (key.startsWith("asistente")) {
+        groups[4].items.push(item);
       } else {
-        groups[1].items.push(item);
+        groups[2].items.push(item);
       }
     }
 
@@ -613,6 +803,415 @@ export default function MetodologiaPage() {
                   </div>
                 );
               })}
+            </section>
+
+            {/* 3. Inteligencia con IA (Plan de Campaña y Monitor INE) */}
+            <section
+              id="inteligencia-ia"
+              className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-xs space-y-6 scroll-mt-20"
+            >
+              <div className="border-b border-border pb-4 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-primary shrink-0" />
+                  <h2 className="font-display text-lg font-bold text-foreground">
+                    Inteligencia con IA: Plan de Campaña y Monitor INE
+                  </h2>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Metodología de los dos módulos de inteligencia artificial de Atalaya Electoral: investigación territorial de abstención en fuentes verificadas con Gemini, formulación estratégica de planes de campaña con GLM-5.3, monitoreo de incidentes y desinformación con cálculo de impacto en participación, y bitácora institucional inmutable.
+                </p>
+              </div>
+
+              {/* Subsección A: Plan de Campaña Estratégico */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-display text-base font-bold text-foreground flex items-center gap-2">
+                    <span className="text-primary font-bold text-sm">A.</span>
+                    Plan Estratégico de Campaña (Investigación, Planeación y Diapositivas)
+                  </h3>
+                  <span className="text-[10px] bg-primary-soft text-primary font-mono px-2 py-0.5 rounded-full font-semibold">
+                    Gemini 3.8 Flash + GLM-5.3 + Simulador
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
+                  <span className="font-bold text-foreground block text-sm">
+                    ¿Qué hace el Plan de Campaña?
+                  </span>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Es una herramienta de auxilio operativo para las Juntas Locales y Distritales Ejecutivas del INE. Ante un estado o municipio en semáforo rojo o naranja, el sistema investiga en repositorios documentales por qué la ciudadanía no acude a votar, formula un plan de intervención estructurado con base en las atribuciones del Instituto, calcula con el simulador matemático el impacto en votos y reducción de abstención, y entrega una baraja de 10 diapositivas ejecutivas editables exportables a PowerPoint (PPTX) y PDF.
+                  </p>
+                </div>
+
+                {/* Flujo de 5 etapas */}
+                <div className="space-y-2 text-xs">
+                  <span className="font-bold text-foreground text-xs uppercase tracking-wider block">
+                    Flujo de ejecución en 5 etapas secuenciales:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+                    <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-primary text-[11px]">1. Datos Atalaya</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">5 %</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Carga el diagnóstico territorial: abstención pronosticada 2027, lista nominal, brecha de jóvenes 18–24, ruralidad, lenguas indígenas, tendencia CCPC y factores sociodemográficos.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-primary text-[11px]">2. Investigación</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">15–55 %</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Gemini 3.8 Flash con búsqueda Google rastrea causas documentadas de abstención en los últimos 6 años exclusivamente en fuentes verificadas; descarta redes y partidos.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-primary text-[11px]">3. Planeación GLM</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">60–85 %</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        GLM-5.3 redacta 2–4 propuestas vinculadas a las palancas del INE, grupo objetivo con tamaño calculado, pasos con responsables del INE hasta mayo 2027, riesgos y KPIs.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-primary text-[11px]">4. Simulación</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">90 %</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        El motor determinista de Atalaya calcula el impacto cuantitativo (votos adicionales, reducción de abstención, rendimientos decrecientes y traslape). El LLM no inventa cifras.
+                      </p>
+                    </div>
+
+                    <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-primary text-[11px]">5. Diapositivas</span>
+                        <span className="text-[10px] font-mono text-muted-foreground">95 %</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Arma la baraja ejecutiva de 10 láminas en formato 16:9 con mapa fragmento de la zona y diseño de marca, editable directamente en pantalla y descargable a PPTX y PDF.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fuentes admitidas vs descartadas y por qué el LLM no escribe cifras */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                    <h4 className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-good shrink-0" />
+                      Niveles de verificación admitidos y filtros anti-alucinación
+                    </h4>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Para garantizar certeza jurídica y máxima publicidad, solo se aceptan fuentes pertenecientes a <strong className="text-foreground">VERIFIABLE_TIERS</strong>:
+                    </p>
+                    <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed pl-1">
+                      <li><strong className="text-foreground">Oficial:</strong> Acuerdos del INE, OPLEs, dependencias públicas (.gob.mx, ine.mx) y censos INEGI.</li>
+                      <li><strong className="text-foreground">Verificadores acreditados:</strong> Verificado.mx, AFP Factual, El Sabueso / Animal Político, Reuters Fact Check y Newtral.</li>
+                      <li><strong className="text-foreground">Académico:</strong> Investigaciones de universidades (.edu.mx, UNAM, El Colmex, CIDE).</li>
+                      <li><strong className="text-foreground">Medios reconocidos:</strong> Prensa nacional y regional con consejo editorial verificable.</li>
+                    </ul>
+                    <div className="p-2.5 rounded-lg bg-card border border-border text-[11px] text-muted-foreground space-y-1">
+                      <strong className="text-destructive font-semibold block">Fuentes descartadas categóricamente:</strong>
+                      <span>Redes sociales, blogs anónimos, partidos políticos, candidaturas y declaraciones proselitistas. Si un hallazgo pierde sus fuentes verificadas, se elimina. Además, toda URL citada por el modelo que no figure en los fragmentos de búsqueda (grounding chunks) o la lista semilla se descarta para evitar alucinaciones.</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                    <h4 className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                      Por qué el LLM no escribe cifras de impacto
+                    </h4>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Los modelos de lenguaje son redactores cualitativos, pero propensos a alucinar sumas aritméticas o proyectar recuperaciones mágicas de votos. En Atalaya Electoral rige una regla estricta:
+                    </p>
+                    <div className="p-2.5 rounded-lg bg-card border border-border font-mono text-[11px] text-primary font-semibold">
+                      LLM redacta propuestas operativas · El motor matemático calcula los votos
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Las cifras de votos recuperables, cambio en puntos porcentuales, rendimientos decrecientes y traslape provienen de la simulación determinista (<span className="font-mono text-foreground font-semibold">model.scenarios.simulate</span>). El LLM recibe las cifras ya calculadas y no puede modificarlas.
+                    </p>
+                    <div className="p-2.5 rounded-lg bg-card border border-border text-[11px] text-muted-foreground space-y-1">
+                      <strong className="text-foreground font-semibold block">Modo de respaldo y sin internet:</strong>
+                      <span>Si la API de Gemini alcanza su límite de cuota (40 consultas diarias) o falla, se activa el respaldo de búsqueda en Google News / Bing. Si la máquina opera sin conexión a internet, se generan planes deterministas basados en las recomendaciones de política del CCPC (<span className="font-mono text-foreground">llm.degraded = true</span>).</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subsección B: Monitor INE */}
+              <div className="space-y-4 pt-2 border-t border-border">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-display text-base font-bold text-foreground flex items-center gap-2">
+                    <span className="text-primary font-bold text-sm">B.</span>
+                    Monitor Institucional de Medios, Desinformación y Remediación
+                  </h3>
+                  <span className="text-[10px] bg-primary-soft text-primary font-mono px-2 py-0.5 rounded-full font-semibold">
+                    Veredictos + Impacto Territorial + Severidad
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
+                  <span className="font-bold text-foreground block text-sm">
+                    Detección temprana y clasificación por veracidad
+                  </span>
+                  <p className="text-muted-foreground leading-relaxed">
+                    El Monitor rastrea continuamente noticias críticas sobre el INE y afirmaciones virales en medios y redes sociales (X, TikTok, Facebook, YouTube, Telegram). Clasifica cada incidente en uno de cuatro veredictos institucionales con regla mínima de evidencia:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-1 font-mono text-[11px]">
+                    <div className="p-2.5 rounded bg-card border border-border">
+                      <span className="text-bad font-sans font-bold block">1. Verdadera</span>
+                      <span className="text-muted-foreground font-sans text-[10px]">Hecho real desfavorable sobre operación, presupuesto, casillas o credencial. Requiere ≥ 1 fuente verificada.</span>
+                    </div>
+                    <div className="p-2.5 rounded bg-card border border-border">
+                      <span className="text-destructive font-sans font-bold block">2. Falsa</span>
+                      <span className="text-muted-foreground font-sans text-[10px]">Desinformación o rumor sin sustento desmentido por verificadores acreditados o #INEdesmiente.</span>
+                    </div>
+                    <div className="p-2.5 rounded bg-card border border-border">
+                      <span className="text-risk-mid font-sans font-bold block">3. Engañosa</span>
+                      <span className="text-muted-foreground font-sans text-[10px]">Dato real descontextualizado o con interpretaciones tendenciosas que confunden al votante.</span>
+                    </div>
+                    <div className="p-2.5 rounded bg-card border border-border">
+                      <span className="text-muted-foreground font-sans font-bold block">4. Sin verificar</span>
+                      <span className="text-muted-foreground font-sans text-[10px]">Contenido viral reciente en seguimiento sin dictamen concluyente de verificadores.</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modelo de impacto en participación (§7.3) */}
+                <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-3 text-xs">
+                  <div>
+                    <h4 className="font-bold text-foreground text-sm flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                      Modelo de Impacto Territorial Realista en Participación Ciudadana
+                    </h4>
+                    <p className="text-muted-foreground mt-1 leading-relaxed">
+                      Cuando una noticia verdadera o engañosa afecta la credibilidad u operación electoral, el modelo cuantifica el incremento potencial en puntos porcentuales (pp) de abstención por municipio i, agregándolo después a nivel estatal ponderado por Lista Nominal:
+                    </p>
+                  </div>
+
+                  <div className="font-mono text-foreground bg-card p-3.5 rounded-xl border border-border leading-relaxed overflow-x-auto shadow-2xs space-y-1.5">
+                    <div className="text-primary font-bold">
+                      Δ_i (pp de abstención) = min(CAP, S_topic × intensity × decay × exposure_i × susc_i)
+                    </div>
+                    <div className="text-muted-foreground font-sans text-[11px] space-y-0.5">
+                      <div>• <strong className="text-foreground">S_topic:</strong> Sensibilidad base en pp a exposición plena (0.5 a 2.5 pp según tema).</div>
+                      <div>• <strong className="text-foreground">intensity:</strong> Magnitud del choque informativo (rango conservador de 0.25 a 1.0).</div>
+                      <div>• <strong className="text-foreground">decay:</strong> Decaimiento exponencial con días restantes a la elección d = (2027-06-06 − hoy): coyuntural exp(−d/60), persistente exp(−d/240), estructural 1.0. (Un incidente coyuntural a un año de la elección decae de forma realista).</div>
+                      <div>• <strong className="text-foreground">exposure_i:</strong> Nacional = 0.6 + 0.4 × rank(pct_internet); Estatal = 1 en entidades afectadas, 0 fuera; Municipal = 1 en municipios afectados, 0.35 en el resto de su estado.</div>
+                      <div>• <strong className="text-foreground">susc_i ∈ [0.5, 1.5]:</strong> 0.5 + 0.5 × rank(volatilidad) + 0.5 × rank(variable_tema), donde la variable es: credencial → jóvenes 18–24; casillas/presupuesto → ruralidad; confianza/procedimiento → internet; seguridad → índice de vulnerabilidad.</div>
+                      <div>• <strong className="text-foreground">CAP institucional:</strong> Tope máximo estricto de 3.0 pp. Banda: [0.5 × Δ_i, min(3.0, 1.5 × Δ_i)].</div>
+                      <div>• <strong className="text-foreground">Votos perdidos:</strong> (Δ_i / 100) × Lista Nominal_i. Los municipios con Δ ≥ 0.05 pp se presentan en el fragmento cartográfico 2D.</div>
+                    </div>
+                  </div>
+
+                  {/* Tabla de parámetros de impacto por tema */}
+                  <div className="space-y-2 pt-2">
+                    <span className="font-bold text-foreground text-xs uppercase tracking-wider block">
+                      Tabla oficial de parámetros por temática de noticia (data/seed/news_impact_params.csv):
+                    </span>
+                    <div className="overflow-x-auto rounded-xl border border-border shadow-2xs bg-card">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-muted text-[10px] uppercase font-bold text-muted-foreground border-b border-border">
+                          <tr>
+                            <th className="py-2.5 px-3">Temática</th>
+                            <th className="py-2.5 px-2 text-right">Efecto Base S_topic</th>
+                            <th className="py-2.5 px-2 text-right">Daño (Harm)</th>
+                            <th className="py-2.5 px-2">Variable Susceptibilidad</th>
+                            <th className="py-2.5 px-3">Justificación Institucional</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                          {NEWS_IMPACT_PARAMS.map((row) => (
+                            <tr key={row.topic} className="hover:bg-muted/30 transition-colors">
+                              <td className="py-2.5 px-3 font-semibold text-foreground">
+                                <div>{row.label_es}</div>
+                                <div className="text-[10px] text-muted-foreground font-mono font-normal">{row.topic}</div>
+                              </td>
+                              <td className="py-2.5 px-2 text-right font-mono font-bold text-primary tnum">
+                                {row.s_topic_pp.toFixed(1)} pp
+                              </td>
+                              <td className="py-2.5 px-2 text-right font-mono text-muted-foreground tnum">
+                                {row.harm.toFixed(1)}
+                              </td>
+                              <td className="py-2.5 px-2 font-mono text-[11px] text-ink">
+                                {row.susc_var}
+                              </td>
+                              <td className="py-2.5 px-3 text-[11px] text-muted-foreground leading-relaxed">
+                                {row.rationale_es}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Viralidad y Riesgo de ignorar */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                    <h4 className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                      Índice de Viralidad Digital (§7.4 revisada)
+                    </h4>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Para rumores y publicaciones en redes sociales, el enganche por post pondera interacciones visibles:
+                    </p>
+                    <div className="bg-card p-2 rounded border border-border font-mono text-[11px] text-foreground">
+                      e = 3·shares + 2·comments + likes + 0.05·views (métrica oculta ⇒ 50)
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed">
+                      El puntaje (0 a 100) aplica escala logarítmica para calibrar adecuadamente notas virales reales sin saturación prematura:
+                    </p>
+                    <div className="bg-card p-2 rounded border border-border font-mono text-[10px] text-primary">
+                      score = clamp(0, 100, round(15·log10(1+Σe) + 6·(n_plat−1) + 3·min(n_posts,5) + R − 15))
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Donde <strong className="text-foreground">R = 8</strong> si el post más reciente tiene ≤ 48 horas (4 si ≤ 7 días). Niveles: <strong className="text-good font-semibold">Baja</strong> (&lt;25), <strong className="text-risk-mid font-semibold">Media</strong> (25–49), <strong className="text-bad font-semibold">Alta</strong> (50–74) y <strong className="text-destructive font-semibold">Crítica</strong> (≥75).
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                    <h4 className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-destructive shrink-0" />
+                      Riesgo de ignorar la desinformación
+                    </h4>
+                    <p className="text-muted-foreground leading-relaxed">
+                      El sistema calcula la aceleración esperada si la autoridad electoral no interviene (+15 puntos en 7 días para notas en crecimiento).
+                    </p>
+                    <div className="p-3 rounded-lg bg-card border border-border space-y-1 text-[11px] leading-relaxed">
+                      <strong className="text-foreground block font-semibold">Efecto de desmovilización electoral directa:</strong>
+                      <p className="text-muted-foreground">
+                        Ignorar una falsedad que superó la viralidad media la consolida como la única versión disponible en buscadores e inteligencia artificial comercial. Si la desinformación atañe a <strong className="text-foreground">requisitos de credencial, vigencia del padrón o ubicación de casillas</strong>, induce abstención directa e involuntaria el día de las elecciones.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Severidad y Acciones institucionales */}
+                <div className="space-y-2">
+                  <span className="font-bold text-foreground text-xs uppercase tracking-wider block">
+                    Matriz de Severidad Institucional y Plazos de Atención (§7.5):
+                  </span>
+                  <div className="overflow-x-auto rounded-xl border border-border shadow-2xs bg-card">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-muted text-[10px] uppercase font-bold text-muted-foreground border-b border-border">
+                        <tr>
+                          <th className="py-2.5 px-3">Tipo de Incidente</th>
+                          <th className="py-2.5 px-2">Umbral de Severidad</th>
+                          <th className="py-2.5 px-2">Acción Principal</th>
+                          <th className="py-2.5 px-2">Acciones Secundarias</th>
+                          <th className="py-2.5 px-2 text-right">Plazo Límite</th>
+                          <th className="py-2.5 px-3">Descripción Operativa</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {SEVERITY_ACTIONS_RULES.map((rule, idx) => (
+                          <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                            <td className="py-2.5 px-3 font-semibold text-foreground">
+                              {rule.news_kind}
+                            </td>
+                            <td className="py-2.5 px-2 font-mono text-[11px] text-ink">
+                              {rule.threshold}
+                            </td>
+                            <td className="py-2.5 px-2 font-semibold text-primary">
+                              {rule.action_label}
+                            </td>
+                            <td className="py-2.5 px-2 text-[11px] text-muted-foreground">
+                              {rule.secondary_actions ?? "—"}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-mono font-bold text-foreground tnum">
+                              {rule.deadline_hours} h
+                            </td>
+                            <td className="py-2.5 px-3 text-[11px] text-muted-foreground leading-relaxed">
+                              {rule.description}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Registro inmutable y clave de operador */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3.5 rounded-lg bg-muted/40 border border-border space-y-1.5">
+                    <strong className="text-foreground block font-semibold flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                      Registro inmutable append-only (Bitácora oficial)
+                    </strong>
+                    <p className="text-muted-foreground leading-relaxed text-[11px]">
+                      Cada incidente cuenta con un estado institucional (<span className="font-mono text-foreground">pendiente</span>, <span className="font-mono text-foreground">enterado</span>, <span className="font-mono text-foreground">comunicado_emitido</span>, <span className="font-mono text-foreground">campana_planeada</span>, <span className="font-mono text-foreground">respondida</span>, <span className="font-mono text-foreground">reportada</span> o <span className="font-mono text-foreground">descartada</span>). Los acuerdos se asientan cronológicamente en <span className="font-mono text-foreground">registry.jsonl</span> de forma inalterable (nunca se borra ni sobrescribe), garantizando certeza y rendición de cuentas interna.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg bg-muted/40 border border-border space-y-1.5">
+                    <strong className="text-foreground block font-semibold flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+                      Clave de Operador Institucional (Control de acceso)
+                    </strong>
+                    <p className="text-muted-foreground leading-relaxed text-[11px]">
+                      La consulta ciudadana de diagnósticos y noticias es completamente abierta. No obstante, las acciones que consumen cuotas de IA o asientan acuerdos oficiales (investigar con Gemini, forzar escaneos y registrar decisiones del INE) requieren autenticación mediante <span className="font-mono text-foreground font-semibold">ATALAYA_OPERATOR_TOKEN</span> enviado en la cabecera segura <span className="font-mono text-foreground font-semibold">X-Operator-Token</span>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subsección C: Límites Éticos y Principios Rectores */}
+              <div className="space-y-3 pt-2 border-t border-border">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  <h3 className="font-display text-sm font-bold text-foreground uppercase tracking-wider">
+                    Salvaguardas Éticas y Principios Constitucionales en Inteligencia Artificial
+                  </h3>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">1. Escenarios hipotéticos</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Todo cálculo de impacto es una simulación orientativa para planeación institucional preventiva. Nunca se presenta como evaluación de causalidad económica o social retroactiva.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">2. Privacidad y anonimato</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Exclusión absoluta de datos personales. En redes sociales solo se identifican los nombres de usuario públicos (*handles*) para reportar ante plataformas o emitir réplicas; nunca se perfilan personas.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">3. Neutralidad institucional</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Apego estricto a los principios rectores del INE: ningún prompt ni texto generado menciona partidos políticos, candidaturas, preferencias electorales ni encuestas de intención de voto.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">4. Supervisión humana</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      La IA se equivoca y puede presentar imprecisiones: todo plan, diagnóstico cualitativo y borrador de comunicado es una propuesta preliminar sujeta a revisión, dictamen y aprobación humana.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">5. Cuota y sustentabilidad</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Límite diario de 40 consultas gratuitas para preservar el presupuesto institucional, con mecanismos automáticos de degradación elegante a respaldos locales y deterministas.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </section>
 
             {/* Campañas combinadas (Multi-palanca, país o estados) */}

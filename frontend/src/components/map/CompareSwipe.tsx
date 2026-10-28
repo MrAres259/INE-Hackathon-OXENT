@@ -21,15 +21,14 @@ export function CompareSummary({
 }: CompareSummaryProps) {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (defaultCollapsed !== undefined) return defaultCollapsed;
-    if (typeof window !== "undefined") {
-      return window.innerWidth < 1024;
-    }
     return false;
   });
 
   useEffect(() => {
-    if (typeof window === "undefined" || defaultCollapsed !== undefined) return;
+    if (defaultCollapsed !== undefined) return;
+    if (typeof window === "undefined") return;
     const mq = window.matchMedia("(max-width: 1023px)");
+    setIsCollapsed(mq.matches);
     const handler = (e: MediaQueryListEvent) => {
       setIsCollapsed(e.matches);
     };

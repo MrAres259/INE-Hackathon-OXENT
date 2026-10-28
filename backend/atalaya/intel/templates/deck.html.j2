@@ -266,9 +266,9 @@
                 {% endfor %}
                 {% if slide.data.get("overlap_votos") %}
                   <tr class="impact-overlap-row">
-                    <td><em>Traslape (personas alcanzadas por más de una campaña)</em></td>
+                    <td><em>Traslape: personas alcanzadas por más de una campaña</em></td>
                     <td>{{ slide.data.get("overlap_votos_str") }}</td>
-                    <td>Ajuste sinérgico</td>
+                    <td>{{ slide.data.get("overlap_note") or "Votos que no se suman dos veces" }}</td>
                   </tr>
                 {% endif %}
               </tbody>

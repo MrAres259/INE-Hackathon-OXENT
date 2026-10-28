@@ -1,78 +1,215 @@
+// ATALAYA Intel - Monitor Page
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { IntelPageShell } from "@/components/intel/IntelPageShell";
 import { OperatorGate } from "@/components/intel/OperatorGate";
-import { InfoTip } from "@/components/ui/InfoTip";
-import { getIntelStatus } from "@/lib/intel/api";
-import type { IntelStatus } from "@/lib/intel/types";
+import { getIntelStatus, getMonitor, scanMonitor, pollJob, IntelApiError } from "@/lib/intel/api";
+import type { MonitorSnapshot, IntelStatus, Job, RegistryEntry } from "@/lib/intel/types";
+import {
+  INITIAL_MONITOR_FILTERS,
+  filterNewsItems,
+  countByTab,
+  type MonitorFilterState,
+} from "@/components/intel/monitor/monitorFilters";
+import { MonitorHeader } from "@/components/intel/monitor/MonitorHeader";
+import { NewsFilters } from "@/components/intel/monitor/NewsFilters";
+import { NewsList } from "@/components/intel/monitor/NewsList";
+import { NewsDetail } from "@/components/intel/monitor/NewsDetail";
 
 export default function MonitorPage() {
   const [status, setStatus] = useState<IntelStatus | null>(null);
+  const [snapshot, setSnapshot] = useState<MonitorSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
 
+  const [filters, setFilters] = useState<MonitorFilterState>(INITIAL_MONITOR_FILTERS);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+
+  const [isScanning, setIsScanning] = useState(false);
+  const [activeJob, setActiveJob] = useState<Job<MonitorSnapshot> | null>(null);
+  const [cooldownMessage, setCooldownMessage] = useState<string | null>(null);
+
+  // Load initial status and monitor snapshot
   useEffect(() => {
-    getIntelStatus().then((s) => setStatus(s)).catch(() => {});
+    let mounted = true;
+
+    Promise.all([
+      getIntelStatus().catch(() => null),
+      getMonitor().catch(() => null),
+    ]).then(([st, sn]) => {
+      if (!mounted) return;
+      if (st) setStatus(st);
+      if (sn) {
+        setSnapshot(sn);
+        if (sn.items && sn.items.length > 0) {
+          setSelectedItemId(sn.items[0].id);
+        }
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  // Compute tab counts and filtered items
+  const allItems = useMemo(() => snapshot?.items ?? [], [snapshot]);
+  const tabCounts = useMemo(() => countByTab(allItems), [allItems]);
+  const filteredItems = useMemo(() => filterNewsItems(allItems, filters), [allItems, filters]);
+
+  // Selected item object
+  const selectedItem = useMemo(() => {
+    if (selectedItemId) {
+      const found = allItems.find((i) => i.id === selectedItemId);
+      if (found) return found;
+    }
+    return filteredItems[0] ?? allItems[0] ?? null;
+  }, [selectedItemId, allItems, filteredItems]);
+
+  // Operator scan handler
+  const handleScan = async (windowDays: 7 | 14 | 30) => {
+    setIsScanning(true);
+    setCooldownMessage(null);
+
+    try {
+      const res = await scanMonitor({ window_days: windowDays, refresh: true });
+
+      if ("snapshot" in res) {
+        setSnapshot(res.snapshot);
+        if (res.snapshot.items?.length > 0) {
+          setSelectedItemId(res.snapshot.items[0].id);
+        }
+      } else if ("id" in res) {
+        setActiveJob(res);
+        const finalJob = await pollJob<MonitorSnapshot>(res.id, {
+          onUpdate: (j) => setActiveJob(j),
+        });
+
+        if (finalJob.status === "done" && finalJob.result) {
+          setSnapshot(finalJob.result);
+          if (finalJob.result.items?.length > 0) {
+            setSelectedItemId(finalJob.result.items[0].id);
+          }
+        } else if (finalJob.error) {
+          setCooldownMessage(finalJob.error);
+        }
+      }
+    } catch (err: any) {
+      if (err instanceof IntelApiError && (err.status === 429 || err.retryAfterS)) {
+        const mins = err.retryAfterS ? Math.ceil(err.retryAfterS / 60) : 15;
+        setCooldownMessage(`Podrás escanear de nuevo en ${mins} min.`);
+      } else {
+        setCooldownMessage(
+          err?.detail || err?.message || "No fue posible ejecutar el escaneo del monitor."
+        );
+      }
+    } finally {
+      setIsScanning(false);
+      setActiveJob(null);
+    }
+  };
+
+  // Status updated callback from RegistryControl
+  const handleStatusUpdated = (entry: RegistryEntry) => {
+    if (!snapshot) return;
+
+    const updatedItems = snapshot.items.map((it) => {
+      if (it.id === entry.item_id) {
+        return {
+          ...it,
+          status: entry,
+        };
+      }
+      return it;
+    });
+
+    setSnapshot({
+      ...snapshot,
+      items: updatedItems,
+    });
+  };
 
   return (
     <IntelPageShell>
       <div className="space-y-6 py-2">
-        {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-display text-2xl font-bold text-foreground">
-                Monitor INE de Medios y Desinformación
-              </h1>
-              <InfoTip term="monitor_ine" size="sm" />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Detección de noticias críticas, verificación independiente y análisis de impacto en participación.
-            </p>
-          </div>
+        {/* Monitor Header with KPIs, engine status, and scan controls */}
+        <MonitorHeader
+          snapshot={snapshot}
+          status={status}
+          isScanning={isScanning}
+          activeJob={activeJob}
+          onScan={handleScan}
+          cooldownMessage={cooldownMessage}
+        />
 
-          {/* Engine & Cooldown status badge */}
-          {status && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-card text-xs">
-              <span
-                className={`size-2 rounded-full ${
-                  status.gemini_enabled ? "bg-good" : "bg-risk-mid"
-                }`}
-              />
-              <span className="font-medium text-foreground">
-                Monitor: {status.gemini_enabled ? "Activo" : "Modo degradado"}
-              </span>
-              <span className="text-muted-foreground font-mono">
-                · Cooldown: {status.monitor_cooldown_min} min
-              </span>
-              <InfoTip term="veredicto" size="xs" />
-            </div>
-          )}
-        </div>
-
-        {/* Operator Gatekeeper */}
-        <OperatorGate label="Acceso de operador para escanear">
-          <div className="rounded-lg border border-primary/20 bg-primary-soft/50 p-4 text-xs space-y-2">
-            <span className="font-bold text-primary">Modo operador habilitado</span>
-            <p className="text-muted-foreground">
-              Puedes ejecutar escaneos forzados de la web y redes, registrar resoluciones institucionales y emitir respuestas oficiales.
-            </p>
+        {/* Operator Gate trigger & configuration bar */}
+        <OperatorGate label="Administración de clave de operador">
+          <div className="text-xs text-muted-foreground">
+            Sesión de operador activa: clave verificada contra el servidor central de ATALAYA.
           </div>
         </OperatorGate>
 
-        {/* Skeleton placeholder banner */}
-        <div className="rounded-xl border border-dashed border-border bg-card/40 p-12 text-center space-y-3">
-          <div className="mx-auto size-12 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xl">
-            📡
+        {/* Loading skeleton */}
+        {loading && (
+          <div className="p-12 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+            <svg className="animate-spin size-4 text-primary" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <span>Cargando datos del Monitor INE...</span>
           </div>
-          <h2 className="font-display text-lg font-bold text-foreground">
-            En construcción
-          </h2>
-          <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-            El módulo de detección y clasificación de afirmaciones sobre el INE, evaluación de viralidad en redes,
-            cálculo de impacto territorial en mapa 2D y registro inmutable de enterado se desplegará en la siguiente ola.
-          </p>
-        </div>
+        )}
+
+        {/* Main Content Area: List + Detail */}
+        {!loading && snapshot && allItems.length > 0 && (
+          <div className="space-y-4">
+            {/* Desktop Layout (>= 1280px) and Mobile list when detail is closed */}
+            <div className="xl:grid xl:grid-cols-12 xl:gap-6 items-start">
+              {/* Left Column: Filters and News List */}
+              <div
+                className={`xl:col-span-5 2xl:col-span-4 space-y-4 ${
+                  mobileDetailOpen ? "hidden xl:block" : "block"
+                }`}
+              >
+                <NewsFilters
+                  filters={filters}
+                  onChange={setFilters}
+                  counts={tabCounts}
+                />
+
+                <NewsList
+                  items={filteredItems}
+                  selectedId={selectedItem?.id ?? null}
+                  onSelect={(item) => {
+                    setSelectedItemId(item.id);
+                    setMobileDetailOpen(true);
+                  }}
+                />
+              </div>
+
+              {/* Right Column: Detail View */}
+              <div
+                className={`xl:col-span-7 2xl:col-span-8 ${
+                  !mobileDetailOpen ? "hidden xl:block" : "block"
+                }`}
+              >
+                {selectedItem ? (
+                  <NewsDetail
+                    item={selectedItem}
+                    onStatusUpdated={handleStatusUpdated}
+                    onMobileBack={() => setMobileDetailOpen(false)}
+                  />
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border p-12 text-center text-xs text-muted-foreground">
+                    Selecciona una noticia o rumor de la lista para ver el diagnóstico detallado, impacto territorial y remediación sugerida.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </IntelPageShell>
   );

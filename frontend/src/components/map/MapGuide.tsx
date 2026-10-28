@@ -670,7 +670,7 @@ export function MapGuide({
       {/* Dimmed backdrop capturing all events with cutout over targeted anchor */}
       <div
         data-guide-backdrop="true"
-        className="fixed inset-0 z-[65] pointer-events-auto select-none"
+        className="fixed inset-0 z-[65] pointer-events-auto select-none transition-opacity duration-300 ease-out"
         style={{ position: "fixed", inset: 0, zIndex: 65 }}
         onClick={(e) => {
           e.preventDefault();
@@ -683,23 +683,23 @@ export function MapGuide({
       >
         {/* Top backdrop */}
         <div
-          className="absolute bg-[rgba(26,16,25,0.55)]"
-          style={{ position: "absolute", left: 0, top: 0, width: "100%", height: ringTop }}
+          className="absolute transition-all duration-300 ease-out"
+          style={{ position: "absolute", left: 0, top: 0, width: "100%", height: ringTop, backgroundColor: "rgba(26,16,25,0.55)" }}
         />
         {/* Bottom backdrop */}
         <div
-          className="absolute bg-[rgba(26,16,25,0.55)]"
-          style={{ position: "absolute", left: 0, top: ringBottom, width: "100%", bottom: 0 }}
+          className="absolute transition-all duration-300 ease-out"
+          style={{ position: "absolute", left: 0, top: ringBottom, width: "100%", bottom: 0, backgroundColor: "rgba(26,16,25,0.55)" }}
         />
         {/* Left backdrop */}
         <div
-          className="absolute bg-[rgba(26,16,25,0.55)]"
-          style={{ position: "absolute", left: 0, top: ringTop, width: ringLeft, height: ringHeight }}
+          className="absolute transition-all duration-300 ease-out"
+          style={{ position: "absolute", left: 0, top: ringTop, width: ringLeft, height: ringHeight, backgroundColor: "rgba(26,16,25,0.55)" }}
         />
         {/* Right backdrop */}
         <div
-          className="absolute bg-[rgba(26,16,25,0.55)]"
-          style={{ position: "absolute", left: ringRight, top: ringTop, right: 0, height: ringHeight }}
+          className="absolute transition-all duration-300 ease-out"
+          style={{ position: "absolute", left: ringRight, top: ringTop, right: 0, height: ringHeight, backgroundColor: "rgba(26,16,25,0.55)" }}
         />
         {/* Transparent blocker over highlighted control: visible but non-interactive */}
         <div

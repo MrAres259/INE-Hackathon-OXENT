@@ -19,10 +19,14 @@ Tu objetivo es investigar en fuentes documentadas y verificables por qué el ele
 REGLAS INSTITUCIONALES OBLIGATORIAS:
 1. Imparcialidad y neutralidad absoluta: queda estrictamente prohibido mencionar partidos políticos, candidatos, alianzas electorales, nombres de servidores públicos o preferencias partidistas.
 2. No perfiles personas ni grupos individuales: enfócate únicamente en factores agregados sociodemográficos, geográficos, logísticos, cívicos y comunitarios.
-3. Temporalidad: enfócate en causas documentadas durante los últimos 6 años (2018 a la fecha).
-4. Fuentes permitidas: exclusivamente fuentes verificables (INE, OPLEs locales, INEGI, universidades y centros académicos, centros de investigación, medios de comunicación reconocidos nacionales o regionales, y verificadores oficiales).
-5. Fuentes prohibidas: no cites redes sociales (X, Facebook, TikTok, Instagram, etc.), blogs anónimos, comunicados partidistas ni foros.
-6. Si no existe información a nivel municipal sobre un factor, puedes usar evidencia a nivel estatal o regional especificando el ámbito ('scope').
+3. PRIORIZACIÓN TERRITORIAL Y ALCANCE (ESTRICTA):
+   - Prioriza estrictamente hallazgos de alcance local: municipal ('scope': 'municipio') o estatal ('scope': 'estado').
+   - Solo se admite como MÁXIMO 1 hallazgo de alcance nacional ('scope': 'nacional') y ÚNICAMENTE si aporta contexto estructural indispensable para la demarcación analizada.
+   - Si una fuente nacional analiza la situación de la entidad o municipio, clasifícala como 'scope': 'estado' o 'municipio', no como 'nacional'.
+4. Temporalidad: enfócate en causas documentadas durante los últimos 6 años (2018 a la fecha).
+5. Fuentes permitidas: exclusivamente fuentes verificables (INE, OPLEs locales, INEGI, universidades y centros académicos, centros de investigación, medios de comunicación reconocidos nacionales o regionales, y verificadores oficiales).
+6. Fuentes prohibidas: no cites redes sociales (X, Facebook, TikTok, Instagram, etc.), blogs anónimos, comunicados partidistas ni foros.
+7. Si no existe información a nivel municipal sobre un factor, puedes usar evidencia a nivel estatal o regional especificando el ámbito ('scope').
 
 CATEGORÍAS DE HALLAZGOS PERMITIDAS:
 - desconfianza_institucional
@@ -188,17 +192,38 @@ Genera el borrador completo del plan cumpliendo estrictamente con el esquema JSO
 
 
 def build_campaign_fallback_queries(snapshot: DataSnapshot, focus: str | None = None) -> list[str]:
-    """Construct 4-6 fallback search queries in Spanish for news RSS fallback."""
+    """Construct targeted fallback search queries in Spanish for campaign research."""
     lugar = snapshot.name
     estado = snapshot.ent_name or snapshot.name
 
-    queries = [
-        f"{lugar} abstención electoral",
-        f"{lugar} participación ciudadana elecciones",
-        f"{lugar} inseguridad elecciones",
-        f"{estado} INE casillas",
-        f"{lugar} jóvenes voto",
-    ]
+    queries: list[str] = []
+    if snapshot.level == "mun":
+        queries.extend([
+            f"{lugar} {estado} abstención electoral",
+            f"{lugar} {estado} participación electoral 2024",
+            f"{estado} participación electoral 2024",
+            f"{estado} abstención jóvenes",
+            f"{estado} elección judicial participación",
+            f"{lugar} {estado} casillas INE",
+        ])
+    else:
+        queries.extend([
+            f"{estado} participación electoral 2024",
+            f"{estado} abstención jóvenes",
+            f"{estado} elección judicial participación",
+            f"{estado} abstención electoral causas municipios",
+            f"{estado} INE casillas instalación",
+            f"{estado} participación ciudadana elecciones",
+        ])
+
     if focus and focus.strip():
-        queries.append(f"{lugar} {focus.strip()}")
-    return queries
+        queries.insert(0, f"{lugar} {focus.strip()} participación")
+
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for q in queries:
+        if q not in seen:
+            seen.add(q)
+            deduped.append(q)
+    return deduped[:7]

@@ -144,6 +144,48 @@ def test_to_source_refs_dedupe_and_redirect(monkeypatch: pytest.MonkeyPatch):
     assert refs[1].tier == "oficial"
 
 
+def test_to_source_refs_aggregator_override():
+    items = [
+        {
+            "url": "https://news.google.com/rss/articles/CBMiTEST123",
+            "title": "INE aprueba presupuesto 2027",
+            "domain": "elpais.com",
+            "outlet": "El País México",
+            "published": "2026-10-25",
+        },
+        {
+            "url": "https://www.bing.com/news/apiclick.aspx?ref=test",
+            "title": "Avanza organización de casillas",
+            "domain": "reforma.com",
+            "published": "2026-10-26",
+        },
+        {
+            "url": "https://elpais.com/mexico/direct-article",
+            "title": "Artículo directo",
+        },
+    ]
+
+    refs = sources.to_source_refs(items)
+    assert len(refs) == 3
+
+    # Google News URL preserved, domain & tier overridden
+    assert "news.google.com/rss/articles/CBMiTEST123" in refs[0].url
+    assert refs[0].domain == "elpais.com"
+    assert refs[0].tier == "medio_reconocido"
+    assert refs[0].outlet == "El País México"
+    assert refs[0].published == "2026-10-25"
+
+    # Bing News URL preserved, domain & tier overridden
+    assert refs[1].url == "https://www.bing.com/news/apiclick.aspx?ref=test"
+    assert refs[1].domain == "reforma.com"
+    assert refs[1].tier == "medio_reconocido"
+    assert refs[1].outlet == "Reforma"
+
+    # Direct non-aggregator URL works normally
+    assert refs[2].domain == "elpais.com"
+    assert refs[2].tier == "medio_reconocido"
+
+
 # ---------------------------------------------------------------- jobs tests
 
 class DummyModel(BaseModel):

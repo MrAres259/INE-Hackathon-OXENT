@@ -77,6 +77,84 @@ def jaccard_similarity(set_a: set[str], set_b: set[str]) -> float:
     return len(set_a & set_b) / len(set_a | set_b)
 
 
+def normalize_title_for_match(title: str) -> str:
+    """Normalize a title string for candidate comparison."""
+    s = unicodedata.normalize("NFKD", str(title or "")).lower()
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r"[^\w\s]", " ", s)
+    return " ".join(s.split())
+
+
+def _match_candidate_source(
+    raw_src: dict[str, Any],
+    candidate_sources: list[Any],
+    grounded_urls: set[str],
+    grounded_domains: set[str],
+) -> tuple[bool, str, str | None, str | None]:
+    """Matches a raw source against candidate sources by URL or normalized title.
+
+    Returns (is_valid, domain, outlet, published).
+    If unmatched with any candidate and not in groundingChunks, returns (False, "", None, None).
+    """
+    raw_url = str(raw_src.get("url") or "").strip()
+    raw_title_norm = normalize_title_for_match(raw_src.get("title") or "")
+    from atalaya.intel import sources
+
+    # 1. Match against candidate sources
+    best_cand = None
+    for cand in candidate_sources:
+        c_url = getattr(cand, "url", "")
+        c_title = getattr(cand, "title", "")
+        c_title_norm = normalize_title_for_match(c_title)
+
+        if raw_url and c_url:
+            if raw_url == c_url or raw_url.rstrip("/") == c_url.rstrip("/"):
+                best_cand = cand
+                break
+            if len(raw_url) > 25 and (raw_url in c_url or c_url in raw_url):
+                best_cand = cand
+                break
+
+        if raw_title_norm and c_title_norm:
+            if raw_title_norm == c_title_norm:
+                best_cand = cand
+                break
+            if len(raw_title_norm) >= 20 and (raw_title_norm in c_title_norm or c_title_norm in raw_title_norm):
+                best_cand = cand
+                break
+            tokens_raw = set(raw_title_norm.split())
+            tokens_c = set(c_title_norm.split())
+            if tokens_raw and tokens_c:
+                jacc = len(tokens_raw & tokens_c) / len(tokens_raw | tokens_c)
+                if jacc >= 0.5:
+                    best_cand = cand
+                    break
+
+    if best_cand is not None:
+        cand_domain = getattr(best_cand, "domain", "")
+        cand_outlet = getattr(best_cand, "outlet", None) or sources.outlet_name(cand_domain)
+        cand_pub = getattr(best_cand, "published", None)
+        return True, cand_domain, cand_outlet, cand_pub
+
+    # 2. Check groundingChunks
+    try:
+        from atalaya.gemini import domain_of
+    except Exception:
+        domain_of = sources._fallback_domain_of
+
+    src_domain = domain_of(raw_url) if raw_url else ""
+    in_grounding = (raw_url in grounded_urls) or (src_domain in grounded_domains)
+    if in_grounding:
+        return True, src_domain, sources.outlet_name(src_domain), None
+
+    # If candidate sources or grounding URLs exist, discard unbacked sources
+    if candidate_sources or grounded_urls:
+        return False, "", None, None
+
+    # Fallback for synthetic/mock calls without candidate sources
+    return True, src_domain, sources.outlet_name(src_domain), None
+
+
 def _load_states_alias_map() -> dict[str, str]:
     """Map normalized state names, ISO codes, and aliases to 2-digit cve_ent."""
     alias_map: dict[str, str] = {}
@@ -393,6 +471,7 @@ def run_scan(
     queries_collected: list[str] = []
     grounded_urls: set[str] = set()
     grounded_domains: set[str] = set()
+    candidate_sources: list[Any] = []
     sources_scanned_count = 0
     model_name = getattr(settings, "gemini_model", "gemini-3.8-flash")
     stage_notes: list[str] = []
@@ -436,6 +515,7 @@ def run_scan(
         for g_src in news_grounded.sources:
             grounded_urls.add(g_src.url)
             grounded_domains.add(g_src.domain)
+        candidate_sources.extend(news_grounded.sources)
         sources_scanned_count += len(news_grounded.sources)
         if news_grounded.model:
             model_name = news_grounded.model
@@ -481,6 +561,7 @@ def run_scan(
         for g_src in rumors_grounded.sources:
             grounded_urls.add(g_src.url)
             grounded_domains.add(g_src.domain)
+        candidate_sources.extend(rumors_grounded.sources)
         sources_scanned_count += len(rumors_grounded.sources)
         if rumors_grounded.model:
             model_name = rumors_grounded.model
@@ -635,6 +716,7 @@ def run_scan(
             for g_src in verif_grounded.sources:
                 grounded_urls.add(g_src.url)
                 grounded_domains.add(g_src.domain)
+            candidate_sources.extend(verif_grounded.sources)
             sources_scanned_count += len(verif_grounded.sources)
         except Exception as exc:
             logger.warning("Stage 3 (verification) failed: %s", exc)
@@ -650,28 +732,60 @@ def run_scan(
 
     processed_items: list[NewsItem] = []
     items_glm_payload: list[dict[str, Any]] = []
+    discarded_unsupported_count = 0
 
     for raw_it in preliminary_items:
         item_id = raw_it["id"]
         v_info = verifications_map.get(item_id) or {}
 
-        # Resolve and classify source references
-        resolved_sources = sources.to_source_refs(raw_it.get("sources", []))
+        # 1. Match and resolve sources against candidates and grounding
+        valid_src_dicts: list[dict[str, Any]] = []
+        for s in raw_it.get("sources", []):
+            is_valid, c_dom, c_outlet, c_pub = _match_candidate_source(
+                s, candidate_sources, grounded_urls, grounded_domains
+            )
+            if not is_valid:
+                continue
+            s_dict = dict(s)
+            if c_dom:
+                s_dict["domain"] = c_dom
+            if c_outlet:
+                s_dict["outlet"] = c_outlet
+            if c_pub and not s_dict.get("published"):
+                s_dict["published"] = c_pub
+            valid_src_dicts.append(s_dict)
+
+        resolved_sources = sources.to_source_refs(valid_src_dicts)
         for s_ref in resolved_sources:
             in_grounding = (s_ref.url in grounded_urls) or (s_ref.domain in grounded_domains)
             in_seed = (s_ref.domain in seed_catalog) or (s_ref.tier in sources.VERIFIABLE_TIERS)
-            if not in_grounding and not in_seed:
+            in_candidates = any(getattr(c, "domain", "") == s_ref.domain for c in candidate_sources)
+            if not in_grounding and not in_seed and not in_candidates:
                 s_ref.tier = "no_reconocido"
 
-        # Resolve fact checks
-        resolved_fcs = sources.to_source_refs(v_info.get("fact_checks", []), start=len(resolved_sources) + 1)
+        # 2. Fact checks
+        valid_fc_dicts: list[dict[str, Any]] = []
+        for fc in v_info.get("fact_checks", []):
+            is_valid, c_dom, c_outlet, c_pub = _match_candidate_source(
+                fc, candidate_sources, grounded_urls, grounded_domains
+            )
+            fc_dict = dict(fc)
+            if c_dom:
+                fc_dict["domain"] = c_dom
+            if c_outlet:
+                fc_dict["outlet"] = c_outlet
+            if c_pub and not fc_dict.get("published"):
+                fc_dict["published"] = c_pub
+            valid_fc_dicts.append(fc_dict)
+
+        resolved_fcs = sources.to_source_refs(valid_fc_dicts, start=len(resolved_sources) + 1)
         for fc in resolved_fcs:
             if fc.tier not in ("verificador", "oficial"):
                 # verify heuristic for official centralelectoral or inedesmiente
                 if "ine.mx" in fc.domain or "verificado" in fc.domain or "animalpolitico" in fc.domain:
-                    fc.tier = "verificador" if "verificado" in fc.domain or "animalpolitico" in fc.domain else "oficial"
+                    fc.tier = "verificador" if ("verificado" in fc.domain or "animalpolitico" in fc.domain) else "oficial"
 
-        # Resolve social posts
+        # 3. Social posts
         social_posts: list[SocialPost] = []
         for p in raw_it.get("posts", []):
             url = str(p.get("url") or "").strip()
@@ -703,7 +817,14 @@ def run_scan(
                 )
             )
 
-        # Check domain tier degradation rule
+        # 4. Item without backing => discard
+        has_retained_sources = len(resolved_sources) > 0
+        has_platform_posts = any(p.url and p.platform != "otro" for p in social_posts)
+        if not has_retained_sources and not has_platform_posts:
+            discarded_unsupported_count += 1
+            continue
+
+        # 5. Check domain tier degradation rule
         kind = raw_it["kind"]
         if kind == "noticia":
             primary_dom = resolved_sources[0].domain if resolved_sources else ""
@@ -711,26 +832,52 @@ def run_scan(
             if primary_tier not in sources.VERIFIABLE_TIERS:
                 kind = "rumor"
 
-        # Check verdict validity
-        raw_verdict = v_info.get("verdict")
-        if not raw_verdict or raw_verdict not in ("verdadera", "falsa", "enganosa", "sin_verificar"):
-            raw_verdict = "sin_verificar"
+        # 6. Verdict determination (deterministic rules in RSS mode)
+        v_verdict = v_info.get("verdict")
+        is_contradicted = (v_verdict in ("falsa", "enganosa")) and (bool(resolved_fcs) or bool(v_info.get("rationale")))
 
-        if kind == "rumor" and not resolved_fcs and raw_verdict not in ("verdadera", "falsa", "enganosa"):
-            raw_verdict = "sin_verificar"
+        verifiable_domains = {s.domain for s in resolved_sources if s.tier in sources.VERIFIABLE_TIERS}
+        has_official = any(s.tier == "oficial" for s in resolved_sources) or any(fc.tier == "oficial" for fc in resolved_fcs)
+        n_verifiable = len(verifiable_domains)
 
-        # Rule: 'verdadera' requires >= 1 verifiable source
-        if raw_verdict == "verdadera":
-            has_verifiable = any(s.tier in sources.VERIFIABLE_TIERS for s in resolved_sources) or any(
-                fc.tier in sources.VERIFIABLE_TIERS for fc in resolved_fcs
-            )
-            if not has_verifiable:
-                raw_verdict = "sin_verificar"
-
-        verdict_conf = v_info.get("confidence", "media")
-        if verdict_conf not in ("alta", "media", "baja"):
+        if is_contradicted:
+            raw_verdict = v_verdict
+            verdict_conf = v_info.get("confidence", "media")
+            if verdict_conf not in ("alta", "media", "baja"):
+                verdict_conf = "media"
+            verdict_rat = v_info.get("rationale") or "Afirmación desmentida o identificada como engañosa por verificadores de hechos o canales oficiales del INE."
+        elif kind == "noticia" and (n_verifiable >= 2 or has_official):
+            raw_verdict = "verdadera"
+            verdict_conf = "alta" if (n_verifiable >= 3 or (has_official and n_verifiable >= 2)) else "media"
+            if has_official:
+                verdict_rat = "Hecho respaldado por fuentes oficiales del INE y cobertura informativa institucional."
+            else:
+                verdict_rat = f"Reportado de manera coincidente por {n_verifiable} medios de comunicación verificables sin registro de desmentido oficial."
+        elif kind == "noticia":
+            raw_verdict = "verdadera" if (v_verdict == "verdadera" and n_verifiable >= 1) else "sin_verificar"
             verdict_conf = "baja"
-        verdict_rat = v_info.get("rationale") or "Sin dictamen formal disponible en verificadores."
+            verdict_rat = v_info.get("rationale") or (
+                "Reportado en medio verificable pero sin confirmación independiente ni desmentido oficial."
+                if n_verifiable >= 1 else "Cobertura informativa sin fuentes verificables suficientes."
+            )
+        else:
+            if v_verdict in ("verdadera", "falsa", "enganosa") and resolved_fcs:
+                raw_verdict = v_verdict
+                verdict_conf = v_info.get("confidence", "media")
+                verdict_rat = v_info.get("rationale") or "Evaluado conforme a dictamen de verificación de hechos."
+            else:
+                raw_verdict = "sin_verificar"
+                verdict_conf = "baja"
+                verdict_rat = "Sin dictamen formal disponible en verificadores reconocidos o canales oficiales."
+
+        accusation_kw = ("presunt", "señalamient", "acusaci", "denunci", "investig")
+        claim_str = raw_it.get("claim", "")
+        headline_str = raw_it.get("headline", "")
+        is_accusation = any(kw in claim_str.lower() or kw in headline_str.lower() for kw in accusation_kw)
+        if raw_verdict == "verdadera" and is_accusation:
+            verdict_rat += " Veredicto respecto a la existencia de la denuncia o señalamiento reportado en medios, no sobre la culpabilidad de las personas señaladas."
+
+        verdict_conf = verdict_conf if verdict_conf in ("alta", "media", "baja") else "baja"
 
         geo_scope = _resolve_geo(raw_it.get("geo"))
         topic = raw_it.get("topic", "otra")
@@ -927,6 +1074,9 @@ def run_scan(
         )
 
     note_parts.append(f"Modo por etapa: noticias={stage1_mode}, rumores={stage2_mode}, verificación={stage3_mode}.")
+
+    if discarded_unsupported_count > 0:
+        note_parts.append(f"{discarded_unsupported_count} afirmaciones descartadas por no tener fuente verificable.")
 
     if stage_notes:
         note_parts.append(f"Escaneo parcial: {'; '.join(stage_notes)}.")

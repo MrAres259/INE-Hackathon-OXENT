@@ -441,13 +441,11 @@ def test_research_unit_rss_fallback_mode(monkeypatch):
 
     assert "fallback_queries" in captured_kwargs
     fb_q = captured_kwargs["fallback_queries"]
-    assert len(fb_q) == 6
-    assert "Zacatecas abstención electoral" in fb_q
-    assert "Zacatecas participación ciudadana elecciones" in fb_q
-    assert "Zacatecas inseguridad elecciones" in fb_q
-    assert "Zacatecas INE casillas" in fb_q
-    assert "Zacatecas jóvenes voto" in fb_q
-    assert "Zacatecas jóvenes universitarios" in fb_q
+    assert len(fb_q) >= 5
+    assert any("Zacatecas participación electoral 2024" in q for q in fb_q)
+    assert any("Zacatecas abstención jóvenes" in q for q in fb_q)
+    assert any("Zacatecas elección judicial participación" in q for q in fb_q)
+    assert any("jóvenes universitarios" in q for q in fb_q)
     assert captured_kwargs.get("fallback_days") == 1460
 
     assert bundle.degraded is False
@@ -892,3 +890,141 @@ def test_cached_plan_and_find_plan(mock_storage):
     # 5. Corrupted cache
     target_path.write_text("NOT A VALID JSON", encoding="utf-8")
     assert cached_plan("32", None) is None
+
+
+def test_build_campaign_fallback_queries():
+    from atalaya.intel.prompts_campaign import build_campaign_fallback_queries
+
+    snap_mun = DataSnapshot(
+        unit_id="08037",
+        name="Juárez",
+        level="mun",
+        ent="08",
+        ent_name="Chihuahua",
+        lista_nominal=1100000,
+        pred_abstention=0.48,
+        pred_low=0.44,
+        pred_high=0.52,
+        category="amarillo",
+        risk_score=48.0,
+        last_participation=0.52,
+        last_year=2024,
+        trend_pp=-1.2,
+        abstencion_esperada=528000,
+    )
+    q_mun = build_campaign_fallback_queries(snap_mun, focus="jóvenes universitarios")
+    assert any("Juárez" in q for q in q_mun)
+    assert any("Chihuahua" in q for q in q_mun)
+    assert any("participación electoral 2024" in q for q in q_mun)
+    assert any("abstención jóvenes" in q for q in q_mun)
+    assert any("elección judicial participación" in q for q in q_mun)
+    assert any("jóvenes universitarios" in q for q in q_mun)
+
+    snap_state = DataSnapshot(
+        unit_id="32",
+        name="Zacatecas",
+        level="state",
+        ent="32",
+        ent_name="Zacatecas",
+        lista_nominal=1200000,
+        pred_abstention=0.48,
+        pred_low=0.44,
+        pred_high=0.52,
+        category="amarillo",
+        risk_score=48.0,
+        last_participation=0.52,
+        last_year=2024,
+        trend_pp=-1.2,
+        abstencion_esperada=576000,
+    )
+    q_st = build_campaign_fallback_queries(snap_state)
+    assert any("Zacatecas participación electoral 2024" in q for q in q_st)
+    assert any("Zacatecas abstención jóvenes" in q for q in q_st)
+    assert any("Zacatecas elección judicial participación" in q for q in q_st)
+
+
+def test_research_unit_prioritizes_local_and_caps_national(monkeypatch):
+    """Test that research_unit admits at most 1 national finding and prioritizes local ones."""
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    raw_gemini_json = {
+        "findings": [
+            {
+                "title": "Causa nacional genérica 1",
+                "summary": "Abstencionismo general en todo el país sin datos locales.",
+                "category": "desconfianza_institucional",
+                "sources": [{"url": "https://www.ine.mx/nacional-1", "title": "Nota 1"}],
+                "scope": "nacional",
+            },
+            {
+                "title": "Causa nacional genérica 2",
+                "summary": "Otro factor nacional abstracto.",
+                "category": "apatia_desafeccion",
+                "sources": [{"url": "https://www.ine.mx/nacional-2", "title": "Nota 2"}],
+                "scope": "nacional",
+            },
+            {
+                "title": "Causa nacional genérica 3",
+                "summary": "Tercer factor nacional.",
+                "category": "desinformacion",
+                "sources": [{"url": "https://www.ine.mx/nacional-3", "title": "Nota 3"}],
+                "scope": "nacional",
+            },
+            {
+                "title": "Falta de casillas en la sierra de Zacatecas",
+                "summary": "En comunidades de Zacatecas el traslado toma horas.",
+                "category": "acceso_casillas_distancia",
+                "sources": [{"url": "https://www.eluniversal.com.mx/zacatecas/casillas", "title": "Nota Zacatecas"}],
+                "scope": "estado",
+            },
+            {
+                "title": "Migración temporal en municipios zacatecanos",
+                "summary": "Alta tasa de migración de retorno afecta listas de casilla en Zacatecas.",
+                "category": "migracion_movilidad",
+                "sources": [{"url": "https://www.eluniversal.com.mx/zacatecas/migracion", "title": "Nota Migración"}],
+                "scope": "nacional",  # Will be promoted to 'estado' because mentions Zacatecas
+            },
+        ]
+    }
+
+    grounded_res = DummyGroundedResult(
+        sources=[
+            DummyGroundedSource(url="https://www.ine.mx/nacional-1", domain="ine.mx"),
+            DummyGroundedSource(url="https://www.ine.mx/nacional-2", domain="ine.mx"),
+            DummyGroundedSource(url="https://www.ine.mx/nacional-3", domain="ine.mx"),
+            DummyGroundedSource(url="https://www.eluniversal.com.mx/zacatecas/casillas", domain="eluniversal.com.mx"),
+            DummyGroundedSource(url="https://www.eluniversal.com.mx/zacatecas/migracion", domain="eluniversal.com.mx"),
+        ],
+        queries=["participacion zacatecas"],
+    )
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", lambda *a, **kw: (raw_gemini_json, grounded_res))
+
+    snap = DataSnapshot(
+        unit_id="32",
+        name="Zacatecas",
+        level="state",
+        ent="32",
+        ent_name="Zacatecas",
+        lista_nominal=1200000,
+        pred_abstention=0.48,
+        pred_low=0.44,
+        pred_high=0.52,
+        category="amarillo",
+        risk_score=48.0,
+        last_participation=0.52,
+        last_year=2024,
+        trend_pp=-1.2,
+        abstencion_esperada=576000,
+    )
+
+    bundle = research_unit(snap)
+    assert len(bundle.findings) == 3
+
+    # Count national findings
+    national_count = sum(1 for f in bundle.findings if f.scope == "nacional")
+    assert national_count <= 1
+    # Local findings (estado/municipio) should be >= 2
+    local_count = sum(1 for f in bundle.findings if f.scope in ("estado", "municipio"))
+    assert local_count >= 2

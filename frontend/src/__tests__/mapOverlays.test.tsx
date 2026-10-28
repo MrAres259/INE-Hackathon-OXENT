@@ -154,6 +154,30 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain('data-map-overlay="swipe-right-label"');
       expect(html).toContain("bottom-[calc(50%+24px)]");
     });
+
+    it("render en servidor y cliente a 375 px produce el mismo HTML inicial (sin fallo de hidratacion React #418)", () => {
+      const origInnerWidth = typeof window !== "undefined" ? window.innerWidth : undefined;
+
+      // Server render
+      const serverSummaryHtml = renderToStaticMarkup(<CompareSummary data={mockData} />);
+      const serverLegendHtml = renderToStaticMarkup(<Legend />);
+
+      // Client render at 375px
+      if (typeof window !== "undefined") {
+        Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+      }
+      try {
+        const clientSummaryHtml = renderToStaticMarkup(<CompareSummary data={mockData} />);
+        const clientLegendHtml = renderToStaticMarkup(<Legend />);
+
+        expect(clientSummaryHtml).toBe(serverSummaryHtml);
+        expect(clientLegendHtml).toBe(serverLegendHtml);
+      } finally {
+        if (typeof window !== "undefined" && origInnerWidth !== undefined) {
+          Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: origInnerWidth });
+        }
+      }
+    });
   });
 
   describe("RiskMap", () => {

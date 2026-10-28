@@ -180,8 +180,28 @@ def _fallback_domain_of(url: str) -> str:
         return _clean_domain(url)
 
 
+_AGGREGATOR_DOMAINS: set[str] = {
+    "news.google.com",
+    "bing.com",
+    "msn.com",
+    "vertexaisearch.cloud.google.com",
+}
+
+
+def _is_aggregator(domain: str) -> bool:
+    clean = _clean_domain(domain)
+    if clean in _AGGREGATOR_DOMAINS:
+        return True
+    return any(clean.endswith("." + agg) for agg in _AGGREGATOR_DOMAINS)
+
+
 def to_source_refs(items: list[dict[str, Any]], start: int = 1) -> list[SourceRef]:
-    """Convert raw source dictionaries into deduplicated, classified SourceRefs."""
+    """Convert raw source dictionaries into deduplicated, classified SourceRefs.
+
+    Accepts optional 'domain', 'outlet', and 'published' in each dict. If the URL
+    host is an aggregator (e.g. news.google.com, bing.com, msn.com, vertexaisearch.cloud.google.com)
+    and 'domain' is provided, uses that domain for classification while preserving the functioning URL.
+    """
     try:
         from atalaya.gemini import resolve_source_url, domain_of
     except (ImportError, AttributeError):
@@ -212,8 +232,13 @@ def to_source_refs(items: list[dict[str, Any]], start: int = 1) -> list[SourceRe
         except Exception:
             dom = _fallback_domain_of(resolved_url)
 
+        # Check aggregator override
+        passed_domain = str(item.get("domain") or "").strip()
+        if passed_domain and _is_aggregator(dom):
+            dom = _clean_domain(passed_domain)
+
         tier = classify_domain(dom)
-        outlet = outlet_name(dom)
+        outlet = str(item.get("outlet")).strip() if item.get("outlet") else outlet_name(dom)
         title = str(item.get("title") or "").strip()
         published = item.get("published")
         if published is not None:

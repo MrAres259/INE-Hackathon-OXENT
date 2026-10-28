@@ -435,7 +435,7 @@ def build_slides(plan: CampaignPlan, reduced: bool = False) -> list[Slide]:
     if imp.municipios_mejoran:
         imp_bullets.append(f"Impacto territorial: {imp.municipios_mejoran} municipios mejoran su categoría de riesgo.")
     if imp.overlap_votos and imp.overlap_votos > 0:
-        imp_bullets.append(f"Ajuste por rendimientos decrecientes y solapamiento: {fmt_int(imp.overlap_votos)} votos descontados.")
+        imp_bullets.append(f"Traslape: personas alcanzadas por más de una campaña: {fmt_int(imp.overlap_votos)} votos que no se suman dos veces.")
 
     slides.append(
         Slide(
@@ -457,7 +457,8 @@ def build_slides(plan: CampaignPlan, reduced: bool = False) -> list[Slide]:
                 "category_before": imp.category_before,
                 "category_after": imp.category_after,
                 "overlap_votos": imp.overlap_votos,
-                "overlap_votos_str": f"−{fmt_int(imp.overlap_votos)} votos" if imp.overlap_votos else "0 votos",
+                "overlap_votos_str": f"{fmt_int(imp.overlap_votos)} votos" if imp.overlap_votos else "0 votos",
+                "overlap_note": f"{fmt_int(imp.overlap_votos)} votos que no se suman dos veces" if imp.overlap_votos else "0 votos",
                 "municipios_mejoran": imp.municipios_mejoran,
                 "per_proposal": per_prop_data,
                 "assumptions": imp.assumptions,

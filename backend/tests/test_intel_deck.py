@@ -363,10 +363,23 @@ def test_build_slides_structure_and_limits():
     assert sl7.kind == "impacto"
     assert sl7.data.get("overlap_votos") == 9050
     assert "overlap_votos_str" in sl7.data
+    assert not sl7.data.get("overlap_votos_str", "").startswith("−")
+    assert not sl7.data.get("overlap_votos_str", "").startswith("-")
+    assert "votos que no se suman dos veces" in sl7.data.get("overlap_note", "")
+    overlap_bullets = [b for b in sl7.bullets if "Traslape" in b]
+    assert len(overlap_bullets) == 1
+    assert "Traslape: personas alcanzadas por más de una campaña" in overlap_bullets[0]
+    assert "votos que no se suman dos veces" in overlap_bullets[0]
     per_prop = sl7.data.get("per_proposal", [])
     assert len(per_prop) == 2
     for pi in per_prop:
         assert "%" in pi["pct_individual"]
+
+    # Verify HTML does not contain 'Ajuste sinérgico'
+    html_rendered = render_html(plan, slides)
+    assert "Ajuste sinérgico" not in html_rendered
+    assert "Traslape: personas alcanzadas por más de una campaña" in html_rendered
+    assert "votos que no se suman dos veces" in html_rendered
 
     # Slide 8 (implementacion): steps limits
     sl8 = slides[7]
@@ -458,7 +471,7 @@ def test_render_html_escaping_and_logo():
 
     # Slide 7 table features: % del total individual and Traslape row
     assert "% del total individual" in html_out
-    assert "Traslape (personas alcanzadas por más de una campaña)" in html_out
+    assert "Traslape: personas alcanzadas por más de una campaña" in html_out
 
     # XSS escaping: <script> should NOT be present unescaped
     assert "<script>alert('xss')</script>" not in html_out

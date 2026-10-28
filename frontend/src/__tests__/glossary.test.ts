@@ -253,4 +253,57 @@ describe("Glossary (Single Source of Truth)", () => {
     const lin = GLOSSARY["lineamientos"];
     expect(lin.body.toLowerCase()).toContain("hipotético");
   });
+
+  it("contains all 26 Intel keys from CONTEXT.md §8.4 with valid constraints", () => {
+    const INTEL_KEYS = [
+      "plan_campana",
+      "investigacion_gemini",
+      "fuentes_verificadas",
+      "nivel_verificacion",
+      "hallazgo",
+      "grupo_objetivo",
+      "propuesta_palanca",
+      "impacto_simulado",
+      "diapositivas_editables",
+      "clave_operador",
+      "monitor_ine",
+      "veredicto",
+      "noticia_verdadera",
+      "fake_news",
+      "noticia_enganosa",
+      "sin_verificar",
+      "impacto_noticia",
+      "decaimiento_noticia",
+      "exposicion",
+      "susceptibilidad",
+      "viralidad",
+      "riesgo_ignorar",
+      "severidad",
+      "accion_remediacion",
+      "registro_ine",
+      "fragmento_mapa",
+    ];
+
+    for (const key of INTEL_KEYS) {
+      expect(key in GLOSSARY, `Missing Intel key ${key}`).toBe(true);
+      const entry = glossaryFor(key);
+      expect(entry?.title).toBeTruthy();
+      expect(entry?.body.length).toBeGreaterThan(0);
+      expect(entry?.body.length).toBeLessThanOrEqual(420);
+    }
+  });
+
+  it("ensures all glossary titles are unique across all keys", () => {
+    const titleToKey = new Map<string, string>();
+    for (const [key, entry] of Object.entries(GLOSSARY)) {
+      const title = entry.title.trim();
+      const existing = titleToKey.get(title);
+      expect(
+        existing,
+        `Duplicate glossary title "${title}" found in both "${existing}" and "${key}"`
+      ).toBeUndefined();
+      titleToKey.set(title, key);
+    }
+  });
 });
+

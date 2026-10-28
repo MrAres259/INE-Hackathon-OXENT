@@ -19,6 +19,7 @@ from pathlib import Path
 import re
 import time
 from typing import Any, Callable
+import unicodedata
 import urllib.parse
 
 import numpy as np
@@ -357,6 +358,23 @@ def research_unit(
                 )
             else:
                 raise
+
+        # If 1460 days yielded no findings in RSS mode, try 365 days
+        raw_f_check = parsed_json.get("findings", []) if isinstance(parsed_json, dict) else []
+        if not raw_f_check and getattr(grounded_res, "mode", "grounding") == "rss_url_context":
+            try:
+                p_365, g_365 = gemini.grounded_json(
+                    user_prompt,
+                    system=system_prompt,
+                    cache_key=f"{cache_key}:365",
+                    cache_ttl_s=cache_ttl_s,
+                    fallback_queries=fallback_queries,
+                    fallback_days=365,
+                )
+                if isinstance(p_365, dict) and p_365.get("findings"):
+                    parsed_json, grounded_res = p_365, g_365
+            except Exception:
+                pass
     except Exception as exc:
         logger.warning("Gemini grounded_json failed for unit %s: %s", snapshot.unit_id, exc)
         return ResearchBundle(
@@ -395,6 +413,33 @@ def research_unit(
     retained_sources_map: dict[str, dict[str, Any]] = {}  # final_url -> dict
     retained_findings_temp: list[dict[str, Any]] = []
 
+    def _match_campaign_candidate(raw_src_dict: dict[str, Any], cand_list: list[Any]) -> Any | None:
+        raw_u = str(raw_src_dict.get("url") or "").strip()
+        raw_t = unicodedata.normalize("NFKD", str(raw_src_dict.get("title") or "")).lower()
+        raw_t = re.sub(r"[^\w\s]", " ", "".join(c for c in raw_t if not unicodedata.combining(c))).strip()
+
+        for cand in cand_list:
+            cu = getattr(cand, "url", "")
+            ct = unicodedata.normalize("NFKD", str(getattr(cand, "title", ""))).lower()
+            ct = re.sub(r"[^\w\s]", " ", "".join(c for c in ct if not unicodedata.combining(c))).strip()
+
+            if raw_u and cu:
+                if raw_u == cu or raw_u.rstrip("/") == cu.rstrip("/"):
+                    return cand
+                if len(raw_u) > 25 and (raw_u in cu or cu in raw_u):
+                    return cand
+
+            if raw_t and ct:
+                if raw_t == ct or (len(raw_t) >= 20 and (raw_t in ct or ct in raw_t)):
+                    return cand
+                tokens_r = set(raw_t.split())
+                tokens_c = set(ct.split())
+                if tokens_r and tokens_c and (len(tokens_r & tokens_c) / len(tokens_r | tokens_c) >= 0.5):
+                    return cand
+        return None
+
+    candidate_sources = list(getattr(grounded_res, "sources", []))
+
     for raw_f in raw_findings:
         if not isinstance(raw_f, dict):
             continue
@@ -415,6 +460,8 @@ def research_unit(
                 discarded_sources_count += 1
                 continue
 
+            matched_cand = _match_campaign_candidate(s, candidate_sources)
+
             # Resolve redirect if resolver available
             resolved_url = raw_url
             if hasattr(gemini, "resolve_source_url"):
@@ -425,6 +472,13 @@ def research_unit(
 
             domain = getattr(gemini, "domain_of", _safe_domain)(resolved_url)
 
+            # Override aggregator domain with candidate's real domain
+            cand_domain = getattr(matched_cand, "domain", "") if matched_cand else ""
+            if cand_domain and hasattr(sources, "_is_aggregator") and sources._is_aggregator(domain):
+                domain = cand_domain
+            elif cand_domain and ("news.google.com" in domain or "bing.com" in domain):
+                domain = cand_domain
+
             # Classify domain
             if hasattr(sources, "classify_domain"):
                 tier: SourceTier = sources.classify_domain(domain)
@@ -432,11 +486,12 @@ def research_unit(
                 tier = _fallback_classify_domain(domain)
 
             # Anti-hallucination check:
-            # Must appear in groundingChunks OR resolve to a recognized/seed domain
+            # Must appear in groundingChunks OR resolve to a recognized/seed domain OR match candidate
             is_in_chunks = (raw_url in grounded_urls) or (resolved_url in grounded_urls) or (domain in grounded_domains)
             is_in_seed = (tier != "no_reconocido")
+            is_matched_cand = (matched_cand is not None)
 
-            if not is_in_chunks and not is_in_seed:
+            if not is_in_chunks and not is_in_seed and not is_matched_cand:
                 discarded_sources_count += 1
                 continue
 
@@ -445,9 +500,9 @@ def research_unit(
                 discarded_sources_count += 1
                 continue
 
-            outlet = sources.outlet_name(domain) if hasattr(sources, "outlet_name") else None
-            title = str(s.get("title", "")).strip() or domain
-            published = str(s.get("published", "")).strip() or None
+            outlet = getattr(matched_cand, "outlet", None) or (sources.outlet_name(domain) if hasattr(sources, "outlet_name") else None)
+            title = str(s.get("title", "")).strip() or getattr(matched_cand, "title", domain)
+            published = str(s.get("published", "")).strip() or getattr(matched_cand, "published", None)
 
             retained_sources_map[resolved_url] = {
                 "url": resolved_url,
@@ -485,9 +540,40 @@ def research_unit(
         url_to_source_ref[url] = s_ref
         source_refs_list.append(s_ref)
 
+    # Filter and prioritize findings: favor municipal and state; admit at most 1 national
+    local_findings_temp: list[dict[str, Any]] = []
+    national_findings_temp: list[dict[str, Any]] = []
+
+    unit_name_norm = snapshot.name.lower()
+    ent_name_norm = (snapshot.ent_name or "").lower()
+
+    for f_item in retained_findings_temp:
+        raw_f = f_item["raw"]
+        raw_scope = str(raw_f.get("scope") or "estado").lower()
+        title_summary = (str(raw_f.get("title") or "") + " " + str(raw_f.get("summary") or "")).lower()
+
+        # If mentions unit or entity, promote scope if marked national
+        if raw_scope == "nacional" and (unit_name_norm in title_summary or (ent_name_norm and ent_name_norm in title_summary)):
+            raw_scope = "municipio" if snapshot.level == "mun" and unit_name_norm in title_summary else "estado"
+            raw_f["scope"] = raw_scope
+
+        if raw_scope in ("municipio", "estado"):
+            local_findings_temp.append(f_item)
+        else:
+            national_findings_temp.append(f_item)
+
+    selected_findings_temp: list[dict[str, Any]] = []
+    selected_findings_temp.extend(local_findings_temp[:5])
+    if national_findings_temp and len(selected_findings_temp) < 6:
+        selected_findings_temp.append(national_findings_temp[0])
+    if len(selected_findings_temp) < 6 and len(local_findings_temp) > 5:
+        selected_findings_temp.append(local_findings_temp[5])
+    if not selected_findings_temp and national_findings_temp:
+        selected_findings_temp.append(national_findings_temp[0])
+
     # Build final Findings f1..fM (max 6)
     final_findings: list[Finding] = []
-    for idx, f_item in enumerate(retained_findings_temp[:6], start=1):
+    for idx, f_item in enumerate(selected_findings_temp[:6], start=1):
         raw_f = f_item["raw"]
         f_id = f"f{idx}"
         f_title = str(raw_f.get("title", f"Hallazgo {idx}")).strip()
