@@ -169,3 +169,13 @@
 .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
   background-color: transparent;
 }
+
+/* W1-B guide modal */
+body[data-guide="open"] {
+  overflow: hidden;
+}
+
+body[data-guide="open"] [data-map-tooltip] {
+  display: none !important;
+}
+

@@ -1,0 +1,651 @@
+/* Atalaya Electoral · Plan de Campaña Deck Styles (16:9) */
+@page {
+  size: 13.333in 7.5in;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Montserrat', 'Source Sans 3', 'Segoe UI', Arial, sans-serif;
+  color: #2e2430;
+  background-color: #f7f5f7;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.slide {
+  width: 1280px;
+  height: 720px;
+  position: relative;
+  overflow: hidden;
+  page-break-after: always;
+  break-after: page;
+  background-color: #ffffff;
+  padding: 34px 54px 40px 54px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* Brand header accent */
+.slide::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: linear-gradient(90deg, #b5186b 0%, #4a2a48 100%);
+}
+
+/* Header */
+.slide-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #f0eaf0;
+  padding-bottom: 12px;
+}
+
+.slide-title-wrap {
+  flex: 1;
+}
+
+.slide-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: #4a2a48;
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+}
+
+.slide-subtitle {
+  font-size: 13.5px;
+  color: #726374;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.slide-logo-wrap img {
+  height: 38px;
+  width: auto;
+  object-fit: contain;
+}
+
+/* Content Area */
+.slide-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 14px;
+}
+
+/* Footer */
+.slide-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid #f0eaf0;
+  padding-top: 10px;
+  font-size: 11px;
+  color: #8c7e8e;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: #b5186b;
+}
+
+.footer-right {
+  font-weight: 600;
+}
+
+/* Bullets Box */
+.bullets-box {
+  background: #faf8fa;
+  border-left: 3px solid #b5186b;
+  border-radius: 4px;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.bullet-item {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #3b2c3d;
+  display: flex;
+  gap: 8px;
+}
+
+.bullet-icon {
+  color: #b5186b;
+  font-weight: bold;
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.badge-verde { background-color: #eaf6ee; color: #287340; border: 1px solid #bce4c8; }
+.badge-amarillo { background-color: #fef9e8; color: #a17812; border: 1px solid #f9e29a; }
+.badge-naranja { background-color: #fdf1e8; color: #b75210; border: 1px solid #f8cdb2; }
+.badge-rojo { background-color: #fbebee; color: #a8241e; border: 1px solid #f4c2be; }
+.badge-sin_dato { background-color: #f3f3f3; color: #616161; border: 1px solid #e0e0e0; }
+
+.badge-tier {
+  background-color: #f3ecf2;
+  color: #5d365b;
+  border: 1px solid #e3d5e2;
+  font-size: 10.5px;
+}
+
+/* Portada Slide */
+.portada-slide {
+  background: radial-gradient(circle at 90% 10%, #faf3f8 0%, #ffffff 60%);
+  padding: 50px 70px;
+}
+
+.portada-hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+}
+
+.portada-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background-color: #faebf3;
+  color: #b5186b;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  width: fit-content;
+}
+
+.portada-title {
+  font-size: 40px;
+  font-weight: 800;
+  color: #4a2a48;
+  line-height: 1.15;
+  letter-spacing: -0.8px;
+}
+
+.portada-subtitle {
+  font-size: 19px;
+  color: #726374;
+  font-weight: 500;
+  max-width: 850px;
+  line-height: 1.4;
+}
+
+.portada-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.portada-meta-card {
+  background: #ffffff;
+  border: 1px solid #e7e1e5;
+  border-radius: 8px;
+  padding: 14px 18px;
+  box-shadow: 0 2px 6px rgba(74, 42, 72, 0.04);
+}
+
+.portada-meta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #8c7e8e;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.portada-meta-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #4a2a48;
+}
+
+/* KPIs Grid (Diagnostico) */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.kpi-card {
+  background: #ffffff;
+  border: 1px solid #e8e2e7;
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 2px 4px rgba(74, 42, 72, 0.03);
+}
+
+.kpi-label {
+  font-size: 12px;
+  color: #706272;
+  font-weight: 600;
+}
+
+.kpi-value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.kpi-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: #4a2a48;
+}
+
+.kpi-sub {
+  font-size: 11px;
+  color: #8a7c8c;
+  margin-top: 4px;
+}
+
+/* Findings (Problematicas) */
+.findings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.finding-card {
+  background: #ffffff;
+  border: 1px solid #e8e0e6;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 2px 5px rgba(74, 42, 72, 0.02);
+}
+
+.finding-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.finding-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #4a2a48;
+}
+
+.finding-summary {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #48394a;
+}
+
+.finding-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8c7d8e;
+}
+
+.finding-refs {
+  font-weight: 600;
+  color: #b5186b;
+}
+
+/* Split Layout (Region) */
+.split-layout {
+  display: grid;
+  grid-template-columns: 520px 1fr;
+  gap: 24px;
+  align-items: center;
+  flex: 1;
+}
+
+.map-container {
+  background: #faf8fa;
+  border: 1px solid #ebdfee;
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 480px;
+}
+
+.map-container svg {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+}
+
+.territory-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Target Groups */
+.target-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.target-card {
+  background: #ffffff;
+  border: 1px solid #e7e0e6;
+  border-radius: 8px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.target-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #4a2a48;
+}
+
+.target-desc {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #48384a;
+}
+
+.target-basis {
+  font-size: 11px;
+  color: #8a7a8b;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* Proposals */
+.proposals-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.proposal-card {
+  background: #ffffff;
+  border: 1px solid #e8dfe6;
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 2px 4px rgba(74, 42, 72, 0.02);
+}
+
+.proposal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.proposal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #4a2a48;
+}
+
+.proposal-desc {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #443546;
+}
+
+.proposal-metrics {
+  display: flex;
+  gap: 14px;
+  padding-top: 6px;
+  border-top: 1px dashed #efe7ee;
+  font-size: 11.5px;
+  color: #6d5d6f;
+}
+
+.proposal-metric-val {
+  font-weight: 700;
+  color: #b5186b;
+}
+
+/* Impact */
+.impact-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.impact-hero-card {
+  background: #fdfbfe;
+  border: 1px solid #ebdfee;
+  border-radius: 8px;
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.impact-hero-val {
+  font-size: 26px;
+  font-weight: 800;
+  color: #b5186b;
+  margin-top: 4px;
+}
+
+.impact-proposals-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+
+.impact-proposals-table th {
+  text-align: left;
+  padding: 8px 12px;
+  background: #f5edf4;
+  color: #4a2a48;
+  font-weight: 600;
+  border-bottom: 2px solid #e8dbe6;
+}
+
+.impact-proposals-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0e8ef;
+  color: #3b2c3d;
+}
+
+/* Implementation Timeline */
+.timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.timeline-card {
+  background: #ffffff;
+  border: 1px solid #e8dfe7;
+  border-radius: 8px;
+  padding: 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timeline-step-badge {
+  background: #b5186b;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  width: fit-content;
+}
+
+.timeline-phase {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #4a2a48;
+}
+
+.timeline-dates {
+  font-size: 11px;
+  color: #8c7e8e;
+  font-weight: 600;
+}
+
+.timeline-actions {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #48394a;
+}
+
+.timeline-kpi {
+  font-size: 11px;
+  color: #6f5f71;
+  border-top: 1px dashed #f0e6ee;
+  padding-top: 6px;
+  margin-top: auto;
+}
+
+/* Matrix & KPIs */
+.matrix-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.matrix-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.matrix-col-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4a2a48;
+  border-bottom: 2px solid #b5186b;
+  padding-bottom: 4px;
+}
+
+.risk-item {
+  background: #fff;
+  border: 1px solid #ebdfee;
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.risk-name {
+  font-weight: 700;
+  color: #a8241e;
+}
+
+.risk-mitig {
+  color: #3b2c3d;
+  margin-top: 2px;
+}
+
+.kpi-list-item {
+  background: #fbf9fb;
+  border-left: 3px solid #4a2a48;
+  padding: 8px 12px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12.5px;
+  color: #3b2c3d;
+}
+
+/* Sources */
+.sources-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  max-height: 380px;
+  overflow: hidden;
+}
+
+.source-card {
+  background: #ffffff;
+  border: 1px solid #e8dfe6;
+  border-radius: 6px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.source-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.source-id {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #b5186b;
+}
+
+.source-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #4a2a48;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-meta {
+  font-size: 11px;
+  color: #7b6d7c;
+}
+
+.disclaimer-box {
+  background: #fef8fa;
+  border: 1px solid #f6d8e8;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #784968;
+}

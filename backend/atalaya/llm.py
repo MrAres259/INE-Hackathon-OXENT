@@ -35,33 +35,96 @@ AUDIT_NOTICES: tuple[str, ...] = (
 
 MAX_NOTICE_LEN: int = max(len(n) for n in AUDIT_NOTICES)
 
-# Measured benchmarks against Huawei ModelArts MaaS (glm-5.2) on 2026-10-04:
-# - Variant (a) None:                                                  HTTP 200, 14291.7 ms, 541 tokens (active reasoning)
-# - Variant (b) {"thinking": {"type": "disabled"}}:                    HTTP 200,  4678.2 ms,  42 tokens (fastest valid, reasoning disabled)
-# - Variant (c) {"chat_template_kwargs": {"enable_thinking": false}}: HTTP 200, 13203.8 ms, 501 tokens
-# - Variant (d) {"enable_thinking": false}:                            HTTP 200, 13170.5 ms, 507 tokens
+# Measured benchmarks against Huawei ModelArts MaaS:
+# - glm-5.2 on 2026-10-04:
+#   * Variant (a) None:                                                  HTTP 200, 14291.7 ms, 541 tokens (active reasoning)
+#   * Variant (b) {"thinking": {"type": "disabled"}}:                    HTTP 200,  4678.2 ms,  42 tokens (fastest valid, reasoning disabled)
+#   * Variant (c) {"chat_template_kwargs": {"enable_thinking": false}}: HTTP 200, 13203.8 ms, 501 tokens
+#   * Variant (d) {"enable_thinking": false}:                            HTTP 200, 13170.5 ms, 507 tokens
+# - glm-5.3 on 2026-10-28:
+#   * {"thinking": {"type": "disabled"}}:                               HTTP 400 "unsupported thinking type for the current model: disabled"
+#   * sin parámetros (default max effort):                              HTTP 200, 5600.0 ms, 212 reasoning tokens
+#   * {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}:    HTTP 200, 2000.0 ms (fastest valid for glm-5.3)
+#   * {"thinking": {"type": "enabled"}, "reasoning_effort": "low"}:     HTTP 200, 2500.0 ms
+#   * {"thinking": {"type": "enabled"}, "reasoning_effort": "medium"}:  HTTP 400 "reasoning_effort must be [low, high, max] for glm-5.3"
+#   * chat_template_kwargs:                                             HTTP 200, 8100.0 ms
 DEFAULT_EXTRA_BODY: dict[str, Any] = {"thinking": {"type": "disabled"}}
 
-_extra_body_disabled: bool = False
+HEADROOM: dict[str, int] = {
+    "low": 256,
+    "high": 1024,
+    "max": 4096,
+}
+
+_remembered_fallback: str | None = None
 
 
-def _resolve_extra_body() -> dict[str, Any]:
-    """Resolve extra body payload parameters, respecting env override or failure memory."""
-    global _extra_body_disabled
-    if _extra_body_disabled:
-        return {}
+def reset_fallback_memory() -> None:
+    """Reset the remembered fallback mode (useful for testing)."""
+    global _remembered_fallback
+    _remembered_fallback = None
+
+
+def _is_legacy_model(model: str) -> bool:
+    """Return True if model is glm-5.2 or earlier."""
+    m = model.lower().strip()
+    return m.startswith("glm-5.2") or m.startswith("glm-5.1") or m.startswith("glm-5.0") or m.startswith("glm-4")
+
+
+def _resolve_extra_body(
+    model: str | None = None,
+    effort_override: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    """Resolve extra body payload parameters and mode string.
+
+    Returns (extra_body_dict, mode) where mode is 'env', 'disabled', 'enabled', or 'none'.
+    """
+    settings = get_settings()
+    model_name = (model or settings.maas_model).strip()
+
+    # 1. Failure fallback in memory
+    if _remembered_fallback == "none":
+        return {}, "none"
+
+    # 2. MAAS_EXTRA_BODY from environment always takes precedence
     raw_env = os.getenv("MAAS_EXTRA_BODY")
     if raw_env is not None:
         trimmed = raw_env.strip()
         if not trimmed or trimmed == "{}":
-            return {}
+            return {}, "none"
         try:
             parsed = json.loads(trimmed)
             if isinstance(parsed, dict):
-                return parsed
+                return parsed, "env"
         except Exception:
             pass
-    return dict(DEFAULT_EXTRA_BODY)
+
+    # 3. Model check: legacy models (glm-5.2 and earlier) use thinking: disabled
+    if _is_legacy_model(model_name):
+        return {"thinking": {"type": "disabled"}}, "disabled"
+
+    # 4. Modern models (glm-5.3+): use thinking: enabled with reasoning effort
+    effort = effort_override or (
+        _remembered_fallback
+        if _remembered_fallback in ("low", "high", "max")
+        else settings.maas_reasoning_effort
+    )
+    if effort not in ("low", "high", "max"):
+        effort = "high"
+    return {"thinking": {"type": "enabled"}, "reasoning_effort": effort}, "enabled"
+
+
+def describe() -> dict[str, str]:
+    """Describe current LLM configuration without secrets."""
+    settings = get_settings()
+    model = settings.maas_model
+    effort = settings.maas_reasoning_effort
+    _, mode = _resolve_extra_body(model, None)
+    return {
+        "model": model,
+        "reasoning_effort": effort,
+        "extra_body_mode": mode,
+    }
 
 # Internal hooks for testability
 _client_factory: Any = None
@@ -109,14 +172,15 @@ def is_enabled() -> bool:
 def chat(
     messages: list[dict],
     *,
+    reasoning_effort: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 1500,
     timeout_s: float = 90.0,
     meta: dict[str, Any] | None = None,
     **kw,
 ) -> str:
-    """
-    Execute chat completion against MaaS.
+    """Execute chat completion against MaaS.
+
     Retries up to 2 times on 429/5xx/timeout with backoff (1s, 3s).
     Raises LLMBlocked on 403, finish_reason=content_filter, or audit notice.
     Raises LLMError on disabled or permanent failure.
@@ -135,12 +199,18 @@ def chat(
     transport = kw.pop("transport", None)
     client_arg = kw.pop("client", None)
 
-    extra_body = _resolve_extra_body()
+    extra_body, mode = _resolve_extra_body(settings.maas_model, reasoning_effort)
+
+    effective_max_tokens = max_tokens
+    if extra_body.get("thinking", {}).get("type") == "enabled":
+        effort_used = extra_body.get("reasoning_effort", "high")
+        effective_max_tokens = max_tokens + HEADROOM.get(effort_used, 1024)
+
     payload = {
         "model": settings.maas_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": effective_max_tokens,
         **extra_body,
         **kw,
     }
@@ -158,14 +228,44 @@ def chat(
                 latency_ms = (time.perf_counter() - start_time) * 1000.0
 
                 if resp.status_code == 400 and extra_body:
-                    global _extra_body_disabled
-                    _extra_body_disabled = True
-                    logger.warning("LLM HTTP 400 with extra body parameters. Retrying once without extra body...")
+                    provider_msg = ""
+                    try:
+                        err_json = resp.json()
+                        if isinstance(err_json, dict):
+                            provider_msg = (
+                                err_json.get("error", {}).get("message")
+                                or err_json.get("message")
+                                or str(err_json)
+                            )
+                    except Exception:
+                        provider_msg = resp.text[:200]
+                    logger.warning("LLM HTTP 400 from provider: %s. Retrying with fallback...", provider_msg)
+
+                    current_effort = extra_body.get("reasoning_effort")
+                    if mode == "enabled" and current_effort and current_effort != "high":
+                        fallback_extra_body = {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
+                        fallback_mode = "enabled"
+                        payload["max_tokens"] = max_tokens + HEADROOM.get("high", 1024)
+                    else:
+                        fallback_extra_body = {}
+                        fallback_mode = "none"
+                        payload["max_tokens"] = max_tokens
+
                     for k in list(extra_body.keys()):
                         payload.pop(k, None)
-                    extra_body = {}
+                    payload.update(fallback_extra_body)
+                    extra_body = fallback_extra_body
+                    mode = fallback_mode
+
                     resp = client.post(url, json=payload, headers=headers)
                     latency_ms = (time.perf_counter() - start_time) * 1000.0
+
+                    if resp.status_code == 200:
+                        global _remembered_fallback
+                        if fallback_mode == "none":
+                            _remembered_fallback = "none"
+                        elif fallback_mode == "enabled":
+                            _remembered_fallback = "high"
             finally:
                 if close_client:
                     client.close()
@@ -261,14 +361,15 @@ def chat(
 def chat_stream(
     messages: list[dict],
     *,
+    reasoning_effort: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 1500,
     timeout_s: float = 90.0,
     meta: dict[str, Any] | None = None,
     **kw,
 ) -> Iterator[str]:
-    """
-    Stream chat completion against MaaS.
+    """Stream chat completion against MaaS.
+
     Yields clean text deltas. Buffers trailing characters to ensure auditor notices are never emitted.
     Raises LLMBlocked after yielding clean text if finish_reason=content_filter or audit notice found.
     """
@@ -285,12 +386,18 @@ def chat_stream(
     transport = kw.pop("transport", None)
     client_arg = kw.pop("client", None)
 
-    extra_body = _resolve_extra_body()
+    extra_body, mode = _resolve_extra_body(settings.maas_model, reasoning_effort)
+
+    effective_max_tokens = max_tokens
+    if extra_body.get("thinking", {}).get("type") == "enabled":
+        effort_used = extra_body.get("reasoning_effort", "high")
+        effective_max_tokens = max_tokens + HEADROOM.get(effort_used, 1024)
+
     payload = {
         "model": settings.maas_model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": effective_max_tokens,
         "stream": True,
         **extra_body,
         **kw,
@@ -312,15 +419,45 @@ def chat_stream(
         resp = stream_cm.__enter__()
 
         if resp.status_code == 400 and extra_body:
-            global _extra_body_disabled
-            _extra_body_disabled = True
-            logger.warning("LLM stream HTTP 400 with extra body parameters. Retrying once without extra body...")
+            provider_msg = ""
+            try:
+                err_json = resp.json()
+                if isinstance(err_json, dict):
+                    provider_msg = (
+                        err_json.get("error", {}).get("message")
+                        or err_json.get("message")
+                        or str(err_json)
+                    )
+            except Exception:
+                provider_msg = resp.text[:200]
+            logger.warning("LLM stream HTTP 400 from provider: %s. Retrying with fallback...", provider_msg)
             stream_cm.__exit__(None, None, None)
+
+            current_effort = extra_body.get("reasoning_effort")
+            if mode == "enabled" and current_effort and current_effort != "high":
+                fallback_extra_body = {"thinking": {"type": "enabled"}, "reasoning_effort": "high"}
+                fallback_mode = "enabled"
+                payload["max_tokens"] = max_tokens + HEADROOM.get("high", 1024)
+            else:
+                fallback_extra_body = {}
+                fallback_mode = "none"
+                payload["max_tokens"] = max_tokens
+
             for k in list(extra_body.keys()):
                 payload.pop(k, None)
-            extra_body = {}
+            payload.update(fallback_extra_body)
+            extra_body = fallback_extra_body
+            mode = fallback_mode
+
             stream_cm = _open_stream(payload)
             resp = stream_cm.__enter__()
+
+            if resp.status_code == 200:
+                global _remembered_fallback
+                if fallback_mode == "none":
+                    _remembered_fallback = "none"
+                elif fallback_mode == "enabled":
+                    _remembered_fallback = "high"
 
         try:
             if resp.status_code == 403:
@@ -467,14 +604,15 @@ def chat_json(
     messages: list[dict],
     schema: type[T],
     *,
+    reasoning_effort: str | None = None,
     temperature: float = 0.2,
     max_tokens: int = 1500,
     timeout_s: float = 90.0,
     meta: dict[str, Any] | None = None,
     **kw,
 ) -> T:
-    """
-    Prompt model for JSON matching schema. Extract first balanced object and validate.
+    """Prompt model for JSON matching schema. Extract first balanced object and validate.
+
     Performs exactly one retry if validation fails, passing the error back to the model.
     """
     if not is_enabled():
@@ -485,6 +623,7 @@ def chat_json(
     # First attempt
     raw_response = chat(
         prompt_messages,
+        reasoning_effort=reasoning_effort,
         temperature=temperature,
         max_tokens=max_tokens,
         timeout_s=timeout_s,
@@ -517,6 +656,7 @@ def chat_json(
 
         raw_retry_response = chat(
             retry_messages,
+            reasoning_effort=reasoning_effort,
             temperature=temperature,
             max_tokens=max_tokens,
             timeout_s=timeout_s,
@@ -541,6 +681,8 @@ def cached_chat_json(
     key: str,
     messages: list[dict],
     schema: type[T],
+    *,
+    reasoning_effort: str | None = None,
     **kw,
 ) -> T:
     """
@@ -557,7 +699,7 @@ def cached_chat_json(
         parsed = json.loads(content)
         return schema.model_validate(parsed)
 
-    result = chat_json(messages, schema, **kw)
+    result = chat_json(messages, schema, reasoning_effort=reasoning_effort, **kw)
 
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)

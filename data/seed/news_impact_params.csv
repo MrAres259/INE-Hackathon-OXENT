@@ -1,0 +1,10 @@
+topic,s_topic_pp,harm,susc_var,label_es,rationale_es
+seguridad_violencia,2.5,0.7,r_vuln,Seguridad y violencia,Eventos de inseguridad en zonas específicas pueden inhibir directamente la afluencia a casillas
+resultados_fraude,1.5,0.8,pct_internet,Resultados y fraude,Cuestionamientos a la certeza de los resultados debilitan la motivación cívica para emitir el voto
+organizacion_casillas,1.5,0.8,pct_rural,Organización y casillas,Problemas logísticos o reubicación de casillas impactan la accesibilidad física del electorado
+confianza_institucional,1.0,0.6,pct_internet,Confianza institucional,Los choques de confianza suelen mover la participación electoral en el orden de décimas de punto
+presupuesto_recortes,1.0,0.5,pct_rural,Presupuesto y recortes,Limitaciones presupuestales pueden mermar capacidades operativas y de despliegue territorial
+credencial_padron,1.0,1.0,pct_18_24,Credencial y padrón,Incertidumbre sobre vigencia de credencial desmoviliza especialmente a primeros votantes
+procedimiento_votacion,1.0,1.0,pct_internet,Procedimiento de votación,Confusión sobre requisitos u horarios de votación induce desinformación operativa directa
+conducta_funcionarios,0.5,0.4,vulnerability_pp,Conducta de funcionarios,Señalamientos a funcionarios individuales tienen impacto moderado en la conducta agregada
+otra,0.5,0.4,vulnerability_pp,Otra temática,Noticias no clasificadas presentan efectos acotados sobre la participación global

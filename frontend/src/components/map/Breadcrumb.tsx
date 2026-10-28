@@ -26,6 +26,7 @@ export function Breadcrumb() {
   return (
     <nav
       aria-label="Migas de navegación territorial"
+      data-map-overlay="breadcrumb"
       className="float-panel flex items-center gap-1 px-2.5 py-1 text-xs pointer-events-auto max-w-[calc(100vw-24px)] overflow-hidden"
     >
       <button

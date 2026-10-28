@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { useAtalaya } from "@/lib/state";
 import { getMetrics } from "@/lib/api";
 import type { ModelMetrics, RiskItem } from "@/lib/types";
@@ -370,6 +371,20 @@ export function RegionDetailPanel() {
             {summaryLine}
           </div>
         )}
+
+        {/* Action: Planear campaña con IA */}
+        <div className="mt-2.5 flex items-center gap-2">
+          <Link
+            href={`/campanas?zona=${encodeURIComponent(selectedDetail.id)}`}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-primary/30 bg-primary-soft hover:bg-primary/10 text-primary text-xs font-semibold transition-colors shadow-xs"
+          >
+            <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span>Planear campaña con IA</span>
+          </Link>
+          <InfoTip term="plan_campana" size="xs" />
+        </div>
       </div>
 
       {/* Main KPI Badges (3 columns, 2 in < 360 px) */}

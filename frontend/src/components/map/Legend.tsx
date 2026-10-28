@@ -95,6 +95,7 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
     return (
       <div
         data-tour="leyenda"
+        data-map-overlay="legend"
         className={`float-panel overflow-hidden text-xs pointer-events-auto transition-all ${
           isCollapsed ? "w-auto" : "w-52 sm:w-56"
         } ${className}`}
@@ -215,6 +216,7 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
   return (
     <div
       data-tour="leyenda"
+      data-map-overlay="legend"
       className={`float-panel overflow-hidden text-xs pointer-events-auto transition-all ${
         isCollapsed ? "w-auto" : "w-52 sm:w-56"
       } ${className}`}

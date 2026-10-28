@@ -174,4 +174,30 @@ describe("MapTooltip Base vs Intervention and Scenario Display", () => {
     const html = renderTooltipWithContext(null);
     expect(html).toBe("");
   });
+
+  it("renders interactive 'Ver diagnóstico' button with hint and pointer-events-auto (W1-B)", () => {
+    const hover: HoverInfo = {
+      id: "02001",
+      level: "mun",
+      name: "Ensenada",
+      ent: "02",
+      x: 200,
+      y: 150,
+      base: baseItem,
+      alt: null,
+      item: baseItem,
+    };
+
+    const html = renderTooltipWithContext(hover, { scenario: "base" });
+
+    // Must have pointer-events-auto
+    expect(html).toContain("pointer-events-auto");
+    // Button "Ver diagnóstico" with visible focus
+    expect(html).toContain("Ver diagnóstico");
+    expect(html).toContain("focus-visible:ring-2");
+    // Underneath hint "o haz clic en la zona"
+    expect(html).toContain("o haz clic en la zona");
+    // Old footer hint removed
+    expect(html).not.toContain("Clic para ver diagnóstico →");
+  });
 });

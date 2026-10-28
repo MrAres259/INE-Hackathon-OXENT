@@ -16,14 +16,20 @@ export interface MapTooltipProps {
   hover: HoverInfo | null;
   containerWidth?: number;
   containerHeight?: number;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+  onSelect?: (hover: HoverInfo) => void;
 }
 
 export function MapTooltip({
   hover,
   containerWidth = 800,
   containerHeight = 600,
+  onMouseEnter,
+  onMouseLeave,
+  onSelect,
 }: MapTooltipProps) {
-  const { meta, scenario } = useAtalaya();
+  const { meta, scenario, selectRegion, selectState } = useAtalaya();
 
   if (!hover) return null;
 
@@ -37,14 +43,14 @@ export function MapTooltip({
     ? meta?.states.find((s) => s.id === hover.ent)?.name ?? `Estado ${hover.ent}`
     : "Entidad Federativa";
 
-  // Position and flipping near edges
+  // Position and flipping near edges (with +16px anchor offset)
   const tooltipWidth = 280;
-  const tooltipHeight = 230;
+  const tooltipHeight = 260;
   const flipX = hover.x + tooltipWidth > containerWidth - 16;
   const flipY = hover.y + tooltipHeight > containerHeight - 16;
 
-  const left = flipX ? hover.x - 14 : hover.x + 14;
-  const top = flipY ? hover.y - 14 : hover.y + 14;
+  const left = flipX ? hover.x - 16 : hover.x + 16;
+  const top = flipY ? hover.y - 16 : hover.y + 16;
   const transform = `${flipX ? "translateX(-100%)" : ""} ${flipY ? "translateY(-100%)" : ""}`.trim();
 
   // Category
@@ -78,10 +84,23 @@ export function MapTooltip({
   const isHighNs = typeof activeItem?.ns_rate === "number" && activeItem.ns_rate > 0.3;
   const altLabel = scenario === "pesimista" ? "Con escenario pesimista:" : "Con intervención:";
 
+  const handleSelect = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onSelect) {
+      onSelect(hover);
+    } else if (hover.level === "mun") {
+      selectRegion?.(hover.id);
+    } else {
+      selectState?.(hover.ent || hover.id);
+    }
+  };
+
   return (
     <div
       data-map-tooltip=""
-      className="absolute pointer-events-none z-50 transition-opacity duration-75 [@media(hover:none)]:hidden"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className="absolute pointer-events-auto z-50 transition-opacity duration-75 [@media(hover:none)]:hidden"
       style={{
         left,
         top,
@@ -221,12 +240,21 @@ export function MapTooltip({
           )}
         </div>
 
-        {/* Footer click hint */}
-        <div className="pt-1.5 border-t border-border text-[10px] text-muted-foreground flex items-center justify-between gap-1">
-          <span className="font-mono shrink-0">Clave {hover.id}</span>
-          <span className="text-primary font-medium text-right">
-            Clic para ver diagnóstico →
-          </span>
+        {/* Actions: Real button with visible focus and click hint */}
+        <div className="pt-2 border-t border-border space-y-1.5">
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+            <span className="font-mono">Clave {hover.id}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleSelect}
+            className="w-full py-1.5 px-3 rounded-md bg-primary text-primary-foreground font-semibold text-xs text-center hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors cursor-pointer shadow-xs"
+          >
+            Ver diagnóstico
+          </button>
+          <div className="text-[10px] text-muted-foreground text-center">
+            o haz clic en la zona
+          </div>
         </div>
       </div>
     </div>

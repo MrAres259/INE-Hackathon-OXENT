@@ -14,3 +14,4 @@ websockets
 Pillow
 pytest
 pytest-timeout
+python-pptx

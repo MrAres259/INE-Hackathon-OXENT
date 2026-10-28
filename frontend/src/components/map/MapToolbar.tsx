@@ -26,6 +26,7 @@ export function MapLayerSwitcher({ className = "" }: MapLayerSwitcherProps) {
       role="group"
       aria-label="Modo de visualización del mapa"
       data-tour="capas"
+      data-map-overlay="layers"
       className={`float-panel flex items-center gap-0.5 p-1 text-xs pointer-events-auto ${className}`}
     >
       {/* Modo 1: Semáforo */}
@@ -170,12 +171,14 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
         role="toolbar"
         aria-label="Herramientas del mapa"
         data-tour="herramientas"
+        data-map-overlay="toolbar"
         className={`float-panel flex flex-col items-center gap-1 p-1 pointer-events-auto ${className}`}
       >
         {/* Toggle 3D */}
         <button
           type="button"
           role="button"
+          data-map-overlay="view-toggle"
           aria-pressed={extrude3d}
           onClick={() => setExtrude3d(!extrude3d)}
           title="Vista 3D: bloques con altura = índice de riesgo (con foco al acercarte)"

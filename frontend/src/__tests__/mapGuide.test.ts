@@ -8,8 +8,12 @@ import {
   TOUR_STEPS,
   MapGuide,
   getValidStepAndRect,
+  getValidStepBackwards,
   placeBalloon,
   getSafeTop,
+  syncGuideBodyAttr,
+  handleGuidePointerCapture,
+  handleGuideKeyDown,
 } from "../components/map/MapGuide";
 
 describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
@@ -631,4 +635,236 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
       expect(getSafeTop(mockDoc as any)).toBe(56);
     });
   });
+
+  describe("MapGuide Modal Behavior (W1-B)", () => {
+    const originalDocument = (globalThis as any).document;
+    const originalWindow = (globalThis as any).window;
+
+    afterEach(() => {
+      (globalThis as any).document = originalDocument;
+      (globalThis as any).window = originalWindow;
+    });
+
+    it("renderiza role='dialog' aria-modal='true' y capa de recorte con fondo rgba(26,16,25,0.55)", () => {
+      const visibleAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({
+          top: 20,
+          bottom: 50,
+          left: 20,
+          right: 200,
+          width: 180,
+          height: 30,
+        }),
+      };
+
+      (globalThis as any).window = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: { getItem: () => null, setItem: () => {} },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      (globalThis as any).document = {
+        body: { dataset: {} },
+        querySelectorAll: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? [visibleAnchor] : [])),
+        querySelector: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? visibleAnchor : null)),
+      };
+
+      const html = renderToStaticMarkup(React.createElement(MapGuide, { open: true }));
+      expect(html).toContain('role="dialog"');
+      expect(html).toContain('aria-modal="true"');
+      expect(html).toContain("rgba(26,16,25,0.55)");
+    });
+
+    it("syncGuideBodyAttr pone y quita document.body.dataset.guide", () => {
+      const mockDoc = { body: { dataset: {} as Record<string, string> } };
+
+      syncGuideBodyAttr(true, mockDoc);
+      expect(mockDoc.body.dataset.guide).toBe("open");
+
+      syncGuideBodyAttr(false, mockDoc);
+      expect(mockDoc.body.dataset.guide).toBeUndefined();
+    });
+
+    it("renderToStaticMarkup sincroniza dataset.guide en body", () => {
+      const visibleAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({ top: 10, bottom: 40, left: 10, right: 100, width: 90, height: 30 }),
+      };
+      const mockDoc = {
+        body: { dataset: {} as Record<string, string> },
+        querySelectorAll: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? [visibleAnchor] : [])),
+        querySelector: vi.fn((sel: string) => (sel === '[data-tour="escenario"]' ? visibleAnchor : null)),
+      };
+      (globalThis as any).document = mockDoc;
+      (globalThis as any).window = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: { getItem: () => null, setItem: () => {} },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+
+      renderToStaticMarkup(React.createElement(MapGuide, { open: true }));
+      expect(mockDoc.body.dataset.guide).toBe("open");
+
+      renderToStaticMarkup(React.createElement(MapGuide, { open: false }));
+      expect(mockDoc.body.dataset.guide).toBeUndefined();
+    });
+
+    it("con la guía abierta, un pointerdown sobre un botón de la página no lo activa", () => {
+      const mockBalloon = {
+        contains: vi.fn((el: any) => el?.id === "balloon-btn"),
+      };
+
+      let defaultPrevented = false;
+      let propagationStopped = false;
+      let immediateStopped = false;
+
+      const pageButtonEvent = {
+        target: { id: "page-btn" },
+        preventDefault: () => {
+          defaultPrevented = true;
+        },
+        stopPropagation: () => {
+          propagationStopped = true;
+        },
+        stopImmediatePropagation: () => {
+          immediateStopped = true;
+        },
+      };
+
+      // Pointerdown on page button must be blocked
+      const blocked = handleGuidePointerCapture(pageButtonEvent, mockBalloon);
+      expect(blocked).toBe(true);
+      expect(defaultPrevented).toBe(true);
+      expect(propagationStopped).toBe(true);
+      expect(immediateStopped).toBe(true);
+
+      // Pointerdown inside balloon must be allowed
+      let balloonPrevented = false;
+      const balloonButtonEvent = {
+        target: { id: "balloon-btn" },
+        preventDefault: () => {
+          balloonPrevented = true;
+        },
+        stopPropagation: () => {},
+      };
+      const allowed = handleGuidePointerCapture(balloonButtonEvent, mockBalloon);
+      expect(allowed).toBe(false);
+      expect(balloonPrevented).toBe(false);
+    });
+
+    it("Escape cierra la guía", () => {
+      const onClose = vi.fn();
+      let defaultPrevented = false;
+      const event = {
+        key: "Escape",
+        preventDefault: () => {
+          defaultPrevented = true;
+        },
+      };
+
+      const handled = handleGuideKeyDown(event, null, onClose);
+      expect(handled).toBe(true);
+      expect(defaultPrevented).toBe(true);
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("Tab y Shift+Tab atrapan el foco dentro del diálogo", () => {
+      const btn1 = { focus: vi.fn() };
+      const btn2 = { focus: vi.fn() };
+      const btn3 = { focus: vi.fn() };
+
+      const mockBalloon = {
+        querySelectorAll: vi.fn(() => [btn1, btn2, btn3]),
+        contains: vi.fn(() => true),
+      };
+
+      // Tab on last element wraps to first element
+      let tabPrevented = false;
+      handleGuideKeyDown(
+        {
+          key: "Tab",
+          shiftKey: false,
+          preventDefault: () => {
+            tabPrevented = true;
+          },
+        },
+        mockBalloon,
+        vi.fn(),
+        btn3 // current activeElement is the last one
+      );
+      expect(tabPrevented).toBe(true);
+      expect(btn1.focus).toHaveBeenCalled();
+
+      // Shift+Tab on first element wraps to last element
+      let shiftTabPrevented = false;
+      handleGuideKeyDown(
+        {
+          key: "Tab",
+          shiftKey: true,
+          preventDefault: () => {
+            shiftTabPrevented = true;
+          },
+        },
+        mockBalloon,
+        vi.fn(),
+        btn1 // current activeElement is the first one
+      );
+      expect(shiftTabPrevented).toBe(true);
+      expect(btn3.focus).toHaveBeenCalled();
+    });
+
+    it("getValidStepBackwards retrocede a pasos válidos", () => {
+      const visibleAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({ top: 10, bottom: 40, left: 10, right: 100, width: 90, height: 30 }),
+      };
+      const mockDoc = {
+        querySelector: vi.fn((sel: string) => (sel === '[data-tour="capas"]' ? visibleAnchor : null)),
+      };
+
+      // Search backwards from index 4: step 1 ('capas') is the visible one
+      const prev = getValidStepBackwards(4, mockDoc);
+      expect(prev).not.toBeNull();
+      expect(prev?.index).toBe(1);
+    });
+
+    it("muestra botón 'Terminar' en el último paso del recorrido y 'Anterior' desde el paso 2", () => {
+      const visibleAnchor = {
+        style: { display: "block" },
+        getBoundingClientRect: () => ({
+          top: 200,
+          bottom: 250,
+          left: 20,
+          right: 200,
+          width: 180,
+          height: 50,
+        }),
+      };
+
+      (globalThis as any).window = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: { getItem: () => null, setItem: () => {} },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      (globalThis as any).document = {
+        body: { dataset: {} },
+        querySelectorAll: vi.fn((sel: string) => (sel === '[data-tour="leyenda"]' ? [visibleAnchor] : [])),
+        querySelector: vi.fn((sel: string) => (sel === '[data-tour="leyenda"]' ? visibleAnchor : null)),
+      };
+
+      const html = renderToStaticMarkup(React.createElement(MapGuide, { open: true }));
+      expect(html).toContain("6 · Consulta la leyenda");
+      expect(html).toContain("Terminar");
+      expect(html).not.toContain("Listo");
+      // Since it's step 6 (index 5 > 0), Anterior button is rendered
+      expect(html).toContain("Anterior");
+    });
+  });
 });
+

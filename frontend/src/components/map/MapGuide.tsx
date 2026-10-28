@@ -290,6 +290,127 @@ export function getValidStepAndRect(
   return null;
 }
 
+/**
+ * Helper to find the previous valid step anchor searching backwards from fromIndex.
+ */
+export function getValidStepBackwards(
+  fromIndex: number,
+  doc?: any
+): { index: number; rect: DOMRect } | null {
+  const documentRef =
+    doc !== undefined
+      ? doc
+      : typeof document !== "undefined"
+      ? document
+      : null;
+  if (!documentRef) return null;
+
+  for (let idx = fromIndex; idx >= 0; idx--) {
+    const match = findVisibleAnchor(TOUR_STEPS[idx].sel, documentRef);
+    if (match) {
+      return { index: idx, rect: match.rect };
+    }
+  }
+  return null;
+}
+
+/**
+ * Synchronizes document.body.dataset.guide="open" and removes it when closed.
+ */
+export function syncGuideBodyAttr(open: boolean, doc?: any): void {
+  const d = doc !== undefined ? doc : typeof document !== "undefined" ? document : null;
+  if (!d?.body) return;
+  if (!d.body.dataset) d.body.dataset = {};
+  if (open) {
+    d.body.dataset.guide = "open";
+  } else {
+    delete d.body.dataset.guide;
+  }
+}
+
+/**
+ * Intercepts pointerdown, mousedown, click, wheel, touchstart events when the guide is open.
+ * Returns true if the event was blocked (prevented), false if allowed (target is inside balloon).
+ */
+export function handleGuidePointerCapture(
+  e: {
+    target: any;
+    preventDefault: () => void;
+    stopPropagation: () => void;
+    stopImmediatePropagation?: () => void;
+  },
+  balloonEl?: any
+): boolean {
+  if (balloonEl && typeof balloonEl.contains === "function" && balloonEl.contains(e.target)) {
+    return false;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+  e.stopImmediatePropagation?.();
+  return true;
+}
+
+/**
+ * Handles keyboard navigation inside the accessible guide dialog.
+ * Traps Tab/Shift+Tab focus within balloon and closes on Escape.
+ */
+export function handleGuideKeyDown(
+  e: {
+    key: string;
+    shiftKey?: boolean;
+    preventDefault: () => void;
+  },
+  balloonEl: any,
+  onClose: () => void,
+  activeElement?: any
+): boolean {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    onClose();
+    return true;
+  }
+  if (e.key === "Tab" && balloonEl) {
+    const focusable =
+      typeof balloonEl.querySelectorAll === "function"
+        ? Array.from(
+            balloonEl.querySelectorAll(
+              'button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            )
+          )
+        : [];
+    if (focusable.length === 0) return false;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const current =
+      activeElement !== undefined
+        ? activeElement
+        : typeof document !== "undefined"
+        ? document.activeElement
+        : null;
+
+    if (e.shiftKey) {
+      if (
+        current === first ||
+        (typeof balloonEl.contains === "function" && !balloonEl.contains(current))
+      ) {
+        e.preventDefault();
+        (last as any)?.focus?.();
+        return true;
+      }
+    } else {
+      if (
+        current === last ||
+        (typeof balloonEl.contains === "function" && !balloonEl.contains(current))
+      ) {
+        e.preventDefault();
+        (first as any)?.focus?.();
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export interface MapGuideProps {
   open?: boolean;
   onClose?: () => void;
@@ -305,23 +426,59 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const effectiveOpen = isControlled ? Boolean(open) : internalOpen;
 
+  // Sync body dataset during render as well for SSR/testing
+  syncGuideBodyAttr(effectiveOpen);
+
   const [i, setI] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [balloonHeight, setBalloonHeight] = useState<number>(160);
   const [, setRerenderTick] = useState(0);
 
   const balloonRef = useRef<HTMLDivElement | null>(null);
+  const nextButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const handleClose = useCallback(() => {
     if (typeof window !== "undefined") {
       dismissGuide(window.localStorage);
     }
+    syncGuideBodyAttr(false);
     setRect(null);
     if (!isControlled) {
       setInternalOpen(false);
     }
     onClose?.();
   }, [isControlled, onClose]);
+
+  // Set document.body.dataset.guide = "open" and block scroll while guide is open
+  useEffect(() => {
+    syncGuideBodyAttr(effectiveOpen);
+    return () => {
+      syncGuideBodyAttr(false);
+    };
+  }, [effectiveOpen]);
+
+  // Capture all pointer/mouse/touch/wheel events to prevent any interaction with page beneath
+  useEffect(() => {
+    if (!effectiveOpen) return;
+
+    const handlePointerCapture = (e: Event) => {
+      handleGuidePointerCapture(e as any, balloonRef.current);
+    };
+
+    window.addEventListener("pointerdown", handlePointerCapture, true);
+    window.addEventListener("mousedown", handlePointerCapture, true);
+    window.addEventListener("click", handlePointerCapture, true);
+    window.addEventListener("touchstart", handlePointerCapture, true);
+    window.addEventListener("wheel", handlePointerCapture, { capture: true, passive: false });
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerCapture, true);
+      window.removeEventListener("mousedown", handlePointerCapture, true);
+      window.removeEventListener("click", handlePointerCapture, true);
+      window.removeEventListener("touchstart", handlePointerCapture, true);
+      window.removeEventListener("wheel", handlePointerCapture, true);
+    };
+  }, [effectiveOpen]);
 
   // First-visit auto-open with ~900ms delay if uncontrolled
   useEffect(() => {
@@ -419,17 +576,24 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
     };
   }, [effectiveOpen, i, balloonHeight, handleClose]);
 
-  // Close on Escape key
+  // Accessible keyboard navigation: Escape = Omitir; Tab = trap focus inside balloon
   useEffect(() => {
     if (!effectiveOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        handleClose();
-      }
+      handleGuideKeyDown(e, balloonRef.current, handleClose);
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [effectiveOpen, handleClose]);
+
+  // Initial focus on Siguiente / Terminar button
+  useEffect(() => {
+    if (!effectiveOpen) return;
+    const timer = setTimeout(() => {
+      nextButtonRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [effectiveOpen, i]);
 
   const handleNext = () => {
     const nextMatch = getValidStepAndRect(i + 1);
@@ -438,6 +602,14 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
       setRect(nextMatch.rect);
     } else {
       handleClose();
+    }
+  };
+
+  const handlePrev = () => {
+    const prevMatch = getValidStepBackwards(i - 1);
+    if (prevMatch) {
+      setI(prevMatch.index);
+      setRect(prevMatch.rect);
     }
   };
 
@@ -483,6 +655,53 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
 
   return (
     <>
+      {/* Dimmed backdrop capturing all events with cutout over targeted anchor */}
+      <div
+        className="fixed inset-0 z-[65] pointer-events-auto select-none"
+        style={{ position: "fixed", inset: 0, zIndex: 65 }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
+        {/* Top backdrop */}
+        <div
+          className="absolute bg-[rgba(26,16,25,0.55)]"
+          style={{ position: "absolute", left: 0, top: 0, width: "100%", height: ringTop }}
+        />
+        {/* Bottom backdrop */}
+        <div
+          className="absolute bg-[rgba(26,16,25,0.55)]"
+          style={{ position: "absolute", left: 0, top: ringBottom, width: "100%", bottom: 0 }}
+        />
+        {/* Left backdrop */}
+        <div
+          className="absolute bg-[rgba(26,16,25,0.55)]"
+          style={{ position: "absolute", left: 0, top: ringTop, width: ringLeft, height: ringHeight }}
+        />
+        {/* Right backdrop */}
+        <div
+          className="absolute bg-[rgba(26,16,25,0.55)]"
+          style={{ position: "absolute", left: ringRight, top: ringTop, right: 0, height: ringHeight }}
+        />
+        {/* Transparent blocker over highlighted control: visible but non-interactive */}
+        <div
+          className="absolute"
+          style={{
+            position: "absolute",
+            left: ringLeft,
+            top: ringTop,
+            width: ringWidth,
+            height: ringHeight,
+            cursor: "default",
+          }}
+        />
+      </div>
+
       {/* Spotlight ring surrounding targeted anchor */}
       <div
         className="pointer-events-none fixed z-[70] rounded-lg ring-2 ring-primary ring-offset-2 ring-offset-background transition-all"
@@ -497,10 +716,11 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
         }}
       />
 
-      {/* Floating guided tour balloon */}
+      {/* Floating accessible modal guided tour balloon */}
       <div
         ref={balloonRef}
-        role="region"
+        role="dialog"
+        aria-modal="true"
         aria-label="Guía interactiva del mapa"
         className={`fixed z-[70] float-panel p-3.5 shadow-float text-foreground ${className}`}
         style={{
@@ -532,13 +752,25 @@ export function MapGuide({ open, onClose, className = "" }: MapGuideProps) {
           >
             Omitir
           </button>
-          <button
-            type="button"
-            onClick={handleNext}
-            className="h-7 px-3 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs cursor-pointer"
-          >
-            {hasMoreSteps ? "Siguiente" : "Listo"}
-          </button>
+          <div className="flex items-center gap-1.5">
+            {activeMatch.index > 0 && (
+              <button
+                type="button"
+                onClick={handlePrev}
+                className="h-7 px-2.5 text-xs font-medium rounded-md border border-border text-foreground hover:bg-accent transition-colors cursor-pointer"
+              >
+                Anterior
+              </button>
+            )}
+            <button
+              ref={nextButtonRef}
+              type="button"
+              onClick={handleNext}
+              className="h-7 px-3 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs cursor-pointer"
+            >
+              {hasMoreSteps ? "Siguiente" : "Terminar"}
+            </button>
+          </div>
         </div>
       </div>
     </>

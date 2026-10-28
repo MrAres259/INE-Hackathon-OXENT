@@ -1,0 +1,113 @@
+domain,outlet,tier,country,notes
+ine.mx,Instituto Nacional Electoral,oficial,MX,Órgano constitucional autónomo electoral
+centralelectoral.ine.mx,Central Electoral INE,oficial,MX,Portal oficial de comunicación del INE
+portal.ine.mx,Portal INE,oficial,MX,Servicios institucionales del INE
+inegi.org.mx,INEGI,oficial,MX,Instituto Nacional de Estadística y Geografía
+gob.mx,Gobierno de México,oficial,MX,Portal institucional federal
+dof.gob.mx,Diario Oficial de la Federación,oficial,MX,Publicación oficial del Estado mexicano
+te.gob.mx,Tribunal Electoral del Poder Judicial de la Federación,oficial,MX,Máxima autoridad jurisdiccional electoral
+scjn.gob.mx,Suprema Corte de Justicia de la Nación,oficial,MX,Máximo tribunal constitucional
+conapo.gob.mx,CONAPO,oficial,MX,Consejo Nacional de Población
+iecm.mx,Instituto Electoral de la Ciudad de México,oficial,MX,OPLE Ciudad de México
+ieem.org.mx,Instituto Electoral del Estado de México,oficial,MX,OPLE Estado de México
+iepcjalisco.org.mx,Instituto Electoral y de Participación Ciudadana de Jalisco,oficial,MX,OPLE Jalisco
+ieenl.mx,Instituto Estatal Electoral y de Participación Ciudadana de Nuevo León,oficial,MX,OPLE Nuevo León
+ceepacslp.org.mx,CEEPAC San Luis Potosí,oficial,MX,OPLE San Luis Potosí
+iepcgro.mx,IEPC Guerrero,oficial,MX,OPLE Guerrero
+ieepco.org.mx,IEEPCO Oaxaca,oficial,MX,OPLE Oaxaca
+iepc.chiapas.org.mx,IEPC Chiapas,oficial,MX,OPLE Chiapas
+ite.org.mx,Instituto Tlaxcalteca de Elecciones,oficial,MX,OPLE Tlaxcala
+iee-puebla.org.mx,Instituto Electoral del Estado de Puebla,oficial,MX,OPLE Puebla
+oplever.org.mx,OPLE Veracruz,oficial,MX,OPLE Veracruz
+impepac.mx,IMPEPAC Morelos,oficial,MX,OPLE Morelos
+ieebc.mx,IEE Baja California,oficial,MX,OPLE Baja California
+ieesinaloa.mx,Instituto Electoral del Estado de Sinaloa,oficial,MX,OPLE Sinaloa
+ieesonora.org.mx,Instituto Estatal Electoral de Sonora,oficial,MX,OPLE Sonora
+verificado.com.mx,Verificado MX,verificador,MX,Iniciativa independiente de fact-checking electoral
+factual.afp.com,AFP Factual,verificador,FR,Unidad de verificación de hechos de Agence France-Presse
+maldita.es,Maldita.es,verificador,ES,Medio independiente de fact-checking y desmentidos
+newtral.es,Newtral,verificador,ES,Organización verificadora de datos
+chequeado.com,Chequeado,verificador,AR,Organización pionera de verificación en América Latina
+latamchequea.com,LatamChequea,verificador,UY,Red latinoamericana de verificadores de datos
+colombiacheck.com,Colombiacheck,verificador,CO,Plataforma digital de fact-checking
+factchequeado.com,Factchequeado,verificador,US,Iniciativa de combate a la desinformación en español
+unam.mx,Universidad Nacional Autónoma de México,academico,MX,Institución de educación superior e investigación
+colmex.mx,El Colegio de México,academico,MX,Centro público de investigación en ciencias sociales
+cide.edu,Centro de Investigación y Docencia Económicas,academico,MX,Centro público de investigación
+ibero.mx,Universidad Iberoamericana,academico,MX,Universidad jesuita y centro de investigación
+itam.mx,Instituto Tecnológico Autónomo de México,academico,MX,Institución de educación superior e investigación
+flacso.edu.mx,FLACSO México,academico,MX,Facultad Latinoamericana de Ciencias Sociales sede México
+colef.mx,El Colegio de la Frontera Norte,academico,MX,Centro público de investigación sobre frontera y migración
+ciesas.edu.mx,CIESAS,academico,MX,Centro de Investigaciones y Estudios Superiores en Antropología Social
+scielo.org.mx,SciELO México,academico,MX,Hemeroteca virtual de publicaciones científicas
+redalyc.org,Redalyc,academico,MX,Red de Revistas Científicas de América Latina y el Caribe
+cepal.org,CEPAL,academico,CL,Comisión Económica para América Latina y el Caribe
+idea.int,IDEA Internacional,academico,SE,Instituto Internacional para la Democracia y Asistencia Electoral
+uam.mx,Universidad Autónoma Metropolitana,academico,MX,Universidad pública e investigación
+ipn.mx,Instituto Politécnico Nacional,academico,MX,Institución pública de investigación técnica y científica
+udg.mx,Universidad de Guadalajara,academico,MX,Red universitaria de Jalisco
+uanl.mx,Universidad Autónoma de Nuevo León,academico,MX,Institución pública de educación e investigación
+uv.mx,Universidad Veracruzana,academico,MX,Universidad pública estatal
+conacyt.mx,CONAHCYT,academico,MX,Consejo Nacional de Humanidades Ciencias y Tecnologías
+eluniversal.com.mx,El Universal,medio_reconocido,MX,Diario de circulación nacional fundado en 1916
+milenio.com,Milenio,medio_reconocido,MX,Grupo editorial y diario nacional multimedia
+jornada.com.mx,La Jornada,medio_reconocido,MX,Diario nacional con cobertura política y social
+excelsior.com.mx,Excélsior,medio_reconocido,MX,Diario nacional de Grupo Imagen
+elfinanciero.com.mx,El Financiero,medio_reconocido,MX,Diario especializado en economía finanzas y política
+eleconomista.com.mx,El Economista,medio_reconocido,MX,Diario de economía política y negocios
+proceso.com.mx,Proceso,medio_reconocido,MX,Semanario de investigación periodística
+animalpolitico.com,Animal Político,medio_reconocido,MX,Medio digital incluye unidad de verificación El Sabueso
+aristeguinoticias.com,Aristegui Noticias,medio_reconocido,MX,Portal de noticias de periodismo de investigación
+reforma.com,Reforma,medio_reconocido,MX,Diario nacional de Grupo Reforma
+expansion.mx,Expansión,medio_reconocido,MX,Revista y portal de análisis económico y político
+elpais.com,El País,medio_reconocido,ES,Diario internacional con edición y redacción en México
+infobae.com,Infobae México,medio_reconocido,AR,Portal de noticias con redacción mexicana
+bbc.com,BBC News Mundo,medio_reconocido,GB,Servicio público de noticias internacional en español
+cnnespanol.cnn.com,CNN en Español,medio_reconocido,US,Cadena internacional de noticias en español
+reuters.com,Reuters,medio_reconocido,GB,Agencia internacional incluye unidad Reuters Fact Check
+apnews.com,Associated Press,medio_reconocido,US,Agencia de noticias global en español
+nmas.com.mx,N+,medio_reconocido,MX,División de noticias de TelevisaUnivision
+latinus.us,Latinus,medio_reconocido,US,Plataforma digital de periodismo político
+sinembargo.mx,SinEmbargo,medio_reconocido,MX,Periódico digital independiente
+nexos.com.mx,Nexos,medio_reconocido,MX,Revista mensual de cultura política y sociedad
+letraslibres.com,Letras Libres,medio_reconocido,MX,Revista de pensamiento política y literatura
+wradio.com.mx,W Radio México,medio_reconocido,MX,Cadena radiofónica informativa
+radioformula.com.mx,Radio Fórmula,medio_reconocido,MX,Cadena nacional de radio y televisión informativa
+adn40.mx,ADN 40,medio_reconocido,MX,Canal informativo de TV Azteca
+forbes.com.mx,Forbes México,medio_reconocido,MX,Edición mexicana de análisis económico y empresarial
+reporteindigo.com,Reporte Índigo,medio_reconocido,MX,Publicación diaria multimedia y política
+zocalo.com.mx,Zócalo Saltillo,medio_regional,MX,Diario del estado de Coahuila
+elsiglodetorreon.com.mx,El Siglo de Torreón,medio_regional,MX,Diario regional de la Comarca Lagunera
+informador.mx,El Informador,medio_regional,MX,Diario decano de Guadalajara Jalisco
+elnorte.com,El Norte,medio_regional,MX,Diario de Monterrey de Grupo Reforma
+diariodeyucatan.com,Diario de Yucatán,medio_regional,MX,Diario peninsular de circulación regional
+noroeste.com.mx,Noroeste,medio_regional,MX,Diario estatal de Sinaloa
+elimparcial.com,El Imparcial,medio_regional,MX,Diario de Sonora y el noroeste del país
+diario.mx,El Diario de Juárez,medio_regional,MX,Diario fronterizo de Ciudad Juárez Chihuahua
+elheraldodechihuahua.com.mx,El Heraldo de Chihuahua,medio_regional,MX,Diario estatal de Chihuahua
+cuarto-poder.mx,Cuarto Poder Chiapas,medio_regional,MX,Diario estatal de Chiapas
+oem.com.mx,Organización Editorial Mexicana,medio_regional,MX,Red de diarios locales en toda la República Mexicana
+vanguardia.com.mx,Vanguardia MX,medio_regional,MX,Diario regional de Saltillo Coahuila
+eloccidental.com.mx,El Occidental,medio_regional,MX,Diario regional de Guadalajara OEM
+elsoldemexico.com.mx,El Sol de México,medio_regional,MX,Diario de la OEM
+criteriohidalgo.com,Criterio Hidalgo,medio_regional,MX,Periódico estatal de Hidalgo
+tribunadesanluis.com.mx,Tribuna de San Luis,medio_regional,MX,Periódico de San Luis Río Colorado OEM
+am.com.mx,Periódico AM,medio_regional,MX,Diario estatal de Guanajuato
+pulsongp.com.mx,Pulso San Luis Potosí,medio_regional,MX,Diario estatal de San Luis Potosí
+sintesis.com.mx,Síntesis Puebla,medio_regional,MX,Periódico estatal de Puebla y Tlaxcala
+suracapulco.mx,El Sur Periódico de Guerrero,medio_regional,MX,Periódico estatal de Guerrero
+tabascohoy.com,Tabasco Hoy,medio_regional,MX,Diario estatal de Tabasco
+poresto.net,Por Esto!,medio_regional,MX,Diario regional de la Península de Yucatán
+frontera.info,Frontera Tijuana,medio_regional,MX,Diario fronterizo de Baja California
+x.com,X,red_social,US,Red social de microblogging anteriormente Twitter
+twitter.com,Twitter,red_social,US,Dominio heredado de la red social X
+facebook.com,Facebook,red_social,US,Red social global de Meta
+fb.watch,Facebook Watch,red_social,US,Plataforma de video de Facebook
+tiktok.com,TikTok,red_social,CN,Plataforma de videos cortos de ByteDance
+instagram.com,Instagram,red_social,US,Red social visual de Meta
+youtube.com,YouTube,red_social,US,Plataforma de video de Google
+youtu.be,YouTube Shortener,red_social,US,Acortador oficial de URLs de YouTube
+t.me,Telegram,red_social,AE,Servicio de mensajería y canales públicos
+telegram.me,Telegram Web,red_social,AE,Enlace alterno de canales de Telegram
+whatsapp.com,WhatsApp,red_social,US,Servicio de mensajería y canales de difusión
+threads.net,Threads,red_social,US,Red social de microblogging de Meta

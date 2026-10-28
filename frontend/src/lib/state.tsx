@@ -39,6 +39,7 @@ import {
 } from "./scenarioParams";
 import { formatSignedVotes } from "./format";
 import { showToast } from "./toast";
+import { decodeCampaignPrefill } from "./intel/prefill";
 
 export type View3d = "inclinada" | "cenital";
 
@@ -202,6 +203,7 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
 
   const simReqIdRef = useRef<number>(0);
   const baseReqIdRef = useRef<number>(0);
+  const campanasProcessedRef = useRef<boolean>(false);
 
   const scenarioParams = useMemo(() => {
     if (scenario === "base") return {};
@@ -336,6 +338,80 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
       }
     });
   }, []);
+
+  // Campaign prefill from URL (?campanas=)
+  useEffect(() => {
+    if (!meta || campanasProcessedRef.current || typeof window === "undefined") return;
+
+    const sp = new URLSearchParams(window.location.search);
+    const campanasParam = sp.get("campanas");
+    if (!campanasParam) return;
+
+    campanasProcessedRef.current = true;
+    const prefill = decodeCampaignPrefill(campanasParam);
+
+    let isValid = false;
+    if (
+      prefill &&
+      Array.isArray(prefill.campaigns) &&
+      prefill.campaigns.length > 0 &&
+      prefill.campaigns.length <= 4
+    ) {
+      const scDef = meta.scenarios?.find((s) => s.id === "intervencion");
+      const leverParam = scDef?.params?.find((p) => p.key === "lever");
+      const allowedLevers =
+        leverParam?.options?.map((o) => o.value) ?? [
+          "promocion_jovenes",
+          "casillas_rurales",
+          "materiales_lengua_indigena",
+          "campana_general",
+        ];
+      isValid = prefill.campaigns.every((c) => {
+        if (!allowedLevers.includes(c.lever)) return false;
+        if (c.effect_pp < 0 || c.effect_pp > 20) return false;
+        if (c.coverage < 0 || c.coverage > 100) return false;
+        return true;
+      });
+    }
+
+    if (isValid && prefill) {
+      const resolved = paramsForScenario("intervencion", { campaigns: prefill.campaigns }, meta);
+      setScenarioState("intervencion");
+      setParamsByScenario((prev) => ({
+        ...prev,
+        intervencion: resolved,
+      }));
+      setLeverParams((prev) => {
+        const nextLp = { ...prev };
+        for (const c of prefill.campaigns) {
+          nextLp[c.lever] = {
+            targeting: c.targeting,
+            effect_pp: c.effect_pp,
+            coverage: c.coverage,
+            ents: c.ents ?? [],
+          };
+        }
+        return nextLp;
+      });
+      setIsScenarioModalOpen(true);
+      showToast({
+        kind: "success",
+        title: "Campañas precargadas desde Inteligencia",
+      });
+    } else {
+      showToast({
+        kind: "error",
+        title: "Parámetros de campaña inválidos",
+        detail: "No se pudieron aplicar las campañas de la URL.",
+      });
+    }
+
+    // Remove 'campanas' from URL
+    sp.delete("campanas");
+    const newSearch = sp.toString();
+    const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [meta]);
 
   // Base scenario risk loader
   useEffect(() => {

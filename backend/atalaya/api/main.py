@@ -71,3 +71,13 @@ try:
     logger.info("Successfully registered chat router from atalaya.api.chat.")
 except ImportError:
     logger.info("atalaya.api.chat is not available; chat endpoints skipped.")
+
+# Include intel router
+try:
+    from atalaya.api.intel import router as intel_router
+
+    app.include_router(intel_router)
+    logger.info("Successfully registered intel router from atalaya.api.intel.")
+except ImportError:
+    logger.info("atalaya.api.intel is not available; intel endpoints skipped.")
+

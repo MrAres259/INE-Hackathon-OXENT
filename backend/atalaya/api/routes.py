@@ -23,7 +23,7 @@ from atalaya.api.deps import (
 )
 from atalaya.config import SEED_DIR, get_settings
 from atalaya.ingest.common import zpad
-from atalaya.llm import is_enabled as is_llm_enabled
+from atalaya.llm import describe as llm_describe, is_enabled as is_llm_enabled
 from atalaya.store import StoreError, get_store, _clean_error_message
 
 logger = logging.getLogger(__name__)
@@ -230,6 +230,7 @@ def get_health() -> dict[str, Any]:
         "store_degraded": store_degraded,
         "search_engine": search_engine,
         "llm": is_llm_enabled(),
+        "llm_reasoning": llm_describe(),
         "warmup": warmup_state,
         "data": data,
     }

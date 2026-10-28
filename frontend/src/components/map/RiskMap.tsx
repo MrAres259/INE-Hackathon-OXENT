@@ -11,6 +11,14 @@ import { Legend } from "./Legend";
 import { MapTooltip } from "./MapTooltip";
 import type { HoverInfo } from "./AtalayaMap";
 import { MapErrorBoundary } from "./MapErrorBoundary";
+import { CompareSummary } from "./CompareSwipe";
+import {
+  reduceTooltipIntent,
+  initialTooltipIntentState,
+  tooltipIntent,
+  type TooltipIntentState,
+  type TooltipIntentEvent,
+} from "@/lib/tooltipIntent";
 
 const MapLoading = () => (
   <div className="absolute inset-0 bg-[#eef0f3] flex flex-col items-center justify-center text-muted-foreground gap-3">
@@ -71,75 +79,86 @@ export function RiskMap() {
   const data = useMapRisk();
 
   const mapInstanceRef = useRef<MapLibreMap | null>(null);
-  const [hoverPos, setHoverPos] = useState<{
-    id: string;
-    level: "state" | "mun";
-    name: string;
-    ent: string;
-    x: number;
-    y: number;
-  } | null>(null);
+
+  // Pure tooltip intent state machine for dwell, anchoring, and interactive tooltip
+  const [tooltipState, dispatchTooltip] = React.useReducer(
+    (s: TooltipIntentState, e: TooltipIntentEvent) => reduceTooltipIntent(s, e),
+    initialTooltipIntentState
+  );
+
+  // Tick timer effect for pending dwell or delayed hide
+  useEffect(() => {
+    let delay: number | null = null;
+    const now = Date.now();
+    if (tooltipState.pending && !tooltipState.isOverTooltip) {
+      delay = Math.max(0, tooltipState.pending.dwellUntilMs - now);
+    } else if (
+      tooltipState.hideAtMs !== null &&
+      !tooltipState.isOverTooltip &&
+      !tooltipState.isOverMap
+    ) {
+      delay = Math.max(0, tooltipState.hideAtMs - now);
+    }
+
+    if (delay === null) return;
+
+    const timer = setTimeout(() => {
+      dispatchTooltip(tooltipIntent.tick());
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [
+    tooltipState.pending,
+    tooltipState.hideAtMs,
+    tooltipState.isOverTooltip,
+    tooltipState.isOverMap,
+  ]);
+
+  // Hide tooltip on guide open event
+  useEffect(() => {
+    const handleGuideOpen = () => dispatchTooltip(tooltipIntent.guideOpen());
+    window.addEventListener("atalaya:open-guide", handleGuideOpen);
+    return () => window.removeEventListener("atalaya:open-guide", handleGuideOpen);
+  }, []);
 
   const handleMapReady = React.useCallback((map: MapLibreMap) => {
     mapInstanceRef.current = map;
+    map.on("dragstart", () => dispatchTooltip(tooltipIntent.dragStart()));
+    map.on("movestart", () => dispatchTooltip(tooltipIntent.dragStart()));
   }, []);
 
   const handleHover = React.useCallback((nextHover: HoverInfo | null) => {
-    setHoverPos((prev) => {
-      if (!prev && !nextHover) return prev;
-      if (!prev || !nextHover) {
-        return nextHover
-          ? {
-              id: nextHover.id,
-              level: nextHover.level,
-              name: nextHover.name,
-              ent: nextHover.ent,
-              x: nextHover.x,
-              y: nextHover.y,
-            }
-          : null;
-      }
-      const rxPrev = Math.round(prev.x);
-      const ryPrev = Math.round(prev.y);
-      const rxNext = Math.round(nextHover.x);
-      const ryNext = Math.round(nextHover.y);
-      if (
-        prev.id === nextHover.id &&
-        prev.level === nextHover.level &&
-        rxPrev === rxNext &&
-        ryPrev === ryNext &&
-        prev.name === nextHover.name &&
-        prev.ent === nextHover.ent
-      ) {
-        return prev;
-      }
-      return {
-        id: nextHover.id,
-        level: nextHover.level,
-        name: nextHover.name,
-        ent: nextHover.ent,
-        x: nextHover.x,
-        y: nextHover.y,
-      };
-    });
+    if (nextHover) {
+      dispatchTooltip(
+        tooltipIntent.hover(nextHover.id, nextHover.x, nextHover.y, nextHover)
+      );
+    } else {
+      dispatchTooltip(tooltipIntent.leave());
+    }
   }, []);
 
   // Derive base/alt/item on every render from data so tooltip refreshes upon simulation/apply
   const hover = React.useMemo<HoverInfo | null>(() => {
-    if (!hoverPos) return null;
-    const lvl = hoverPos.level;
-    const id = hoverPos.id;
+    if (!tooltipState.active) return null;
+    const active = tooltipState.active;
+    const lvl: "state" | "mun" =
+      active.data?.level ?? (active.id.length === 2 ? "state" : "mun");
+    const id = active.id;
     const baseItem = data.base[lvl]?.get(id) ?? null;
     const altItem = data.alt ? (data.alt[lvl]?.get(id) ?? null) : null;
     const activeItem = data.active[lvl]?.get(id) ?? baseItem;
 
     return {
-      ...hoverPos,
+      id,
+      level: lvl,
+      name: active.data?.name ?? activeItem?.name ?? "",
+      ent: active.data?.ent ?? activeItem?.ent ?? (id.length === 2 ? id : id.slice(0, 2)),
+      x: active.x,
+      y: active.y,
       base: baseItem,
       alt: altItem,
       item: activeItem,
     };
-  }, [hoverPos, data]);
+  }, [tooltipState.active, data]);
 
   const handleExportPng = React.useCallback(() => {
     const map = mapInstanceRef.current;
@@ -229,11 +248,12 @@ export function RiskMap() {
 
       {/* Overlays Layer (pointer-events-none container with pointer-events-auto children) */}
       <div className="absolute inset-0 pointer-events-none p-3">
-        {/* Top Left group: Breadcrumb, MapLayerSwitcher, and on compact (<1024) Legend in column with gap-2 */}
+        {/* Top Left group: Breadcrumb, MapLayerSwitcher, and CompareSummary in column with gap-2 */}
         <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2 pointer-events-none lg:static">
           <div className="flex flex-col items-start gap-2 pointer-events-auto z-20 lg:absolute lg:top-3 lg:left-3">
             <Breadcrumb />
             <MapLayerSwitcher data={data} />
+            {mapMode === "compare" && <CompareSummary data={data} />}
           </div>
 
           {/* Legend: in compact follows MapLayerSwitcher with gap-2; on PC (>=1024) positioned at bottom-left */}
@@ -265,12 +285,16 @@ export function RiskMap() {
         )}
       </div>
 
-      {/* Hover Tooltip following cursor (hidden on non-hover devices) */}
-      <MapTooltip
-        hover={hover}
-        containerWidth={containerRect.width}
-        containerHeight={containerRect.height}
-      />
+      {/* Hover Tooltip with hover intent and interactive actions (hidden when guide is open or on non-hover devices) */}
+      {!(typeof document !== "undefined" && document.body?.dataset?.guide === "open") && (
+        <MapTooltip
+          hover={hover}
+          containerWidth={containerRect.width}
+          containerHeight={containerRect.height}
+          onMouseEnter={() => dispatchTooltip(tooltipIntent.enterTooltip())}
+          onMouseLeave={() => dispatchTooltip(tooltipIntent.leaveTooltip())}
+        />
+      )}
     </div>
   );
 }

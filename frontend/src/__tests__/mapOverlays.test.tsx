@@ -5,7 +5,7 @@ import { Breadcrumb } from "../components/map/Breadcrumb";
 import { MapLayerSwitcher, MapToolbar } from "../components/map/MapToolbar";
 import { Legend } from "../components/map/Legend";
 import { MapFallback } from "../components/map/MapFallback";
-import { CompareSwipe } from "../components/map/CompareSwipe";
+import { CompareSwipe, CompareSummary } from "../components/map/CompareSwipe";
 import { RiskMap } from "../components/map/RiskMap";
 
 // Mock Atalaya context
@@ -42,15 +42,17 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain("México");
       expect(html).toContain("Ciudad de México");
       expect(html).toContain("float-panel");
+      expect(html).toContain('data-map-overlay="breadcrumb"');
       // Check truncation class exists for long names on mobile
       expect(html).toContain("max-w-[40vw]");
     });
   });
 
   describe("MapLayerSwitcher", () => {
-    it("renders with data-tour='capas' and all 3 map modes", () => {
+    it("renders with data-tour='capas', data-map-overlay='layers' and all 3 map modes", () => {
       const html = renderToStaticMarkup(<MapLayerSwitcher />);
       expect(html).toContain('data-tour="capas"');
+      expect(html).toContain('data-map-overlay="layers"');
       expect(html).toContain("Semáforo");
       expect(html).toContain("Cambio");
       expect(html).toContain("Δ");
@@ -60,10 +62,12 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
   });
 
   describe("MapToolbar", () => {
-    it("renders with data-tour='herramientas', 3D toggle, PNG export and guide button", () => {
+    it("renders with data-tour='herramientas', data-map-overlay='toolbar', 3D toggle, PNG export and guide button", () => {
       const onExportPng = vi.fn();
       const html = renderToStaticMarkup(<MapToolbar onExportPng={onExportPng} />);
       expect(html).toContain('data-tour="herramientas"');
+      expect(html).toContain('data-map-overlay="toolbar"');
+      expect(html).toContain('data-map-overlay="view-toggle"');
       expect(html).toContain("float-panel");
       expect(html).toContain('aria-label="Vista 3D (altura = riesgo)"');
       expect(html).toContain('aria-label="Exportar mapa a PNG"');
@@ -72,9 +76,10 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
   });
 
   describe("Legend", () => {
-    it("renders with data-tour='leyenda', title Semáforo 2027 and float-panel styling", () => {
+    it("renders with data-tour='leyenda', data-map-overlay='legend', title Semáforo 2027 and float-panel styling", () => {
       const html = renderToStaticMarkup(<Legend defaultOpen={true} />);
       expect(html).toContain('data-tour="leyenda"');
+      expect(html).toContain('data-map-overlay="legend"');
       expect(html).toContain("Semáforo 2027");
       expect(html).toContain("float-panel");
       expect(html).toContain("Nivel de riesgo");
@@ -85,51 +90,61 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
     });
   });
 
-  describe("CompareSwipe", () => {
-    it("renders full comparison summary text with responsive 'de categoría' suffix", () => {
-      const mockData = {
-        active: { state: new Map(), mun: new Map() },
-        base: {
-          state: new Map(),
-          mun: new Map([
-            [
-              "01001",
-              {
-                id: "01001",
-                ent: "01",
-                name: "Aguascalientes",
-                level: "mun",
-                category: "rojo",
-                lista_nominal: 50000,
-              },
-            ],
-          ]),
-        },
-        alt: {
-          state: new Map(),
-          mun: new Map([
-            [
-              "01001",
-              {
-                id: "01001",
-                ent: "01",
-                name: "Aguascalientes",
-                level: "mun",
-                category: "verde",
-                lista_nominal: 50000,
-              },
-            ],
-          ]),
-        },
-        loading: false,
-        error: null,
-        altLabel: "Intervención focalizada",
-      } as any;
+  describe("CompareSwipe and CompareSummary", () => {
+    const mockData = {
+      active: { state: new Map(), mun: new Map() },
+      base: {
+        state: new Map(),
+        mun: new Map([
+          [
+            "01001",
+            {
+              id: "01001",
+              ent: "01",
+              name: "Aguascalientes",
+              level: "mun",
+              category: "rojo",
+              lista_nominal: 50000,
+            },
+          ],
+        ]),
+      },
+      alt: {
+        state: new Map(),
+        mun: new Map([
+          [
+            "01001",
+            {
+              id: "01001",
+              ent: "01",
+              name: "Aguascalientes",
+              level: "mun",
+              category: "verde",
+              lista_nominal: 50000,
+            },
+          ],
+        ]),
+      },
+      loading: false,
+      error: null,
+      altLabel: "Intervención focalizada",
+    } as any;
 
-      const html = renderToStaticMarkup(<CompareSwipe data={mockData} />);
-      expect(html).toContain("Rojo: 1 → 0 municipios · 1 mejoran");
-      expect(html).toContain('<span class="hidden sm:inline"> de categoría</span>');
+    it("renders comparison summary in flow with wrapping text, line-clamp-2 and data-map-overlay", () => {
+      const html = renderToStaticMarkup(<CompareSummary data={mockData} />);
+      expect(html).toContain('data-map-overlay="compare-summary"');
+      expect(html).toContain("Rojo 1 → 0 · 1 mejoran de categoría");
       expect(html).toContain("Intervención focalizada");
+      expect(html).toContain("line-clamp-2");
+      expect(html).toContain('title="Plegar a pastilla Resumen"');
+    });
+
+    it("renders swipe divider handle and labels at top-1/3 with data-map-overlay", () => {
+      const html = renderToStaticMarkup(<CompareSwipe data={mockData} />);
+      expect(html).toContain('data-map-overlay="swipe-handle"');
+      expect(html).toContain('data-map-overlay="swipe-left-label"');
+      expect(html).toContain('data-map-overlay="swipe-right-label"');
+      expect(html).toContain("top-1/3");
     });
   });
 

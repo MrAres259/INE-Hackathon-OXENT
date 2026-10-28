@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <title>{{ plan.unit.name }} · Plan de Campaña</title>
+  <style>
+    {{ css_content }}
+  </style>
+</head>
+<body>
+
+{% for slide in slides %}
+  {% if slide.kind == "portada" %}
+    <section class="slide portada-slide" id="{{ slide.id }}">
+      <div class="portada-hero">
+        <div class="portada-tag">
+          <span>★</span> Borrador generado con IA · Equipo OXENT
+        </div>
+        <h1 class="portada-title">{{ slide.title }}</h1>
+        <p class="portada-subtitle">{{ slide.subtitle or plan.unit.ent_name }}</p>
+
+        <div class="bullets-box" style="margin-top: 10px;">
+          {% for b in slide.bullets %}
+            <div class="bullet-item">
+              <span class="bullet-icon">▸</span>
+              <span>{{ b }}</span>
+            </div>
+          {% endfor %}
+        </div>
+
+        <div class="portada-meta-grid">
+          <div class="portada-meta-card">
+            <div class="portada-meta-label">Entidad / Territorio</div>
+            <div class="portada-meta-value">{{ plan.unit.name }}</div>
+          </div>
+          <div class="portada-meta-card">
+            <div class="portada-meta-label">Lista Nominal</div>
+            <div class="portada-meta-value">{{ "{:,}".format(plan.unit.lista_nominal) }}</div>
+          </div>
+          <div class="portada-meta-card">
+            <div class="portada-meta-label">Riesgo Atalaya</div>
+            <div class="portada-meta-value">
+              <span class="badge badge-{{ plan.unit.category }}">{{ plan.unit.category|capitalize }}</span>
+            </div>
+          </div>
+          <div class="portada-meta-card">
+            <div class="portada-meta-label">Fecha de corte</div>
+            <div class="portada-meta-value">{{ plan.generated_at[:10] }}</div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="slide-footer">
+        <div class="footer-left">
+          <span>Atalaya Electoral</span>
+          <span class="footer-dot"></span>
+          <span>Borrador generado con IA</span>
+          <span class="footer-dot"></span>
+          <span>{{ plan.generated_at[:10] }}</span>
+        </div>
+        <div class="footer-right">
+          Diapositiva {{ loop.index }} de {{ slides|length }}
+        </div>
+      </footer>
+    </section>
+
+  {% else %}
+    <section class="slide" id="{{ slide.id }}">
+      <header class="slide-header">
+        <div class="slide-title-wrap">
+          <h2 class="slide-title">{{ slide.title }}</h2>
+          {% if slide.subtitle %}
+            <div class="slide-subtitle">{{ slide.subtitle }}</div>
+          {% endif %}
+        </div>
+        <div class="slide-logo-wrap">
+          {% if logo_uri %}
+            <img src="{{ logo_uri }}" alt="Atalaya Electoral Logo">
+          {% endif %}
+        </div>
+      </header>
+
+      <div class="slide-content">
+        {% if slide.kind == "diagnostico_datos" %}
+          <div class="kpi-grid">
+            {% for kpi in slide.data.get("kpis", []) %}
+              <div class="kpi-card">
+                <div class="kpi-label">{{ kpi.label }}</div>
+                <div class="kpi-value-row">
+                  <div class="kpi-value" {% if kpi.color %}style="color: {{ kpi.color }};"{% endif %}>
+                    {{ kpi.value }}
+                  </div>
+                </div>
+                {% if kpi.sub %}
+                  <div class="kpi-sub">{{ kpi.sub }}</div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          {% if slide.bullets %}
+            <div class="bullets-box">
+              {% for b in slide.bullets %}
+                <div class="bullet-item">
+                  <span class="bullet-icon">▸</span>
+                  <span>{{ b }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+        {% elif slide.kind == "problematicas" %}
+          {% if slide.data.get("degraded") %}
+            <div style="background: #fff8e6; border: 1px solid #f9df88; border-radius: 6px; padding: 8px 14px; font-size: 12px; color: #8a6409; margin-bottom: 4px;">
+              ⚠ <strong>Modo degradado:</strong> Factores predictivos del modelo Atalaya (investigación documental no disponible).
+            </div>
+          {% endif %}
+          <div class="findings-grid">
+            {% for f in slide.data.get("findings", []) %}
+              <div class="finding-card">
+                <div class="finding-header">
+                  <span class="finding-title">{{ f.title }}</span>
+                  <span class="badge badge-tier">{{ f.category|replace("_", " ")|capitalize }}</span>
+                </div>
+                <div class="finding-summary">{{ f.summary }}</div>
+                <div class="finding-footer">
+                  <span>Ámbito: {{ f.scope|default("Local")|capitalize }}</span>
+                  {% if f.evidence %}
+                    <span class="finding-refs">[{{ f.evidence|join(", ") }}]</span>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+
+        {% elif slide.kind == "region" %}
+          <div class="split-layout">
+            <div class="map-container">
+              {% if slide.data.get("svg") %}
+                {{ slide.data.svg|safe }}
+              {% else %}
+                <div style="color: #8c7e8e; font-size: 13px;">Mapa disponible en versión PDF</div>
+              {% endif %}
+            </div>
+            <div class="territory-panel">
+              <div class="bullets-box" style="flex: 1;">
+                <div style="font-weight: 700; color: #4a2a48; margin-bottom: 4px; font-size: 13.5px;">Factores Territoriales Clave:</div>
+                {% for b in slide.bullets %}
+                  <div class="bullet-item">
+                    <span class="bullet-icon">▸</span>
+                    <span>{{ b }}</span>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+        {% elif slide.kind == "grupo_objetivo" %}
+          <div class="target-groups-grid">
+            {% for tg in slide.data.get("target_groups", []) %}
+              <div class="target-card">
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                  <span class="target-title">{{ tg.name }}</span>
+                  {% if tg.size_estimate %}
+                    <span class="badge badge-tier">{{ "{:,}".format(tg.size_estimate) }} personas</span>
+                  {% endif %}
+                </div>
+                <div class="target-desc">{{ tg.description }}</div>
+                {% if tg.size_basis %}
+                  <div class="target-basis">Base de cálculo: {{ tg.size_basis }}</div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+          {% if slide.bullets %}
+            <div class="bullets-box" style="margin-top: 8px;">
+              {% for b in slide.bullets %}
+                <div class="bullet-item">
+                  <span class="bullet-icon">▸</span>
+                  <span>{{ b }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+        {% elif slide.kind == "propuestas" %}
+          <div class="proposals-grid">
+            {% for p in slide.data.get("proposals", []) %}
+              <div class="proposal-card">
+                <div class="proposal-top">
+                  <span class="proposal-title">{{ p.title }}</span>
+                  <span class="badge badge-tier">{{ p.lever|replace("_", " ")|capitalize }}</span>
+                </div>
+                <div class="proposal-desc">{{ p.description }}</div>
+                <div class="proposal-metrics">
+                  <div>Efecto: <span class="proposal-metric-val">-{{ p.effect_pp }} pp</span></div>
+                  <div>Cobertura: <span class="proposal-metric-val">{{ p.coverage|round|int }}%</span></div>
+                  <div>Población: <span class="proposal-metric-val">{{ p.target_group }}</span></div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+          {% if slide.bullets %}
+            <div class="bullets-box" style="margin-top: 8px;">
+              {% for b in slide.bullets %}
+                <div class="bullet-item">
+                  <span class="bullet-icon">▸</span>
+                  <span>{{ b }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+        {% elif slide.kind == "impacto" %}
+          <div class="impact-hero-grid">
+            <div class="impact-hero-card">
+              <div class="kpi-label">Abstención Base</div>
+              <div class="impact-hero-val" style="color: #4a2a48;">{{ slide.data.get("before") }}</div>
+              <div class="kpi-sub">Riesgo {{ slide.data.get("category_before")|capitalize }}</div>
+            </div>
+            <div class="impact-hero-card">
+              <div class="kpi-label">Abstención Con Plan</div>
+              <div class="impact-hero-val" style="color: #287340;">{{ slide.data.get("after") }}</div>
+              <div class="kpi-sub">Riesgo {{ slide.data.get("category_after")|capitalize }}</div>
+            </div>
+            <div class="impact-hero-card">
+              <div class="kpi-label">Reducción Neta</div>
+              <div class="impact-hero-val">{{ slide.data.get("delta_pp") }}</div>
+              <div class="kpi-sub">Puntos porcentuales</div>
+            </div>
+            <div class="impact-hero-card">
+              <div class="kpi-label">Votos Adicionales</div>
+              <div class="impact-hero-val" style="color: #b5186b;">{{ slide.data.get("votos") }}</div>
+              <div class="kpi-sub">Electores movilizados</div>
+            </div>
+          </div>
+
+          {% if slide.data.get("per_proposal") %}
+            <table class="impact-proposals-table">
+              <thead>
+                <tr>
+                  <th>Propuesta / Palanca</th>
+                  <th>Votos Adicionales (Individual)</th>
+                  <th>Contribución Relativa</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for pi in slide.data.get("per_proposal") %}
+                  <tr>
+                    <td><strong>{{ pi.lever|replace("_", " ")|capitalize }}</strong> ({{ pi.proposal_id }})</td>
+                    <td>+{{ "{:,}".format(pi.votos_solo) }} votos</td>
+                    <td>Impacto directo sinérgico</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+
+          {% if slide.bullets %}
+            <div class="bullets-box">
+              {% for b in slide.bullets %}
+                <div class="bullet-item">
+                  <span class="bullet-icon">▸</span>
+                  <span>{{ b }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+        {% elif slide.kind == "implementacion" %}
+          <div class="timeline-grid">
+            {% for s in slide.data.get("steps", []) %}
+              <div class="timeline-card">
+                <div class="timeline-step-badge">Paso {{ s.order }}</div>
+                <div class="timeline-phase">{{ s.phase }}</div>
+                <div class="timeline-dates">{{ s.start }} a {{ s.end }}</div>
+                <div class="timeline-actions">
+                  {% for act in s.actions %}
+                    <div>• {{ act }}</div>
+                  {% endfor %}
+                </div>
+                <div class="timeline-kpi">
+                  <strong>Área:</strong> {{ s.responsible }}<br>
+                  <strong>Meta:</strong> {{ s.kpi }}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+
+        {% elif slide.kind == "riesgos_kpis" %}
+          <div class="matrix-grid">
+            <div class="matrix-col">
+              <div class="matrix-col-title">Matriz de Riesgos y Mitigación</div>
+              {% for r in slide.data.get("risks", []) %}
+                <div class="risk-item">
+                  <div class="risk-name">⚠ {{ r.risk }}</div>
+                  <div class="risk-mitig"><strong>Mitigación:</strong> {{ r.mitigation }}</div>
+                </div>
+              {% endfor %}
+            </div>
+            <div class="matrix-col">
+              <div class="matrix-col-title">Indicadores Clave de Desempeño (KPIs)</div>
+              {% for kpi in slide.data.get("kpis", []) %}
+                <div class="kpi-list-item">
+                  ✓ {{ kpi }}
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+
+        {% elif slide.kind == "fuentes" %}
+          <div class="sources-grid">
+            {% for s in slide.data.get("sources", []) %}
+              <div class="source-card">
+                <div class="source-head">
+                  <span class="source-id">[{{ s.id }}]</span>
+                  <span class="badge badge-tier">{{ s.tier|replace("_", " ")|capitalize }}</span>
+                </div>
+                <div class="source-title">{{ s.title or s.url }}</div>
+                <div class="source-meta">{{ s.outlet or s.domain }} {% if s.published %}· {{ s.published }}{% endif %}</div>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="disclaimer-box">
+            <strong>Aviso de Neutralidad Institucional y Metodología:</strong>
+            {{ slide.data.get("disclaimer", plan.disclaimer) }}
+          </div>
+        {% endif %}
+      </div>
+
+      <footer class="slide-footer">
+        <div class="footer-left">
+          <span>Atalaya Electoral</span>
+          <span class="footer-dot"></span>
+          <span>Borrador generado con IA</span>
+          <span class="footer-dot"></span>
+          <span>{{ plan.generated_at[:10] }}</span>
+        </div>
+        <div class="footer-right">
+          Diapositiva {{ loop.index }} de {{ slides|length }}
+        </div>
+      </footer>
+    </section>
+  {% endif %}
+{% endfor %}
+
+</body>
+</html>

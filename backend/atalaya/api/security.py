@@ -93,10 +93,12 @@ class ChatRateLimiter:
         rate_per_min: int = 8,
         rate_per_day: int = 200,
         clock: Callable[[], float] | None = None,
+        message: str = "Demasiadas preguntas seguidas. Intenta de nuevo en unos segundos.",
     ) -> None:
         self.rate_per_min = rate_per_min
         self.rate_per_day = rate_per_day
         self.clock = clock or time.time
+        self.message = message
         self._lock = threading.Lock()
         self._records: dict[str, collections.deque[float]] = {}
         self._last_cleanup: float = 0.0
@@ -135,7 +137,7 @@ class ChatRateLimiter:
                 retry_after = max(1, int(math.ceil(60.0 - (current_time - oldest_in_min))))
                 raise HTTPException(
                     status_code=429,
-                    detail="Demasiadas preguntas seguidas. Intenta de nuevo en unos segundos.",
+                    detail=self.message,
                     headers={"Retry-After": str(retry_after)},
                 )
 
@@ -145,7 +147,7 @@ class ChatRateLimiter:
                 retry_after = max(1, int(math.ceil(86400.0 - (current_time - oldest_in_day))))
                 raise HTTPException(
                     status_code=429,
-                    detail="Demasiadas preguntas seguidas. Intenta de nuevo en unos segundos.",
+                    detail=self.message,
                     headers={"Retry-After": str(retry_after)},
                 )
 
@@ -182,3 +184,65 @@ def check_chat_rate_limit(request: Request) -> None:
     ip = get_client_ip(request)
     limiter = get_chat_limiter()
     limiter.check(ip)
+
+
+# ---------------------------------------------------------------- operator & intel security
+
+def get_operator_token() -> str:
+    """Retrieve configured operator token, if any."""
+    settings = get_settings()
+    token = getattr(settings, "operator_token", None)
+    if token is None:
+        token = os.getenv("ATALAYA_OPERATOR_TOKEN", "")
+    return (token or "").strip()
+
+
+def verify_operator(request: Request) -> None:
+    """Verify operator authorization for /api/intel operator endpoints.
+
+    Requires 'X-Operator-Token' matching operator_token in constant time.
+    If no token is configured: raises 401 with 'Funciones de operador deshabilitadas: configura ATALAYA_OPERATOR_TOKEN.'
+    If token is invalid: raises 401 with 'Clave de operador inválida.'
+    """
+    expected = get_operator_token()
+    if not expected:
+        raise HTTPException(
+            status_code=401,
+            detail="Funciones de operador deshabilitadas: configura ATALAYA_OPERATOR_TOKEN.",
+        )
+    provided = request.headers.get("x-operator-token", "")
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Clave de operador inválida.")
+
+
+_intel_limiter: ChatRateLimiter | None = None
+_intel_limiter_lock = threading.Lock()
+
+
+def get_intel_limiter() -> ChatRateLimiter:
+    """Retrieve or initialize global ChatRateLimiter instance for intelligence operations (10/min, 200/day)."""
+    global _intel_limiter
+    if _intel_limiter is None:
+        with _intel_limiter_lock:
+            if _intel_limiter is None:
+                _intel_limiter = ChatRateLimiter(
+                    rate_per_min=10,
+                    rate_per_day=200,
+                    message="Demasiadas solicitudes seguidas. Intenta de nuevo en unos segundos.",
+                )
+    return _intel_limiter
+
+
+def reset_intel_limiter() -> None:
+    """Reset global intel rate limiter (useful in tests)."""
+    global _intel_limiter
+    with _intel_limiter_lock:
+        _intel_limiter = None
+
+
+def check_intel_rate_limit(request: Request) -> None:
+    """Extract client IP and verify rate limits for intel endpoints."""
+    ip = get_client_ip(request)
+    limiter = get_intel_limiter()
+    limiter.check(ip)
+

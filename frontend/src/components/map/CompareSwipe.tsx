@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useCallback, useEffect } from "react";
+import React, { useRef, useCallback, useEffect, useState } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { useAtalaya } from "@/lib/state";
 import { createCameraSync, type CameraSyncHandle } from "./compareSync";
@@ -8,10 +8,87 @@ import { transitionSummary, type MapRiskData } from "@/lib/mapRisk";
 import { AtalayaMap, type HoverInfo } from "./AtalayaMap";
 import { MapErrorBoundary } from "./MapErrorBoundary";
 
+export interface CompareSummaryProps {
+  data: MapRiskData;
+  className?: string;
+}
+
+export function CompareSummary({ data, className = "" }: CompareSummaryProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const summary =
+    data?.base?.mun && data?.alt?.mun
+      ? transitionSummary(data.base.mun, data.alt.mun)
+      : null;
+
+  if (!summary) return null;
+
+  const altLabel = data?.altLabel ?? "";
+
+  if (isCollapsed) {
+    return (
+      <button
+        type="button"
+        data-map-overlay="compare-summary"
+        onClick={() => setIsCollapsed(false)}
+        className={`float-panel px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-accent flex items-center gap-1.5 cursor-pointer shadow-float pointer-events-auto ${className}`}
+        title="Mostrar resumen de comparación"
+      >
+        <span className="size-2 rounded-full bg-good shrink-0" />
+        <span>Resumen</span>
+      </button>
+    );
+  }
+
+  return (
+    <div
+      data-map-overlay="compare-summary"
+      className={`float-panel p-2.5 text-xs font-medium text-foreground shadow-float pointer-events-auto flex flex-col gap-1 ${className}`}
+      style={{ maxWidth: "min(26rem, calc(100% - 5.5rem))" }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-1.5 font-semibold text-foreground">
+          <span className="size-2 rounded-full bg-good shrink-0" />
+          <span className="tnum">
+            Rojo {summary.rojoBase} → {summary.rojoAlt} · {summary.improved} mejoran de categoría
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(true)}
+          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer shrink-0"
+          aria-label="Plegar resumen"
+          title="Plegar a pastilla Resumen"
+        >
+          <svg
+            className="size-3.5"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      </div>
+      {altLabel && (
+        <div
+          className="text-[11px] text-muted-foreground line-clamp-2 leading-tight"
+          title={altLabel}
+        >
+          {altLabel}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export interface CompareSwipeProps {
   data: MapRiskData;
   extrude?: boolean;
   view3d?: "inclinada" | "cenital";
+  showSummary?: boolean;
   onHover?: (h: HoverInfo | null) => void;
   onMapReady?: (map: MapLibreMap) => void;
   className?: string;
@@ -21,6 +98,7 @@ export function CompareSwipe({
   data,
   extrude = false,
   view3d,
+  showSummary = false,
   onHover,
   onMapReady,
   className = "",
@@ -227,9 +305,12 @@ export function CompareSwipe({
         {/* Divider line: white with subtle shadow */}
         <div className="absolute inset-y-0 left-0 -translate-x-1/2 w-0.5 bg-white shadow-[0_0_6px_rgba(0,0,0,0.25)]" />
 
-        {/* Labels attached to handle at mid-height */}
+        {/* Labels attached to handle at top-1/3 height (avoids legend / view-toggle collision) */}
         {comparePos >= 15 && (
-          <div className="absolute right-7 top-1/2 -translate-y-1/2 pointer-events-none whitespace-nowrap">
+          <div
+            data-map-overlay="swipe-left-label"
+            className="absolute right-7 top-1/3 -translate-y-1/2 pointer-events-none whitespace-nowrap"
+          >
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-border text-foreground shadow-float">
               ◀ Sin intervención
             </span>
@@ -237,7 +318,10 @@ export function CompareSwipe({
         )}
 
         {comparePos <= 85 && (
-          <div className="absolute left-7 top-1/2 -translate-y-1/2 pointer-events-none whitespace-nowrap">
+          <div
+            data-map-overlay="swipe-right-label"
+            className="absolute left-7 top-1/3 -translate-y-1/2 pointer-events-none whitespace-nowrap"
+          >
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-primary text-foreground shadow-float">
               Con intervención ▶
             </span>
@@ -248,6 +332,7 @@ export function CompareSwipe({
         <div
           role="slider"
           tabIndex={0}
+          data-map-overlay="swipe-handle"
           aria-label="Separador de comparación de escenarios"
           aria-valuenow={Math.round(comparePos)}
           aria-valuemin={0}
@@ -270,23 +355,9 @@ export function CompareSwipe({
         </div>
       </div>
 
-      {/* Top center summary chip, below the top toolbars */}
-      {summary && (
-        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-none max-w-md w-max">
-          <div className="float-panel px-4 py-2 text-xs font-medium text-foreground flex flex-col items-center text-center gap-0.5 shadow-float">
-            <div className="flex items-center gap-2 font-semibold">
-              <span className="w-2 h-2 rounded-full bg-good shrink-0" />
-              <span className="tnum">
-                Rojo: {summary.rojoBase} → {summary.rojoAlt} municipios · {summary.improved} mejoran
-                <span className="hidden sm:inline"> de categoría</span>
-              </span>
-            </div>
-            {altLabel && (
-              <div className="text-[11px] text-muted-foreground max-w-sm truncate" title={altLabel}>
-                {altLabel}
-              </div>
-            )}
-          </div>
+      {showSummary && (
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <CompareSummary data={data} />
         </div>
       )}
     </div>
