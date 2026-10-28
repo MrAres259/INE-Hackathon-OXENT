@@ -102,14 +102,31 @@ export type RegionDetail = RiskItem & {
   imputed_census?: boolean | null;
 };
 
+export type Campaign = {
+  lever: string;
+  targeting: string;
+  effect_pp: number;
+  coverage: number;
+  ents: string[];
+};
+
+export type CampaignSummary = {
+  lever: string;
+  label: string;
+  ents: string[];
+  n_target_units: number;
+  votos_solo: number;
+  mean_delta_pp_solo: number;
+};
+
 export type ScenarioParam = {
   key: string;
   label: string;
-  type: "number" | "select";
+  type: "number" | "select" | "campaigns" | string;
   min?: number;
   max?: number;
   step?: number;
-  default: number | string;
+  default: any;
   options?: { value: string; label: string }[];
   unit?: string;
 };
@@ -119,6 +136,10 @@ export type ScenarioDef = {
   label: string;
   description: string;
   params: ScenarioParam[];
+  campaign_rules?: {
+    combination: string;
+    max_participation: number;
+  };
 };
 
 export type MetaDataSource = {
@@ -142,7 +163,7 @@ export type Meta = {
 
 export type ScenarioRequest = {
   scenario: ScenarioId;
-  params?: Record<string, number | string>;
+  params?: Record<string, any>;
   level: Level;
   ent?: string | null;
 };
@@ -153,11 +174,14 @@ export type ScenarioSummary = {
   by_category_base: Record<Category, number>;
   votos_adicionales: number;
   mean_delta_pp: number;
+  campaigns?: CampaignSummary[];
+  votos_suma_individual?: number;
+  votos_traslape?: number;
 };
 
 export type ScenarioResult = {
   scenario: ScenarioId;
-  params: Record<string, number | string>;
+  params: Record<string, any>;
   level: Level;
   items: RiskItem[];
   summary: ScenarioSummary;

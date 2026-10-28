@@ -36,6 +36,7 @@ export default function MetodologiaPage() {
     () => [
       { href: "#como-usar", label: "Cómo usar Atalaya Electoral" },
       { href: "#glosario", label: "Glosario" },
+      { href: "#campanas-combinadas", label: "Campañas combinadas" },
       { href: "#mapa-3d", label: "El mapa 3D" },
       { href: "#guardrails", label: "Límites del asistente" },
       { href: "#privacidad", label: "Privacidad y Anonimato" },
@@ -304,7 +305,12 @@ export default function MetodologiaPage() {
         key.startsWith("param.") ||
         key.startsWith("lever.") ||
         key.startsWith("targeting.") ||
-        key === "simulacion.votos"
+        key === "simulacion.votos" ||
+        key === "campanas" ||
+        key === "ambito" ||
+        key === "combinacion" ||
+        key === "traslape" ||
+        key === "lineamientos"
       ) {
         groups[0].items.push(item);
       } else if (
@@ -607,6 +613,216 @@ export default function MetodologiaPage() {
                   </div>
                 );
               })}
+            </section>
+
+            {/* Campañas combinadas (Multi-palanca, país o estados) */}
+            <section
+              id="campanas-combinadas"
+              className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-xs space-y-5 scroll-mt-20"
+            >
+              <div>
+                <h2 className="font-display text-lg font-bold text-foreground flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-primary shrink-0"></span>
+                  Campañas Combinadas: Simulación Multi-Palanca y Rendimientos Decrecientes
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  El simulador de intervención permite proyectar el impacto conjunto de múltiples campañas institucionales simultáneas (hasta 4, una por cada palanca del INE) en todo el país o en estados seleccionados.
+                </p>
+              </div>
+
+              {/* Bloque 1: Qué es y cómo se configura */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                  <h3 className="font-bold text-foreground text-sm flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-primary shrink-0"></span>
+                    ¿Qué es una campaña combinada?
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Un directivo o equipo técnico del INE puede planear simultáneamente varias acciones territoriales: por ejemplo, una campaña nacional de promoción del voto joven junto con una instalación reforzada de casillas rurales focalizada únicamente en estados con alta dispersión territorial (como Chiapas y Oaxaca).
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Se admite <strong className="text-foreground">hasta 4 campañas concurrentes</strong>, con un máximo de <strong className="text-foreground">una campaña por cada palanca institucional</strong> (promoción del voto joven, casillas rurales, materiales en lenguas indígenas y campaña general).
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                  <h3 className="font-bold text-foreground text-sm flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-primary shrink-0"></span>
+                    Parámetros independientes por campaña
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Cada campaña se calibra de forma completamente independiente con cuatro parámetros operativos:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed pl-1">
+                    <li><strong className="text-foreground">Palanca institucional:</strong> Determina la variable sociodemográfica de ponderación territorial (jóvenes, ruralidad, lengua originaria o peso uniforme 1×).</li>
+                    <li><strong className="text-foreground">Focalización por semáforo:</strong> Zonas rojas (riesgo crítico), rojas y naranjas, o todas las zonas.</li>
+                    <li><strong className="text-foreground">Ámbito territorial:</strong> Todo el país o entidades específicas (las 32 Juntas Locales Ejecutivas).</li>
+                    <li><strong className="text-foreground">Efecto y cobertura:</strong> Efecto máximo esperado (0 a 10 pp) y porcentaje de cobertura en territorio (0 a 100 %).</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Bloque 2: Regla de combinación (Rendimientos Decrecientes) */}
+              <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-3 text-xs">
+                <div>
+                  <h3 className="font-bold text-foreground text-sm flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-primary shrink-0"></span>
+                    Regla de combinación: Rendimientos decrecientes
+                  </h3>
+                  <p className="text-muted-foreground mt-1 leading-relaxed">
+                    Cuando dos o más campañas coinciden sobre un mismo municipio, sus efectos no se suman de manera lineal (lo que sobrestimaría votos recuperables y podría arrojar participaciones imposibles superiores al 100 %). Cada campaña adicional actúa sucesivamente sobre la <strong className="text-foreground">abstención remanente</strong> con rendimientos decrecientes.
+                  </p>
+                </div>
+
+                {/* Fórmula */}
+                <div className="font-mono text-foreground bg-card p-3.5 rounded-xl border border-border leading-relaxed overflow-x-auto shadow-2xs space-y-1.5">
+                  <div className="text-muted-foreground font-sans text-[11px] font-semibold">
+                    Fórmula matemática por municipio i con abstención base a_i = 1 − participacion_i:
+                  </div>
+                  <div>
+                    1. Efecto ponderado de campaña c: <span className="text-primary font-bold">Δ_c,i = (effect_pp/100) · (coverage/100) · w_c,i</span> (si i cumple focalización y ámbito; 0 si no)
+                  </div>
+                  <div>
+                    2. Tasa de reducción relativa: <span className="text-primary font-bold">r_c,i = min(Δ_c,i / a_i, 1)</span>
+                  </div>
+                  <div>
+                    3. Abstención combinada nueva: <span className="text-primary font-bold">a&apos;_i = a_i · ∏_c (1 − r_c,i)</span>
+                  </div>
+                  <div>
+                    4. Participación nueva proyectada: <span className="text-primary font-bold">min(1 − a&apos;_i, 0.98)</span> (tope institucional de 98 %)
+                  </div>
+                </div>
+
+                {/* Ejemplo ilustrativo */}
+                <div className="p-3.5 rounded-lg bg-primary-soft/40 border border-primary/20 space-y-2 text-foreground">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                      Ejemplo ilustrativo hipotético (60 % de abstención base):
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Consideremos un municipio con una abstención inicial del 60 % (<span className="font-mono text-foreground font-semibold">a = 0.60</span>) y dos campañas concurrentes:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px]">
+                    <div className="bg-card p-2.5 rounded border border-border">
+                      <strong className="font-sans text-primary block">Campaña 1 (Voto joven):</strong>
+                      Efecto esperado: Δ₁ = 6.0 pp (0.06)<br />
+                      Tasa r₁ = 0.06 / 0.60 = 0.10 (reduce 10 % de la abstención)
+                    </div>
+                    <div className="bg-card p-2.5 rounded border border-border">
+                      <strong className="font-sans text-primary block">Campaña 2 (Casillas rurales):</strong>
+                      Efecto esperado: Δ₂ = 4.0 pp (0.04)<br />
+                      Tasa r₂ = 0.04 / 0.60 = 0.0667 (reduce 6.67 % remanente)
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-card border border-border text-[11px] leading-relaxed">
+                    <strong className="font-sans text-foreground">Resultado combinado: </strong>
+                    <span className="font-mono text-primary font-bold">a&apos; = 0.60 × (1 − 0.10) × (1 − 0.0667) = 0.60 × 0.90 × 0.9333 = 0.504 (50.4 % de abstención)</span>.
+                    <br />
+                    Reducción total combinada: <strong className="text-good font-semibold">−9.6 pp</strong> (en lugar de −10.0 pp de una suma lineal). La diferencia de 0.4 pp refleja que la segunda campaña incide sobre electores ya motivados por la primera.
+                  </div>
+                  <span className="text-[10px] text-muted-foreground italic block">
+                    * Nota: Si se configura una sola campaña, la fórmula equivale exactamente a la resta directa a_i − Δ, manteniendo idénticas todas las cifras históricas del sistema.
+                  </span>
+                </div>
+              </div>
+
+              {/* Bloque 3: Ámbito territorial por estado y métricas de traslape */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                  <h3 className="font-bold text-foreground text-sm flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-primary shrink-0"></span>
+                    Ámbito territorial: Todo el país o Estados (JLE)
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    El ámbito por estado se estructura directamente sobre las <strong className="text-foreground">32 Juntas Locales Ejecutivas (JLE)</strong> del INE.
+                  </p>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Un municipio es intervenido por una campaña si y solo si cumple la intersección de dos condiciones:
+                  </p>
+                  <div className="bg-card p-2.5 rounded-lg border border-border font-mono text-[11px] text-foreground">
+                    interviene = (ent ∈ ámbito_campaña) AND (categoría_base ∈ focalización_campaña)
+                  </div>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Si el ámbito se deja en &quot;Todo el país&quot;, la campaña abarca todas las entidades federativas que coincidan con la focalización de riesgo.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2">
+                  <h3 className="font-bold text-foreground text-sm flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-primary shrink-0"></span>
+                    Cómo leer &quot;si fuera la única&quot; y &quot;traslape&quot;
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    Al simular varias campañas, el panel de resultados desglosa tres niveles de análisis:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-muted-foreground leading-relaxed pl-1">
+                    <li><strong className="text-foreground">Votos solo (&quot;si fuera la única&quot;):</strong> Impacto que aportaría esa campaña de forma aislada, sin ninguna otra acción compitiendo por la misma abstención.</li>
+                    <li><strong className="text-foreground">Suma individual (Σ votos solo):</strong> Suma aritmética ingenua de todas las campañas como silos separados.</li>
+                    <li><strong className="text-foreground">Votos combinados y traslape:</strong> El total combinado aplica los rendimientos decrecientes. El <strong className="text-primary font-semibold">traslape</strong> es la diferencia (<span className="font-mono font-semibold">Σ votos solo − votos combinados ≥ 0</span>), que mide los votos que se duplicarían artificialmente al ignorar la concurrencia territorial.</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Bloque 4: Recuadro Lineamientos que respeta este simulador */}
+              <div className="p-5 rounded-xl bg-muted/40 border border-border space-y-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  <h3 className="font-display text-sm font-bold text-foreground uppercase tracking-wider">
+                    Lineamientos que respeta este simulador (Convocatoria Reto 2 y Principios Rectores del INE)
+                  </h3>
+                </div>
+
+                <p className="text-muted-foreground leading-relaxed">
+                  En apego a los principios rectores de certeza, legalidad, independencia, imparcialidad, máxima publicidad y objetividad que rigen al Instituto Nacional Electoral, el simulador opera bajo 6 salvaguardas metodológicas estrictas:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">1. Hipotético y simple</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Una única regla de combinación explicable en una frase. Todo resultado se rotula como &quot;escenario hipotético&quot; para planeación institucional y se compara contra el escenario base inercial. Nunca se presenta como evaluación de impacto causal ni efecto medido.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">2. Imparcialidad estricta</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Las campañas se dirigen exclusivamente por criterios territoriales y de riesgo (categoría de semáforo base y entidades federativas). El sistema excluye categóricamente partidos, coaliciones, preferencias políticas, intención de voto o resultados por fuerza electoral.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">3. Privacidad y anonimato</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Analítica fundamentada únicamente en datos públicos agregados y disociados a escala municipal y estatal. No procesa datos personales, no focaliza a personas individuales ni secciones electorales aisladas, y respeta la regla de supresión de microdatos.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">4. Atribuciones del INE</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Las 4 palancas operativas corresponden a funciones constitucionales del Instituto: educación cívica y promoción del voto joven, instalación y acceso a casillas rurales, materiales en lenguas originarias y difusión institucional general. Máximo una campaña por palanca (hasta 4).
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">5. Objetividad y máxima publicidad</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Las fórmulas matemáticas, los supuestos de cálculo y los rangos de sensibilidad son abiertos y públicos; los parámetros manejan rangos conservadores (efecto 0–10 pp y cobertura 0–100 %); la participación tiene un tope estricto de 98 % para evitar distorsiones teóricas.
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary text-[11px] block">6. Estructura territorial del INE</span>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      El ámbito estatal corresponde fielmente a las 32 Juntas Locales Ejecutivas (JLE) de los 31 estados y la Ciudad de México, garantizando coherencia técnica con la estructura desconcentrada de los órganos del Instituto.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </section>
 
             {/* 3. El mapa 3D */}

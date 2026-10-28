@@ -28,6 +28,12 @@ describe("Glossary (Single Source of Truth)", () => {
     "param.shock_pp",
     "param.trend_amplifier",
     "simulacion.votos",
+    // Campañas combinadas (Ola 6)
+    "campanas",
+    "ambito",
+    "combinacion",
+    "traslape",
+    "lineamientos",
     // Semáforo e indicadores
     "semaforo",
     "risk_score",
@@ -214,5 +220,37 @@ describe("Glossary (Single Source of Truth)", () => {
     expect(fullText).not.toContain("columna");
     expect(fullText).toContain("foco");
     expect(fullText).toContain("bloques");
+  });
+
+  it("contains all 5 new keys for combined campaigns (Ola 6) with valid constraints", () => {
+    const OLA6_KEYS = [
+      "campanas",
+      "ambito",
+      "combinacion",
+      "traslape",
+      "lineamientos",
+    ];
+
+    for (const key of OLA6_KEYS) {
+      expect(key in GLOSSARY, `Missing Ola 6 key ${key}`).toBe(true);
+      const entry = glossaryFor(key);
+      expect(entry?.title).toBeTruthy();
+      expect(entry?.body.length).toBeGreaterThan(0);
+      expect(entry?.body.length).toBeLessThanOrEqual(420);
+    }
+
+    // combinacion must explain diminishing returns with formula and example
+    const comb = GLOSSARY["combinacion"];
+    expect(comb.body).toContain("a'");
+    expect(comb.example).toContain("60 %");
+    expect(comb.example).toContain("-9.6 pp");
+
+    // traslape must mention individual sum vs combined
+    const traslape = GLOSSARY["traslape"];
+    expect(traslape.body.toLowerCase()).toContain("traslape");
+
+    // lineamientos mentions principles
+    const lin = GLOSSARY["lineamientos"];
+    expect(lin.body.toLowerCase()).toContain("hipotético");
   });
 });

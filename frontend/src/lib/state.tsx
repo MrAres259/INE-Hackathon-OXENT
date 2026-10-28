@@ -112,16 +112,16 @@ export function serializeMapUrlState(
 export interface AtalayaContextValue {
   scenario: ScenarioId;
   setScenario: (s: ScenarioId) => void;
-  scenarioParams: Record<string, number | string>;
-  setScenarioParams: React.Dispatch<React.SetStateAction<Record<string, number | string>>>;
+  scenarioParams: Record<string, any>;
+  setScenarioParams: React.Dispatch<React.SetStateAction<Record<string, any>>>;
   paramsByScenario: {
-    intervencion: Record<string, number | string>;
-    pesimista: Record<string, number | string>;
+    intervencion: Record<string, any>;
+    pesimista: Record<string, any>;
   };
-  leverParams: Record<string, Record<string, number | string>>;
+  leverParams: Record<string, Record<string, any>>;
   applyScenarioParams: (
     scenario: ScenarioId,
-    params: Record<string, number | string>,
+    params: Record<string, any>,
     options?: { showToast?: boolean }
   ) => Promise<ScenarioResult | undefined>;
   resetScenarioParams: (scenario: ScenarioId) => Promise<void>;
@@ -153,7 +153,7 @@ export interface AtalayaContextValue {
   selectMunicipality: (cvegeo: string) => void;
   selectRegion: (id: string | null) => void;
   resetToNational: () => void;
-  runSimulation: (customParams?: Record<string, number | string>) => Promise<void>;
+  runSimulation: (customParams?: Record<string, any>) => Promise<void>;
 }
 
 export const AtalayaContext = createContext<AtalayaContextValue | null>(null);
@@ -161,13 +161,13 @@ export const AtalayaContext = createContext<AtalayaContextValue | null>(null);
 export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   const [scenario, setScenarioState] = useState<ScenarioId>("base");
   const [paramsByScenario, setParamsByScenario] = useState<{
-    intervencion: Record<string, number | string>;
-    pesimista: Record<string, number | string>;
+    intervencion: Record<string, any>;
+    pesimista: Record<string, any>;
   }>({
     intervencion: defaultsForScenario("intervencion", null),
     pesimista: defaultsForScenario("pesimista", null),
   });
-  const [leverParams, setLeverParams] = useState<Record<string, Record<string, number | string>>>(() => {
+  const [leverParams, setLeverParams] = useState<Record<string, Record<string, any>>>(() => {
     const defs = leverDefaults(null);
     return {
       promocion_jovenes: { ...defs },
@@ -209,18 +209,33 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   }, [scenario, paramsByScenario]);
 
   const setScenarioParams = useCallback(
-    (action: React.SetStateAction<Record<string, number | string>>) => {
+    (action: React.SetStateAction<Record<string, any>>) => {
       if (scenario === "base") return;
       setParamsByScenario((prev) => {
         const current = prev[scenario] ?? {};
         const next = typeof action === "function" ? action(current) : action;
         if (scenario === "intervencion") {
-          const activeLever = String(next.lever || current.lever || "promocion_jovenes");
-          const { lever: _l, ...leverFields } = next;
-          setLeverParams((lp) => ({
-            ...lp,
-            [activeLever]: { ...(lp[activeLever] ?? {}), ...leverFields },
-          }));
+          if (Array.isArray(next.campaigns)) {
+            setLeverParams((lp) => {
+              const nextLp = { ...lp };
+              for (const c of next.campaigns) {
+                nextLp[c.lever] = {
+                  targeting: c.targeting,
+                  effect_pp: c.effect_pp,
+                  coverage: c.coverage,
+                  ents: c.ents ?? [],
+                };
+              }
+              return nextLp;
+            });
+          } else {
+            const activeLever = String(next.lever || current.lever || "promocion_jovenes");
+            const { lever: _l, ...leverFields } = next;
+            setLeverParams((lp) => ({
+              ...lp,
+              [activeLever]: { ...(lp[activeLever] ?? {}), ...leverFields },
+            }));
+          }
         }
         return {
           ...prev,
@@ -471,12 +486,27 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
             [scenarioToApply]: resolved,
           }));
           if (scenarioToApply === "intervencion") {
-            const activeLever = String(resolved.lever || "promocion_jovenes");
-            const { lever: _l, ...leverFields } = resolved;
-            setLeverParams((prev) => ({
-              ...prev,
-              [activeLever]: leverFields,
-            }));
+            if (Array.isArray(resolved.campaigns)) {
+              setLeverParams((prev) => {
+                const nextLp = { ...prev };
+                for (const c of resolved.campaigns) {
+                  nextLp[c.lever] = {
+                    targeting: c.targeting,
+                    effect_pp: c.effect_pp,
+                    coverage: c.coverage,
+                    ents: c.ents ?? [],
+                  };
+                }
+                return nextLp;
+              });
+            } else {
+              const activeLever = String(resolved.lever || "promocion_jovenes");
+              const { lever: _l, ...leverFields } = resolved;
+              setLeverParams((prev) => ({
+                ...prev,
+                [activeLever]: leverFields,
+              }));
+            }
           }
           if (scenario === scenarioToApply) {
             setRiskItems(res.items);
@@ -518,8 +548,8 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
       const defaults = defaultsForScenario(scenarioToReset, meta);
       if (scenarioToReset === "intervencion") {
         const defLever = String(defaults.lever ?? "promocion_jovenes");
-        const { lever: _l, ...defFields } = defaults;
-        setLeverParams({ [defLever]: defFields });
+        const lvrDefs = leverDefaults(meta);
+        setLeverParams({ [defLever]: { ...lvrDefs } });
       }
       await applyScenarioParams(scenarioToReset, defaults, { showToast: false });
       showToast({
@@ -536,7 +566,7 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   );
 
   const runSimulation = useCallback(
-    async (customParams?: Record<string, number | string>) => {
+    async (customParams?: Record<string, any>) => {
       if (scenario === "base") return;
       const p = customParams ?? paramsByScenario[scenario];
       await applyScenarioParams(scenario, p);

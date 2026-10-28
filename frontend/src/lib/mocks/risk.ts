@@ -1,5 +1,4 @@
-// MOCK DATA: Deterministic mock risk items for states and selected municipalities
-import type { RiskItem, Level, ScenarioId, Category } from "../types";
+import type { RiskItem, Level, ScenarioId, Category, Campaign } from "../types";
 import { MOCK_STATES } from "./meta";
 
 // Helper to determine category from risk_score
@@ -21,8 +20,7 @@ function pseudoHash(str: string): number {
   return Math.abs((Math.sin(hash) * 10000) % 1);
 }
 
-// 32 States with realistic participation and risk profiles
-export function generateMockStates(scenario: ScenarioId = "base", params?: Record<string, number | string>): RiskItem[] {
+export function generateMockStates(scenario: ScenarioId = "base", params?: Record<string, any>): RiskItem[] {
   return MOCK_STATES.map((state) => {
     const h = pseudoHash(state.id + "_state");
     // Historical participation DIP_FED ~ 0.42 to 0.64
@@ -36,12 +34,46 @@ export function generateMockStates(scenario: ScenarioId = "base", params?: Recor
     let deltaVsBase: number | null = null;
 
     if (scenario === "intervencion") {
-      const effectPp = typeof params?.effect_pp === "number" ? params.effect_pp : 3.0;
-      const coverage = typeof params?.coverage === "number" ? params.coverage : 100;
-      const deltaPp = effectPp * (coverage / 100);
-      const delta = deltaPp / 100;
-      deltaVsBase = -Math.round(deltaPp * 10) / 10; // in pp, e.g. -3.0
-      predAbs = Math.max(0.20, Math.round((predAbs - delta) * 1000) / 1000);
+      const campaigns: Campaign[] = Array.isArray((params as any)?.campaigns) && (params as any).campaigns.length > 0
+        ? (params as any).campaigns
+        : [
+            {
+              lever: (params?.lever as string) ?? "promocion_jovenes",
+              targeting: (params?.targeting as string) ?? "rojo_naranja",
+              effect_pp: typeof params?.effect_pp === "number" ? params.effect_pp : 3.0,
+              coverage: typeof params?.coverage === "number" ? params.coverage : 100,
+              ents: Array.isArray((params as any)?.ents) ? (params as any).ents : [],
+            },
+          ];
+
+      let prod = 1.0;
+      let totalApplied = 0;
+      for (const c of campaigns) {
+        const targeting = c.targeting ?? "todos";
+        const appliesScore =
+          !params?.targeting ||
+          targeting === "todos" ||
+          (targeting === "rojo_naranja" && predAbs >= 0.30) ||
+          (targeting === "rojo" && predAbs >= 0.45);
+        const appliesEnt = !c.ents || c.ents.length === 0 || c.ents.includes(state.id);
+        if (appliesScore && appliesEnt) {
+          totalApplied++;
+          const effectPp = typeof c.effect_pp === "number" ? c.effect_pp : 3.0;
+          const coverage = typeof c.coverage === "number" ? c.coverage : 100;
+          const deltaPp = effectPp * (coverage / 100);
+          const delta = deltaPp / 100;
+          const r = Math.min(delta / predAbs, 1);
+          prod *= (1 - r);
+        }
+      }
+      if (totalApplied > 0) {
+        const newAbs = Math.max(0.02, predAbs * prod);
+        const deltaPp = (predAbs - newAbs) * 100;
+        deltaVsBase = -Math.round(deltaPp * 10) / 10;
+        predAbs = Math.max(0.20, Math.round(newAbs * 1000) / 1000);
+      } else {
+        deltaVsBase = 0;
+      }
     } else if (scenario === "pesimista") {
       const shockPp = typeof params?.shock_pp === "number" ? params.shock_pp : 2.0;
       const trendAmp = typeof params?.trend_amplifier === "number" ? params.trend_amplifier : 50;
@@ -155,7 +187,7 @@ export function getMunTemplatesForState(ent: string): MunTemplate[] {
 export function generateMockMunicipalityItems(
   ent?: string,
   scenario: ScenarioId = "base",
-  params?: Record<string, number | string>
+  params?: Record<string, any>
 ): RiskItem[] {
   if (!ent) {
     const all: RiskItem[] = [];
@@ -175,28 +207,53 @@ export function generateMockMunicipalityItems(
     let deltaVsBase: number | null = null;
 
     if (scenario === "intervencion") {
-      const targeting = (params?.targeting as string) ?? "rojo_naranja";
-      const applies =
-        targeting === "todos" ||
-        (targeting === "rojo_naranja" && m.baseRiskScore >= 55) ||
-        (targeting === "rojo" && m.baseRiskScore >= 75);
+      const campaigns: Campaign[] = Array.isArray((params as any)?.campaigns) && (params as any).campaigns.length > 0
+        ? (params as any).campaigns
+        : [
+            {
+              lever: (params?.lever as string) ?? "promocion_jovenes",
+              targeting: (params?.targeting as string) ?? "rojo_naranja",
+              effect_pp: typeof params?.effect_pp === "number" ? params.effect_pp : 3.0,
+              coverage: typeof params?.coverage === "number" ? params.coverage : 100,
+              ents: Array.isArray((params as any)?.ents) ? (params as any).ents : [],
+            },
+          ];
 
-      if (applies) {
-        const effectPp = typeof params?.effect_pp === "number" ? params.effect_pp : 3.0;
-        const coverage = typeof params?.coverage === "number" ? params.coverage : 100;
-        const lever = (params?.lever as string) ?? "promocion_jovenes";
-        let peso = 1.0;
-        if (lever === "casillas_rurales") {
-          peso = m.cvegeo.endsWith("3") || m.cvegeo.endsWith("0") ? 1.2 : 0.85;
-        } else if (lever === "materiales_lengua_indigena") {
-          peso = m.ent === "07" || m.ent === "20" ? 1.25 : 0.75;
-        } else if (lever === "promocion_jovenes") {
-          peso = m.cvegeo.endsWith("1") || m.cvegeo.endsWith("6") ? 1.15 : 0.9;
+      let prod = 1.0;
+      let totalApplied = 0;
+      for (const c of campaigns) {
+        const targeting = c.targeting ?? "rojo_naranja";
+        const applies =
+          targeting === "todos" ||
+          (targeting === "rojo_naranja" && m.baseRiskScore >= 55) ||
+          (targeting === "rojo" && m.baseRiskScore >= 75);
+        const appliesEnt = !c.ents || c.ents.length === 0 || c.ents.includes(m.ent);
+
+        if (applies && appliesEnt) {
+          totalApplied++;
+          const effectPp = typeof c.effect_pp === "number" ? c.effect_pp : 3.0;
+          const coverage = typeof c.coverage === "number" ? c.coverage : 100;
+          const lever = c.lever ?? "promocion_jovenes";
+          let peso = 1.0;
+          if (lever === "casillas_rurales") {
+            peso = m.cvegeo.endsWith("3") || m.cvegeo.endsWith("0") ? 1.2 : 0.85;
+          } else if (lever === "materiales_lengua_indigena") {
+            peso = m.ent === "07" || m.ent === "20" ? 1.25 : 0.75;
+          } else if (lever === "promocion_jovenes") {
+            peso = m.cvegeo.endsWith("1") || m.cvegeo.endsWith("6") ? 1.15 : 0.9;
+          }
+          const deltaPp = effectPp * (coverage / 100) * peso;
+          const delta = deltaPp / 100;
+          const r = Math.min(delta / predAbs, 1);
+          prod *= (1 - r);
         }
-        const deltaPp = effectPp * (coverage / 100) * peso;
-        const delta = deltaPp / 100;
+      }
+
+      if (totalApplied > 0) {
+        const newAbs = Math.max(0.02, predAbs * prod);
+        const deltaPp = (predAbs - newAbs) * 100;
         deltaVsBase = -Math.round(deltaPp * 10) / 10;
-        predAbs = Math.max(0.18, Math.round((predAbs - delta) * 1000) / 1000);
+        predAbs = Math.max(0.18, Math.round(newAbs * 1000) / 1000);
         riskScore = Math.max(10, riskScore - 18);
       } else {
         deltaVsBase = 0;

@@ -19,6 +19,15 @@ describe("scenarioParams Pure Functions", () => {
       targeting: "rojo_naranja",
       effect_pp: 3.0,
       coverage: 100,
+      campaigns: [
+        {
+          lever: "promocion_jovenes",
+          targeting: "rojo_naranja",
+          effect_pp: 3.0,
+          coverage: 100,
+          ents: [],
+        },
+      ],
       shock_pp: 2.0,
       trend_amplifier: 50,
     });
@@ -131,6 +140,15 @@ describe("scenarioParams Pure Functions", () => {
       targeting: "rojo_naranja",
       effect_pp: 3.0,
       coverage: 100,
+      campaigns: [
+        {
+          lever: "promocion_jovenes",
+          targeting: "rojo_naranja",
+          effect_pp: 3.0,
+          coverage: 100,
+          ents: [],
+        },
+      ],
     });
     expect(defaultsForScenario("pesimista", MOCK_META)).toEqual({
       shock_pp: 2.0,
@@ -159,6 +177,188 @@ describe("scenarioParams Pure Functions", () => {
       targeting: "rojo_naranja",
       effect_pp: 3.0,
       coverage: 100,
+    });
+  });
+
+  describe("Ola 6: Combined campaigns pure functions", () => {
+    it("describes multiple campaigns with short labels, scopes and states", () => {
+      const desc2 = describeScenario(
+        "intervencion",
+        {
+          campaigns: [
+            {
+              lever: "promocion_jovenes",
+              targeting: "todos",
+              effect_pp: 10,
+              coverage: 100,
+              ents: [],
+            },
+            {
+              lever: "casillas_rurales",
+              targeting: "rojo_naranja",
+              effect_pp: 5,
+              coverage: 80,
+              ents: ["07", "20"], // Chiapas, Oaxaca
+            },
+          ],
+        },
+        MOCK_META
+      );
+
+      expect(desc2).toBe(
+        "Intervención: 2 campañas · Voto joven +10 pp (todo el país) · Casillas rurales +5 pp (Chiapas, Oaxaca)"
+      );
+
+      // More than 3 states => "4 estados"
+      const descMoreStates = describeScenario(
+        "intervencion",
+        {
+          campaigns: [
+            {
+              lever: "promocion_jovenes",
+              targeting: "todos",
+              effect_pp: 10,
+              coverage: 100,
+              ents: [],
+            },
+            {
+              lever: "casillas_rurales",
+              targeting: "rojo",
+              effect_pp: 5,
+              coverage: 80,
+              ents: ["07", "20", "12", "15"], // 4 states
+            },
+          ],
+        },
+        MOCK_META
+      );
+
+      expect(descMoreStates).toBe(
+        "Intervención: 2 campañas · Voto joven +10 pp (todo el país) · Casillas rurales +5 pp (4 estados)"
+      );
+    });
+
+    it("includes campaigns and ents in paramsForScenario when meta declares campaigns", () => {
+      const result = paramsForScenario(
+        "intervencion",
+        {
+          campaigns: [
+            {
+              lever: "promocion_jovenes",
+              targeting: "todos",
+              effect_pp: 4.0,
+              coverage: 90,
+              ents: ["07"],
+            },
+            {
+              lever: "casillas_rurales",
+              targeting: "rojo",
+              effect_pp: 2.5,
+              coverage: 60,
+              ents: ["20"],
+            },
+          ],
+        },
+        MOCK_META
+      );
+
+      expect(result.campaigns).toHaveLength(2);
+      expect(result.campaigns[0].ents).toEqual(["07"]);
+      expect(result.campaigns[1].ents).toEqual(["20"]);
+      // Also populates first campaign's loose keys for backward compatibility
+      expect(result.lever).toBe("promocion_jovenes");
+      expect(result.effect_pp).toBe(4.0);
+    });
+
+    it("sends only first campaign loose keys without campaigns when meta lacks campaigns spec", () => {
+      // Mock meta where intervencion does NOT declare campaigns
+      const metaWithoutCampaigns = {
+        ...MOCK_META,
+        scenarios: MOCK_META.scenarios.map((s) =>
+          s.id === "intervencion"
+            ? { ...s, params: s.params.filter((p) => p.key !== "campaigns") }
+            : s
+        ),
+      };
+
+      const result = paramsForScenario(
+        "intervencion",
+        {
+          campaigns: [
+            {
+              lever: "casillas_rurales",
+              targeting: "rojo",
+              effect_pp: 4.5,
+              coverage: 85,
+              ents: ["07"],
+            },
+            {
+              lever: "promocion_jovenes",
+              targeting: "todos",
+              effect_pp: 5.0,
+              coverage: 100,
+              ents: [],
+            },
+          ],
+        },
+        metaWithoutCampaigns
+      );
+
+      expect(result.campaigns).toBeUndefined();
+      expect(result.lever).toBe("casillas_rurales");
+      expect(result.targeting).toBe("rojo");
+      expect(result.effect_pp).toBe(4.5);
+      expect(result.coverage).toBe(85);
+    });
+
+    it("detects modification when campaigns count > 1 or ents is non-empty", () => {
+      const defaultInterv = defaultsForScenario("intervencion", MOCK_META);
+      expect(isScenarioModified("intervencion", defaultInterv, MOCK_META)).toBe(false);
+
+      // Multiple campaigns => modified
+      expect(
+        isScenarioModified(
+          "intervencion",
+          {
+            campaigns: [
+              {
+                lever: "promocion_jovenes",
+                targeting: "rojo_naranja",
+                effect_pp: 3.0,
+                coverage: 100,
+                ents: [],
+              },
+              {
+                lever: "casillas_rurales",
+                targeting: "rojo",
+                effect_pp: 3.0,
+                coverage: 100,
+                ents: [],
+              },
+            ],
+          },
+          MOCK_META
+        )
+      ).toBe(true);
+
+      // 1 campaign with state scope => modified
+      expect(
+        isScenarioModified(
+          "intervencion",
+          {
+            campaigns: [
+              {
+                lever: "promocion_jovenes",
+                targeting: "rojo_naranja",
+                effect_pp: 3.0,
+                coverage: 100,
+                ents: ["07"],
+              },
+            ],
+          },
+          MOCK_META
+        )
+      ).toBe(true);
     });
   });
 });

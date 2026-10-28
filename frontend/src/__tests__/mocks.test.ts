@@ -153,4 +153,54 @@ describe("Deterministic Mock Logic", () => {
     expect(result.summary.votos_adicionales).toBeGreaterThan(0);
     expect(result.summary.mean_delta_pp).toBeLessThan(0);
   });
+
+  it("simulates multiple campaigns with diminishing returns, breakdown and overlap", () => {
+    const result = simulateMockScenario({
+      scenario: "intervencion",
+      level: "mun",
+      ent: null,
+      params: {
+        campaigns: [
+          {
+            lever: "promocion_jovenes",
+            targeting: "todos",
+            effect_pp: 5.0,
+            coverage: 100,
+            ents: [],
+          },
+          {
+            lever: "casillas_rurales",
+            targeting: "rojo_naranja",
+            effect_pp: 4.0,
+            coverage: 80,
+            ents: ["07"], // Chiapas only
+          },
+        ],
+      },
+    });
+
+    expect(result.summary.campaigns).toBeDefined();
+    expect(result.summary.campaigns).toHaveLength(2);
+
+    const c1 = result.summary.campaigns![0];
+    const c2 = result.summary.campaigns![1];
+
+    expect(c1.lever).toBe("promocion_jovenes");
+    expect(c1.votos_solo).toBeGreaterThan(0);
+    expect(c1.n_target_units).toBeGreaterThan(100);
+
+    expect(c2.lever).toBe("casillas_rurales");
+    expect(c2.votos_solo).toBeGreaterThan(0);
+    expect(c2.ents).toEqual(["07"]);
+
+    // Diminishing returns: individual sum >= combined votes
+    expect(result.summary.votos_suma_individual).toBeDefined();
+    expect(result.summary.votos_traslape).toBeDefined();
+    expect(result.summary.votos_suma_individual!).toBe(c1.votos_solo + c2.votos_solo);
+    expect(result.summary.votos_suma_individual!).toBeGreaterThanOrEqual(result.summary.votos_adicionales);
+    expect(result.summary.votos_traslape!).toBe(
+      result.summary.votos_suma_individual! - result.summary.votos_adicionales
+    );
+    expect(result.summary.votos_traslape!).toBeGreaterThanOrEqual(0);
+  });
 });

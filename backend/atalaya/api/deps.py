@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import copy
 import functools
 import json
 import logging
@@ -86,7 +87,7 @@ def cached_simulate(
     if cache_key in _SIMULATE_CACHE:
         _SIMULATE_CACHE.move_to_end(cache_key)
         items_df, summary = _SIMULATE_CACHE[cache_key]
-        return items_df.copy(), dict(summary)
+        return items_df.copy(), copy.deepcopy(summary)
 
     units_all = get_units_df()
     items_df, summary = model_simulate(
@@ -101,7 +102,7 @@ def cached_simulate(
         _SIMULATE_CACHE.popitem(last=False)
 
     _SIMULATE_CACHE[cache_key] = (items_df, summary)
-    return items_df.copy(), dict(summary)
+    return items_df.copy(), copy.deepcopy(summary)
 
 
 def get_reco_reference(level: str = "mun") -> Any:

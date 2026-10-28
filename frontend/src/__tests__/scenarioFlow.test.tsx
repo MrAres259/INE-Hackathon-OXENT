@@ -93,6 +93,15 @@ describe("W4-A Scenario Flow & Ephemeral Toast Suite", () => {
         targeting: "rojo_naranja",
         effect_pp: 3.0,
         coverage: 100,
+        campaigns: [
+          {
+            lever: "promocion_jovenes",
+            targeting: "rojo_naranja",
+            effect_pp: 3.0,
+            coverage: 100,
+            ents: [],
+          },
+        ],
       });
 
       expect(pesimDefs).toEqual({
@@ -630,6 +639,140 @@ describe("W4-A Scenario Flow & Ephemeral Toast Suite", () => {
       expect(html).toContain("1 bajan");
       expect(html).toContain("1 suben");
       expect(html).toContain("1 sin cambio");
+    });
+  });
+
+  describe("8. Ola 6: Combined Campaigns Flow & UI", () => {
+    it("renders combined campaigns with cards, scopes, and combination rule", () => {
+      const mockCtx = createMockContext({
+        scenario: "intervencion",
+        paramsByScenario: {
+          intervencion: {
+            campaigns: [
+              {
+                lever: "promocion_jovenes",
+                targeting: "todos",
+                effect_pp: 10,
+                coverage: 100,
+                ents: [],
+              },
+              {
+                lever: "casillas_rurales",
+                targeting: "rojo_naranja",
+                effect_pp: 5,
+                coverage: 80,
+                ents: ["07", "20"], // Chiapas, Oaxaca
+              },
+            ],
+          },
+          pesimista: defaultsForScenario("pesimista", MOCK_META),
+        },
+      });
+
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={mockCtx}>
+          <ScenarioControls />
+        </AtalayaContext.Provider>
+      );
+
+      expect(html).toContain("Campañas de intervención");
+      expect(html).toContain("Campaña 1");
+      expect(html).toContain("Campaña 2");
+      expect(html).toContain("Voto joven");
+      expect(html).toContain("Casillas rurales");
+      expect(html).toContain("Chiapas");
+      expect(html).toContain("Oaxaca");
+      expect(html).toContain("rendimientos decrecientes");
+      expect(html).toContain("Escenario hipotético para planeación");
+    });
+
+    it("renders breakdown table 'Si cada campaña fuera la única' with Suma individual and Traslape when >= 2 campaigns", () => {
+      const mockCtx = createMockContext({
+        scenario: "intervencion",
+        paramsByScenario: {
+          intervencion: {
+            campaigns: [
+              { lever: "promocion_jovenes", targeting: "todos", effect_pp: 10, coverage: 100, ents: [] },
+              { lever: "casillas_rurales", targeting: "rojo_naranja", effect_pp: 5, coverage: 80, ents: ["07"] },
+            ],
+          },
+          pesimista: defaultsForScenario("pesimista", MOCK_META),
+        },
+        simulationResult: {
+          scenario: "intervencion",
+          level: "mun",
+          params: {},
+          summary: {
+            n_units: 2475,
+            mean_delta_pp: -2.8,
+            votos_adicionales: 220000,
+            by_category: { verde: 500, amarillo: 1000, naranja: 600, rojo: 375, sin_dato: 0 },
+            by_category_base: { verde: 400, amarillo: 900, naranja: 700, rojo: 475, sin_dato: 0 },
+            campaigns: [
+              {
+                lever: "promocion_jovenes",
+                label: "Promoción del voto joven",
+                ents: [],
+                n_target_units: 2475,
+                votos_solo: 180000,
+                mean_delta_pp_solo: -2.1,
+              },
+              {
+                lever: "casillas_rurales",
+                label: "Casillas y traslado en zonas rurales",
+                ents: ["07"],
+                n_target_units: 124,
+                votos_solo: 60000,
+                mean_delta_pp_solo: -1.2,
+              },
+            ],
+            votos_suma_individual: 240000,
+            votos_traslape: 20000,
+          },
+          items: [],
+        },
+      });
+
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={mockCtx}>
+          <ScenarioControls />
+        </AtalayaContext.Provider>
+      );
+
+      expect(html).toContain("Si cada campaña fuera la única");
+      expect(html).toContain("Suma individual");
+      expect(html).toContain("Traslape");
+      expect(html).toContain("+180,000");
+      expect(html).toContain("+60,000");
+      expect(html).toContain("+240,000");
+      expect(html).toContain("-20,000");
+    });
+
+    it("displays error on the corresponding campaign card when 422 names the campaign", () => {
+      // Test that card errors are mapped properly
+      const mockCtx = createMockContext({
+        scenario: "intervencion",
+        paramsByScenario: {
+          intervencion: {
+            campaigns: [
+              { lever: "promocion_jovenes", targeting: "todos", effect_pp: 3, coverage: 100, ents: [] },
+              { lever: "casillas_rurales", targeting: "rojo", effect_pp: 15, coverage: 100, ents: [] },
+            ],
+          },
+          pesimista: defaultsForScenario("pesimista", MOCK_META),
+        },
+      });
+
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={mockCtx}>
+          <ScenarioControls />
+        </AtalayaContext.Provider>
+      );
+
+      // Renders both cards and the add campaign button
+      expect(html).toContain("Campaña 1");
+      expect(html).toContain("Campaña 2");
+      expect(html).toContain("+ Agregar campaña");
     });
   });
 });

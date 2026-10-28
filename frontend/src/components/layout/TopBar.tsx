@@ -25,9 +25,15 @@ export function TopBar() {
     hasData,
     isScenarioModified,
     resetScenarioParams,
+    paramsByScenario,
   } = useAtalaya();
 
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
+  const campaignsCount =
+    scenario === "intervencion" && Array.isArray(paramsByScenario.intervencion?.campaigns)
+      ? paramsByScenario.intervencion.campaigns.length
+      : 1;
 
   const handleOpenGuide = () => {
     if (typeof window !== "undefined") {
@@ -101,7 +107,11 @@ export function TopBar() {
                   title="Restablecer valores originales"
                   aria-label="Restablecer valores originales"
                 >
-                  <span>Modificado</span>
+                  <span>
+                    {scenario === "intervencion" && campaignsCount >= 2
+                      ? `${campaignsCount} campañas`
+                      : "Modificado"}
+                  </span>
                   <span className="text-muted-foreground/60">·</span>
                   <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -304,10 +314,13 @@ export function TopBar() {
                 <button
                   type="button"
                   onClick={() => resetScenarioParams(scenario)}
-                  className="h-8 min-w-[40px] px-2 rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+                  className="h-8 min-w-[40px] px-2 rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 transition-colors shrink-0 cursor-pointer text-xs"
                   title="Restablecer valores originales"
                   aria-label="Restablecer valores originales"
                 >
+                  {scenario === "intervencion" && campaignsCount >= 2 && (
+                    <span className="font-medium">{campaignsCount} camp. ·</span>
+                  )}
                   <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"

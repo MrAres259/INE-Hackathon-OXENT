@@ -63,7 +63,26 @@ SCENARIOS: list[dict] = [
                 "default": 100,
                 "unit": "%",
             },
+            {
+                "key": "campaigns",
+                "label": "Campañas de intervención",
+                "type": "campaigns",
+                "max": 4,
+                "default": [
+                    {
+                        "lever": "promocion_jovenes",
+                        "targeting": "rojo_naranja",
+                        "effect_pp": 3.0,
+                        "coverage": 100,
+                        "ents": [],
+                    }
+                ],
+            },
         ],
+        "campaign_rules": {
+            "combination": "rendimientos_decrecientes",
+            "max_participation": 0.98,
+        },
     },
     {
         "id": "pesimista",
@@ -99,42 +118,208 @@ def default_params(scenario: str) -> dict:
     """Returns default parameters dictionary for the given scenario ID."""
     for sc in SCENARIOS:
         if sc["id"] == scenario:
-            return {p["key"]: p["default"] for p in sc["params"]}
+            return {p["key"]: p["default"] for p in sc["params"] if p["key"] != "campaigns"}
     valid_ids = [sc["id"] for sc in SCENARIOS]
     raise ValueError(f"Escenario desconocido: '{scenario}'. Opciones válidas: {', '.join(valid_ids)}")
 
 
-def _validate_and_merge_params(scenario: str, params: dict | None) -> dict:
+VALID_LEVERS = [
+    "promocion_jovenes",
+    "casillas_rurales",
+    "materiales_lengua_indigena",
+    "campana_general",
+]
+
+LEVER_LABELS = {
+    "promocion_jovenes": "Promoción del voto joven",
+    "casillas_rurales": "Casillas y traslado en zonas rurales",
+    "materiales_lengua_indigena": "Materiales y capacitación en lenguas indígenas",
+    "campana_general": "Campaña general de promoción del voto",
+}
+
+VALID_TARGETINGS = ["rojo", "rojo_naranja", "todos"]
+
+MEXICAN_STATES = {f"{i:02d}" for i in range(1, 33)}
+
+
+def _lever_weight(mun_df: pd.DataFrame, lever: str) -> pd.Series:
+    """Calculates lever weight w_i for municipalities in mun_df."""
+    if lever == "campana_general":
+        return pd.Series(1.0, index=mun_df.index)
+
+    lever_col_map = {
+        "promocion_jovenes": "pct_18_24",
+        "casillas_rurales": "pct_rural",
+        "materiales_lengua_indigena": "pct_hli",
+    }
+    col = lever_col_map.get(lever)
+    if col and col in mun_df.columns:
+        x = mun_df[col].dropna()
+        if len(x) > 0:
+            p75 = float(np.percentile(x, 75))
+            if p75 == 0.0:
+                max_x = float(x.max())
+                p75 = max_x if max_x > 0.0 else 1.0
+        else:
+            p75 = 1.0
+        w_raw = mun_df[col] / p75
+        return w_raw.fillna(0.0).clip(0.0, 1.5)
+    return pd.Series(0.0, index=mun_df.index)
+
+
+def _campaign_target(
+    mun_df: pd.DataFrame,
+    targeting: str,
+    ents: list[str] | None,
+    has_part: pd.Series,
+) -> pd.Series:
+    """Computes boolean Series indicating if municipality i is in campaign target."""
+    if targeting == "rojo":
+        cat_match = mun_df["category"] == "rojo"
+    elif targeting == "rojo_naranja":
+        cat_match = mun_df["category"].isin(["rojo", "naranja"])
+    else:  # todos
+        cat_match = mun_df["category"].ne("sin_dato")
+
+    mask = cat_match & has_part
+
+    if ents:
+        ents_set = set(ents)
+        if "cve_ent" in mun_df.columns:
+            mun_ents = mun_df["cve_ent"].astype(str).str.zfill(2)
+        elif "ent" in mun_df.columns:
+            mun_ents = mun_df["ent"].astype(str).str.zfill(2)
+        elif "cvegeo" in mun_df.columns:
+            mun_ents = mun_df["cvegeo"].astype(str).str.zfill(5).str[:2]
+        else:
+            mun_ents = mun_df["id"].astype(str).str.zfill(5).str[:2]
+        mask = mask & mun_ents.isin(ents_set)
+
+    return mask
+
+
+def _campaigns_from_params(params: dict | None, valid_ents: set[str] | None = None) -> list[dict]:
+    """Normalizes intervention parameters to a validated list of campaigns."""
+    if params and "campaigns" in params:
+        raw_campaigns = params["campaigns"]
+        if raw_campaigns is None:
+            raw_campaigns = []
+        if not isinstance(raw_campaigns, list):
+            raise ValueError("El parámetro 'campaigns' debe ser una lista de campañas")
+        if len(raw_campaigns) == 0:
+            raise ValueError("El número de campañas debe estar entre 1 y 4 (recibido: 0)")
+        if len(raw_campaigns) > 4:
+            raise ValueError(f"Campaña {len(raw_campaigns)}: Se permite un máximo de 4 campañas (recibido: {len(raw_campaigns)})")
+
+        seen_levers: set[str] = set()
+        validated: list[dict] = []
+        for idx, camp in enumerate(raw_campaigns, start=1):
+            if not isinstance(camp, dict):
+                raise ValueError(f"Campaña {idx}: debe ser un objeto")
+
+            lever = camp.get("lever")
+            if lever not in VALID_LEVERS:
+                raise ValueError(f"Campaña {idx}: Palanca inválida: '{lever}'. Opciones válidas: {', '.join(VALID_LEVERS)}")
+            if lever in seen_levers:
+                raise ValueError(f"Campaña {idx}: Palanca repetida: '{lever}'. Cada campaña debe tener una palanca distinta")
+            seen_levers.add(lever)
+
+            targeting = camp.get("targeting")
+            if targeting not in VALID_TARGETINGS:
+                raise ValueError(f"Campaña {idx}: Focalización inválida: '{targeting}'. Opciones válidas: {', '.join(VALID_TARGETINGS)}")
+
+            try:
+                effect_pp = float(camp.get("effect_pp", 0))
+            except (ValueError, TypeError):
+                raise ValueError(f"Campaña {idx}: El parámetro 'effect_pp' debe ser numérico")
+            if not (0.0 <= effect_pp <= 10.0):
+                raise ValueError(f"Campaña {idx}: El efecto debe estar entre 0 y 10 pp (recibido: {effect_pp})")
+
+            try:
+                coverage = float(camp.get("coverage", 0))
+            except (ValueError, TypeError):
+                raise ValueError(f"Campaña {idx}: El parámetro 'coverage' debe ser numérico")
+            if not (0.0 <= coverage <= 100.0):
+                raise ValueError(f"Campaña {idx}: La cobertura debe estar entre 0% y 100% (recibido: {coverage})")
+
+            raw_ents = camp.get("ents")
+            if raw_ents is None:
+                raw_ents = []
+            if not isinstance(raw_ents, (list, tuple)):
+                raise ValueError(f"Campaña {idx}: 'ents' debe ser una lista de claves de entidad")
+
+            cleaned_ents: list[str] = []
+            for e in raw_ents:
+                if not isinstance(e, str) or len(e) != 2 or not e.isdigit():
+                    raise ValueError(f"Campaña {idx}: Clave de entidad inválida: '{e}'. Debe ser una clave de 2 dígitos")
+                if valid_ents is not None and e not in valid_ents:
+                    raise ValueError(f"Campaña {idx}: Clave de entidad '{e}' no existe en los datos")
+                elif valid_ents is None and e not in MEXICAN_STATES:
+                    raise ValueError(f"Campaña {idx}: Clave de entidad '{e}' no existe en los datos")
+                if e not in cleaned_ents:
+                    cleaned_ents.append(e)
+
+            validated.append({
+                "lever": lever,
+                "targeting": targeting,
+                "effect_pp": effect_pp,
+                "coverage": coverage,
+                "ents": cleaned_ents,
+            })
+        return validated
+
+    # Legacy fallback: single campaign from top-level keys
+    lever = params.get("lever", "promocion_jovenes") if params else "promocion_jovenes"
+    if lever not in VALID_LEVERS:
+        raise ValueError(f"Palanca inválida: '{lever}'. Opciones válidas: {', '.join(VALID_LEVERS)}")
+
+    targeting = params.get("targeting", "rojo_naranja") if params else "rojo_naranja"
+    if targeting not in VALID_TARGETINGS:
+        raise ValueError(f"Focalización inválida: '{targeting}'. Opciones válidas: {', '.join(VALID_TARGETINGS)}")
+
+    raw_effect = params.get("effect_pp", 3.0) if params else 3.0
+    try:
+        effect_pp = float(raw_effect)
+    except (ValueError, TypeError):
+        raise ValueError("El parámetro 'effect_pp' debe ser numérico")
+    if not (0.0 <= effect_pp <= 10.0):
+        raise ValueError(f"El efecto debe estar entre 0 y 10 pp (recibido: {effect_pp})")
+
+    raw_cov = params.get("coverage", 100) if params else 100
+    try:
+        coverage = float(raw_cov)
+    except (ValueError, TypeError):
+        raise ValueError("El parámetro 'coverage' debe ser numérico")
+    if not (0.0 <= coverage <= 100.0):
+        raise ValueError(f"La cobertura debe estar entre 0% y 100% (recibido: {coverage})")
+
+    return [
+        {
+            "lever": lever,
+            "targeting": targeting,
+            "effect_pp": effect_pp,
+            "coverage": coverage,
+            "ents": [],
+        }
+    ]
+
+
+def _validate_and_merge_params(
+    scenario: str,
+    params: dict | None,
+    valid_ents: set[str] | None = None,
+) -> dict:
     merged = default_params(scenario)
     if params:
         merged.update(params)
 
     if scenario == "intervencion":
-        lever = merged.get("lever")
-        valid_levers = ["promocion_jovenes", "casillas_rurales", "materiales_lengua_indigena", "campana_general"]
-        if lever not in valid_levers:
-            raise ValueError(f"Palanca inválida: '{lever}'. Opciones válidas: {', '.join(valid_levers)}")
-
-        targeting = merged.get("targeting")
-        valid_targetings = ["rojo", "rojo_naranja", "todos"]
-        if targeting not in valid_targetings:
-            raise ValueError(f"Focalización inválida: '{targeting}'. Opciones válidas: {', '.join(valid_targetings)}")
-
-        try:
-            effect_pp = float(merged.get("effect_pp", 0))
-        except (ValueError, TypeError):
-            raise ValueError("El parámetro 'effect_pp' debe ser numérico")
-        if not (0.0 <= effect_pp <= 10.0):
-            raise ValueError(f"El efecto debe estar entre 0 y 10 pp (recibido: {effect_pp})")
-        merged["effect_pp"] = effect_pp
-
-        try:
-            coverage = float(merged.get("coverage", 0))
-        except (ValueError, TypeError):
-            raise ValueError("El parámetro 'coverage' debe ser numérico")
-        if not (0.0 <= coverage <= 100.0):
-            raise ValueError(f"La cobertura debe estar entre 0% y 100% (recibido: {coverage})")
-        merged["coverage"] = coverage
+        merged["campaigns"] = _campaigns_from_params(params, valid_ents=valid_ents)
+        c0 = merged["campaigns"][0]
+        merged["lever"] = c0["lever"]
+        merged["targeting"] = c0["targeting"]
+        merged["effect_pp"] = c0["effect_pp"]
+        merged["coverage"] = c0["coverage"]
 
     elif scenario == "pesimista":
         try:
@@ -186,8 +371,6 @@ def simulate(
     if level not in ["mun", "state"]:
         raise ValueError(f"Nivel geográfico inválido: '{level}'. Opciones: 'mun', 'state'")
 
-    cfg = _validate_and_merge_params(scenario, params)
-
     # 1. Base municipal data
     if "level" in units.columns:
         mun_df = units[units["level"] == "mun"].copy()
@@ -195,6 +378,12 @@ def simulate(
         mun_df = units.copy()
 
     ent_col = "cve_ent" if "cve_ent" in mun_df.columns else ("ent" if "ent" in mun_df.columns else "id")
+    valid_ents = set(mun_df[ent_col].dropna().astype(str).str.zfill(2).unique())
+    if "id" in units.columns and "level" in units.columns:
+        state_ids = units.loc[units["level"] == "state", "id"].dropna().astype(str).str.zfill(2)
+        valid_ents.update(state_ids)
+
+    cfg = _validate_and_merge_params(scenario, params, valid_ents=valid_ents)
 
     base_part = mun_df["pred_participation"].copy()
     base_abs = 1.0 - base_part
@@ -207,46 +396,28 @@ def simulate(
         pass
 
     elif scenario == "intervencion":
-        targeting = cfg["targeting"]
-        lever = cfg["lever"]
-        effect_pp = cfg["effect_pp"]
-        coverage = cfg["coverage"]
+        campaigns = cfg["campaigns"]
 
-        # Objective set by base category
-        if targeting == "rojo":
-            in_target = (mun_df["category"] == "rojo") & has_part
-        elif targeting == "rojo_naranja":
-            in_target = mun_df["category"].isin(["rojo", "naranja"]) & has_part
-        else:  # todos
-            in_target = mun_df["category"].ne("sin_dato") & has_part
-
-        # Weight w_i
-        if lever == "campana_general":
-            w = pd.Series(1.0, index=mun_df.index)
+        if len(campaigns) == 1:
+            c = campaigns[0]
+            in_target = _campaign_target(mun_df, c["targeting"], c.get("ents", []), has_part)
+            w = _lever_weight(mun_df, c["lever"])
+            delta = (c["effect_pp"] / 100.0) * (c["coverage"] / 100.0) * w
+            new_part_target = np.minimum(base_part[in_target] + delta[in_target], 0.98)
+            new_part.loc[in_target] = new_part_target
         else:
-            lever_col_map = {
-                "promocion_jovenes": "pct_18_24",
-                "casillas_rurales": "pct_rural",
-                "materiales_lengua_indigena": "pct_hli",
-            }
-            col = lever_col_map.get(lever)
-            if col and col in mun_df.columns:
-                x = mun_df[col].dropna()
-                if len(x) > 0:
-                    p75 = float(np.percentile(x, 75))
-                    if p75 == 0.0:
-                        max_x = float(x.max())
-                        p75 = max_x if max_x > 0.0 else 1.0
-                else:
-                    p75 = 1.0
-                w_raw = mun_df[col] / p75
-                w = w_raw.fillna(0.0).clip(0.0, 1.5)
-            else:
-                w = pd.Series(0.0, index=mun_df.index)
-
-        delta = (effect_pp / 100.0) * (coverage / 100.0) * w
-        new_part_target = np.minimum(base_part[in_target] + delta[in_target], 0.98)
-        new_part.loc[in_target] = new_part_target
+            factor_prod = pd.Series(1.0, index=mun_df.index, dtype=float)
+            for c in campaigns:
+                in_target_c = _campaign_target(mun_df, c["targeting"], c.get("ents", []), has_part)
+                w_c = _lever_weight(mun_df, c["lever"])
+                delta_c = (c["effect_pp"] / 100.0) * (c["coverage"] / 100.0) * w_c
+                delta_c = delta_c.where(in_target_c, 0.0)
+                denom = np.maximum(base_abs.loc[has_part], 1e-12)
+                r_c = pd.Series(0.0, index=mun_df.index, dtype=float)
+                r_c.loc[has_part] = np.minimum(delta_c.loc[has_part] / denom, 1.0)
+                factor_prod = factor_prod * (1.0 - r_c)
+            new_abs_interv = base_abs.loc[has_part] * factor_prod.loc[has_part]
+            new_part.loc[has_part] = np.minimum(1.0 - new_abs_interv, 0.98)
 
     elif scenario == "pesimista":
         shock_pp = cfg["shock_pp"]
@@ -435,5 +606,51 @@ def simulate(
         "votos_adicionales": votos_adicionales,
         "mean_delta_pp": mean_delta_pp,
     }
+
+    if scenario == "intervencion":
+        campaigns = cfg.get("campaigns", [])
+        campaigns_summary = []
+        for c in campaigns:
+            in_target_c = _campaign_target(mun_df, c["targeting"], c.get("ents", []), has_part)
+            w_c = _lever_weight(mun_df, c["lever"])
+            delta_c = (c["effect_pp"] / 100.0) * (c["coverage"] / 100.0) * w_c
+
+            # Solo campaign calculation
+            new_part_solo = base_part.copy()
+            new_part_solo.loc[in_target_c] = np.minimum(base_part.loc[in_target_c] + delta_c.loc[in_target_c], 0.98)
+            diff_part_solo = (new_part_solo.loc[mun_sub.index] - base_part.loc[mun_sub.index]).fillna(0.0)
+            votos_solo = int(round(float((diff_part_solo * ln_sub).sum())))
+
+            # Mean delta pp for solo campaign
+            new_abs_solo = pd.Series(np.nan, index=mun_df.index, dtype=float)
+            new_abs_solo.loc[has_part] = 1.0 - new_part_solo.loc[has_part]
+            delta_solo = ((new_abs_solo.loc[mun_sub.index] - base_abs.loc[mun_sub.index]) * 100.0).round(1)
+            valid_solo = delta_solo.dropna()
+            if len(valid_solo) > 0:
+                ln_solo = ln_sub.loc[valid_solo.index]
+                sum_ln_solo = ln_solo.sum()
+                if sum_ln_solo > 0:
+                    mean_delta_pp_solo = round(float((valid_solo.astype(float) * ln_solo).sum() / sum_ln_solo), 2)
+                else:
+                    mean_delta_pp_solo = round(float(valid_solo.astype(float).mean()), 2)
+            else:
+                mean_delta_pp_solo = 0.0
+
+            n_target_units = int(in_target_c.loc[mun_sub.index].sum())
+            campaigns_summary.append({
+                "lever": c["lever"],
+                "label": LEVER_LABELS.get(c["lever"], c["lever"]),
+                "ents": c.get("ents", []),
+                "n_target_units": n_target_units,
+                "votos_solo": votos_solo,
+                "mean_delta_pp_solo": mean_delta_pp_solo,
+            })
+
+        votos_suma_individual = int(sum(cs["votos_solo"] for cs in campaigns_summary))
+        votos_traslape = max(0, votos_suma_individual - votos_adicionales)
+
+        summary["campaigns"] = campaigns_summary
+        summary["votos_suma_individual"] = votos_suma_individual
+        summary["votos_traslape"] = votos_traslape
 
     return items, summary

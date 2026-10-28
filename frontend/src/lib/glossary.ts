@@ -24,7 +24,7 @@ export const GLOSSARY = {
   },
   "param.lever": {
     title: "Palanca de intervención",
-    body: "Tipo de acción institucional a implementar. Decide dónde rinde más el esfuerzo: el efecto se multiplica por un peso relativo según el perfil del municipio frente al percentil 75 nacional (tope 1.5×).",
+    body: "Tipo de acción institucional a implementar en cada campaña. Decide dónde rinde más el esfuerzo: el efecto se multiplica por un peso relativo según el perfil del municipio frente al percentil 75 nacional (tope 1.5×).",
     relation: "A mayor peso en la variable de la palanca, mayor reducción de abstención en ese municipio.",
   },
   "lever.promocion_jovenes": {
@@ -49,8 +49,8 @@ export const GLOSSARY = {
   },
   "param.targeting": {
     title: "Focalización",
-    body: "Define qué municipios reciben la acción según su nivel de riesgo en el escenario base. «Rojas y naranjas» atiende únicamente zonas de riesgo crítico y alto. Los demás municipios no cambian.",
-    relation: "Solo se intervienen los municipios que coinciden con el criterio seleccionado.",
+    body: "Define qué municipios reciben cada campaña según su nivel de riesgo en el escenario base. «Rojas y naranjas» atiende únicamente zonas de riesgo crítico y alto. Se calibra por campaña y se combina con su ámbito.",
+    relation: "Solo se intervienen los municipios que coinciden con el criterio seleccionado para esa campaña.",
   },
   "targeting.rojo": {
     title: "Solo zonas rojas",
@@ -69,13 +69,13 @@ export const GLOSSARY = {
   },
   "param.effect_pp": {
     title: "Efecto máximo esperado",
-    body: "Puntos porcentuales (pp) que aumentaría la participación en un municipio con peso 1× y cobertura del 100 %. 1 pp equivale a 1 persona votante por cada 100 de la lista nominal (rango 0–10).",
-    relation: "Base del cálculo antes de multiplicar por cobertura y peso de la palanca.",
+    body: "Puntos porcentuales (pp) que aumentaría la participación en cada campaña en un municipio con peso 1× y cobertura del 100 %. 1 pp equivale a 1 persona votante por cada 100 de la lista nominal (rango 0–10).",
+    relation: "Base del cálculo por campaña antes de multiplicar por cobertura y peso de la palanca.",
   },
   "param.coverage": {
     title: "Cobertura de la intervención",
-    body: "Porcentaje de la población objetivo que realmente se alcanza con la intervención en territorio.",
-    relation: "Efecto real = efecto máximo × cobertura × peso de la palanca.",
+    body: "Porcentaje de la población objetivo que realmente se alcanza en territorio para cada campaña (rango 0–100 %).",
+    relation: "Efecto real por campaña = efecto máximo × cobertura × peso de la palanca.",
     example: "3.0 pp × 50 % × 1.2 = 1.8 pp de incremento real.",
   },
   "param.shock_pp": {
@@ -90,6 +90,35 @@ export const GLOSSARY = {
     title: "Votos Adicionales o Perdidos",
     body: "Estimación neta de votos adicionales (o perdidos) calculada como el cambio de participación en cada municipio multiplicado por su lista nominal, sumado a nivel nacional.",
     relation: "Cambio de participación × lista nominal, acumulado en todos los municipios.",
+  },
+  campanas: {
+    title: "Campañas Simultáneas",
+    body: "Permite simular hasta 4 campañas concurrentes, una por cada palanca del INE. Cada campaña define su propia focalización por semáforo, ámbito geográfico, efecto esperado y cobertura. Son supuestos hipotéticos para planeación.",
+    relation: "Permite evaluar estrategias combinadas (p. ej. voto joven nacional con casillas rurales en estados prioritarios).",
+    example: "Campaña 1: Jóvenes en todo el país + Campaña 2: Casillas rurales en Chiapas y Oaxaca.",
+  },
+  ambito: {
+    title: "Ámbito Geográfico",
+    body: "Alcance territorial de la campaña: todo el país o estados específicos correspondientes a las 32 Juntas Locales Ejecutivas del INE. Se combina con la focalización por semáforo para delimitar los municipios atendidos.",
+    relation: "Un municipio recibe la campaña si su estado está en el ámbito y su riesgo coincide con la focalización.",
+    example: "Ámbito Chiapas y Oaxaca con focalización Zonas rojas interviene solo municipios en rojo de esos dos estados.",
+  },
+  combinacion: {
+    title: "Combinación (Rendimientos Decrecientes)",
+    body: "Regla que modela que cada campaña adicional actúa sobre la abstención remanente con rendimientos decrecientes: a' = a × (1 - r1) × (1 - r2)… Evita sobrestimaciones y garantiza que la participación no supere el tope de 98 %.",
+    relation: "Con una sola campaña equivale a la resta directa; con varias evita duplicar el conteo de votos.",
+    example: "Con 60 % de abstención base, dos campañas de -6 pp y -4 pp solas logran -9.6 pp combinadas (no -10 pp).",
+  },
+  traslape: {
+    title: "Traslape de Campañas",
+    body: "Votos adicionales de traslape que se contarían dos veces si se sumaran las campañas por separado. Refleja la concurrencia de acciones sobre una misma población y explica por qué la suma individual siempre supera al total combinado.",
+    relation: "Traslape = Suma de votos individuales − Votos adicionales combinados (siempre ≥ 0).",
+    example: "Suma individual: 120,000 votos; Total combinado: 110,000 votos ⇒ Traslape: 10,000 votos.",
+  },
+  lineamientos: {
+    title: "Lineamientos del Simulador",
+    body: "Garantías institucionales: escenario hipotético para planeación (no efecto causal medido); criterios territoriales y de semáforo sin variables partidistas; datos agregados y disociados sin datos personales; y palancas en las atribuciones del INE.",
+    relation: "Asegura certeza, legalidad, imparcialidad, objetividad y máxima publicidad en el ejercicio de simulación.",
   },
   semaforo: {
     title: "Semáforo de Riesgo",
@@ -286,6 +315,8 @@ export const PARAM_TERM: Record<string, GlossaryKey> = {
   coverage: "param.coverage",
   shock_pp: "param.shock_pp",
   trend_amplifier: "param.trend_amplifier",
+  campaigns: "campanas",
+  ambito: "ambito",
 };
 
 export function optionTerm(paramKey: string, value: string): GlossaryKey | undefined {

@@ -102,7 +102,26 @@ export const MOCK_META: Meta = {
           default: 100,
           unit: "%",
         },
+        {
+          key: "campaigns",
+          label: "Campañas combinadas",
+          type: "campaigns",
+          max: 4,
+          default: [
+            {
+              lever: "promocion_jovenes",
+              targeting: "rojo_naranja",
+              effect_pp: 3.0,
+              coverage: 100,
+              ents: [],
+            },
+          ],
+        },
       ],
+      campaign_rules: {
+        combination: "rendimientos_decrecientes",
+        max_participation: 0.98,
+      },
     },
     {
       id: "pesimista",

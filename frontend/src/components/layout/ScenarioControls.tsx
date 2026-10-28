@@ -13,8 +13,23 @@ import {
 import { ApiError } from "@/lib/api";
 import { InfoTip } from "@/components/ui/InfoTip";
 import { PARAM_TERM, optionTerm, glossaryFor } from "@/lib/glossary";
-import { defaultsForScenario, isScenarioModified, leverDefaults } from "@/lib/scenarioParams";
+import {
+  defaultsForScenario,
+  isScenarioModified,
+  leverDefaults,
+  LEVER_DEFAULT_LABELS,
+  LEVER_SHORT_LABELS,
+} from "@/lib/scenarioParams";
+import type { Campaign } from "@/lib/types";
+import { MOCK_STATES } from "@/lib/mocks/meta";
 import { showToast } from "@/lib/toast";
+
+const ALL_LEVERS = [
+  "promocion_jovenes",
+  "casillas_rurales",
+  "materiales_lengua_indigena",
+  "campana_general",
+] as const;
 
 const LEVER_WEIGHT_VARIABLE: Record<string, string> = {
   promocion_jovenes: "población de 18 a 24 años",
@@ -31,27 +46,78 @@ export function ScenarioControls() {
     leverParams,
     applyScenarioParams,
     resetScenarioParams,
+    setScenarioParams,
     simulationResult,
     scenario,
   } = useAtalaya();
 
-  const activeLever = String(paramsByScenario.intervencion?.lever ?? "promocion_jovenes");
-  const [selectedLever, setSelectedLever] = useState<string>(activeLever);
-  const [draftsByLever, setDraftsByLever] = useState<Record<string, Record<string, number | string>>>({});
-  const [pesimistaDraft, setPesimistaDraft] = useState<Record<string, number | string>>(paramsByScenario.pesimista ?? {});
+  const allStates = meta?.states ?? MOCK_STATES;
+
+  // Initialize draft campaigns from paramsByScenario
+  const initialCampaigns: Campaign[] = useMemo(() => {
+    if (
+      Array.isArray(paramsByScenario.intervencion?.campaigns) &&
+      paramsByScenario.intervencion.campaigns.length > 0
+    ) {
+      return paramsByScenario.intervencion.campaigns.map((c: any) => ({
+        lever: String(c.lever || "promocion_jovenes"),
+        targeting: String(c.targeting || "rojo_naranja"),
+        effect_pp: Number(c.effect_pp ?? 3.0),
+        coverage: Number(c.coverage ?? 100),
+        ents: Array.isArray(c.ents) ? [...c.ents] : [],
+      }));
+    }
+
+    const p = paramsByScenario.intervencion;
+    const activeLever = String(p?.lever ?? "promocion_jovenes");
+    const saved = leverParams?.[activeLever];
+    const defs = leverDefaults(meta);
+
+    const effect_pp = Number(
+      p?.effect_pp ?? saved?.effect_pp ?? defs.effect_pp ?? 3.0
+    );
+    const coverage = Number(
+      p?.coverage ?? saved?.coverage ?? defs.coverage ?? 100
+    );
+    const targeting = String(
+      p?.targeting ?? saved?.targeting ?? defs.targeting ?? "rojo_naranja"
+    );
+    const ents = Array.isArray(p?.ents)
+      ? p.ents
+      : Array.isArray(saved?.ents)
+      ? saved.ents
+      : [];
+
+    return [
+      {
+        lever: activeLever,
+        targeting,
+        effect_pp,
+        coverage,
+        ents,
+      },
+    ];
+  }, [paramsByScenario.intervencion, leverParams, meta]);
+
+  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
+  const [pesimistaDraft, setPesimistaDraft] = useState<Record<string, number | string>>(
+    paramsByScenario.pesimista ?? {}
+  );
   const [isSimulating, setIsSimulating] = useState(false);
-  const [paramErrors, setParamErrors] = useState<Record<string, string>>({});
+  const [cardErrors, setCardErrors] = useState<Record<number, string>>({});
+  const [pesimistaErrors, setPesimistaErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+  const [stateSearch, setStateSearch] = useState<Record<number, string>>({});
+  const [scopeMode, setScopeMode] = useState<Record<number, "pais" | "estados">>({});
 
   // Sync state when scenario or paramsByScenario changes
   useEffect(() => {
     if (scenario === "intervencion") {
-      const activeL = String(paramsByScenario.intervencion?.lever ?? "promocion_jovenes");
-      setSelectedLever(activeL);
+      setCampaigns(initialCampaigns);
     } else if (scenario === "pesimista") {
       setPesimistaDraft(paramsByScenario.pesimista ?? {});
     }
-  }, [scenario, paramsByScenario]);
+  }, [scenario, initialCampaigns, paramsByScenario.pesimista]);
 
   // Close sheet on Escape key
   useEffect(() => {
@@ -65,96 +131,138 @@ export function ScenarioControls() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isScenarioModalOpen, setIsScenarioModalOpen]);
 
-  // Derived current values for active sheet
-  const currentValues = useMemo<Record<string, number | string>>(() => {
-    if (scenario !== "intervencion") {
-      return pesimistaDraft;
-    }
-    const defs = leverDefaults(meta);
-    const saved = leverParams?.[selectedLever];
-    const draft = draftsByLever[selectedLever];
-    return {
-      lever: selectedLever,
-      ...defs,
-      ...(saved ?? {}),
-      ...(draft ?? {}),
-    };
-  }, [scenario, selectedLever, meta, leverParams, draftsByLever, pesimistaDraft]);
-
-  const updateParamValue = (key: string, val: number | string) => {
-    setParamErrors((prev) => ({ ...prev, [key]: "" }));
-    if (key === "lever") {
-      setSelectedLever(String(val));
-      return;
-    }
-    if (scenario === "intervencion") {
-      setDraftsByLever((prev) => {
-        const curDraft = prev[selectedLever] ?? {
-          effect_pp: currentValues.effect_pp,
-          coverage: currentValues.coverage,
-          targeting: currentValues.targeting,
-        };
-        return {
-          ...prev,
-          [selectedLever]: {
-            ...curDraft,
-            [key]: val,
-          },
-        };
-      });
-    } else {
-      setPesimistaDraft((prev) => ({
-        ...prev,
-        [key]: val,
-      }));
-    }
-  };
-
-  // Find scenario definition dynamically from meta
-  const scenarioDef =
-    meta?.scenarios.find((s) => s.id === scenario && s.params && s.params.length > 0) ??
-    meta?.scenarios.find((s) => s.id === scenario) ??
-    meta?.scenarios.find((s) => s.id === "intervencion") ??
-    meta?.scenarios[0];
-
-  const paramsList = scenarioDef?.params ?? [];
-
-  const defaults = useMemo(() => defaultsForScenario(scenario, meta), [scenario, meta]);
+  // Track modification status
   const isModified = useMemo(() => {
     if (scenario === "base") return false;
+    if (scenario === "intervencion") {
+      return (
+        isScenarioModified("intervencion", { campaigns }, meta) ||
+        isScenarioModified("intervencion", paramsByScenario.intervencion, meta)
+      );
+    }
     return (
-      isScenarioModified(scenario, currentValues, meta) ||
-      isScenarioModified(scenario, paramsByScenario[scenario], meta)
+      isScenarioModified("pesimista", pesimistaDraft, meta) ||
+      isScenarioModified("pesimista", paramsByScenario.pesimista, meta)
     );
-  }, [scenario, currentValues, paramsByScenario, meta]);
+  }, [scenario, campaigns, pesimistaDraft, paramsByScenario, meta]);
 
   if (!isScenarioModalOpen) return null;
+
+  const updateCampaign = (idx: number, patch: Partial<Campaign>) => {
+    setCardErrors((prev) => ({ ...prev, [idx]: "" }));
+    setCampaigns((prev) => {
+      const next = [...prev];
+      const current = next[idx];
+      const updated = { ...current, ...patch };
+      next[idx] = updated;
+      setScenarioParams((sp) => ({
+        ...sp,
+        campaigns: next,
+      }));
+      return next;
+    });
+  };
+
+  const handleLeverChange = (idx: number, newLever: string) => {
+    const saved = leverParams[newLever];
+    const defs = leverDefaults(meta);
+
+    const nextCampaign: Campaign = {
+      lever: newLever,
+      targeting: String(saved?.targeting ?? defs.targeting ?? "rojo_naranja"),
+      effect_pp: Number(saved?.effect_pp ?? defs.effect_pp ?? 3.0),
+      coverage: Number(saved?.coverage ?? defs.coverage ?? 100),
+      ents: Array.isArray(saved?.ents) ? [...saved.ents] : [],
+    };
+
+    updateCampaign(idx, nextCampaign);
+  };
+
+  const handleRemoveCampaign = (idx: number) => {
+    if (campaigns.length <= 1) return;
+    const nextCampaigns = campaigns.filter((_, i) => i !== idx);
+    setCampaigns(nextCampaigns);
+    setScenarioParams((sp) => ({
+      ...sp,
+      campaigns: nextCampaigns,
+    }));
+  };
+
+  const handleAddCampaign = () => {
+    if (campaigns.length >= 4) return;
+    const used = campaigns.map((c) => c.lever);
+    const free = ALL_LEVERS.filter((l) => !used.includes(l));
+    if (free.length === 0) return;
+    const nextLever = free[0];
+    const saved = leverParams[nextLever];
+    const defs = leverDefaults(meta);
+    const newCamp: Campaign = {
+      lever: nextLever,
+      targeting: String(saved?.targeting ?? defs.targeting ?? "rojo_naranja"),
+      effect_pp: Number(saved?.effect_pp ?? defs.effect_pp ?? 3.0),
+      coverage: Number(saved?.coverage ?? defs.coverage ?? 100),
+      ents: Array.isArray(saved?.ents) ? [...saved.ents] : [],
+    };
+    const nextCampaigns = [...campaigns, newCamp];
+    setCampaigns(nextCampaigns);
+    setScenarioParams((sp) => ({
+      ...sp,
+      campaigns: nextCampaigns,
+    }));
+  };
 
   const handleSimulate = async () => {
     if (scenario === "base") return;
     setIsSimulating(true);
-    setParamErrors({});
+    setCardErrors({});
+    setPesimistaErrors({});
     setGeneralError(null);
     try {
-      await applyScenarioParams(scenario, currentValues);
+      if (scenario === "intervencion") {
+        await applyScenarioParams("intervencion", { campaigns });
+      } else {
+        await applyScenarioParams("pesimista", pesimistaDraft);
+      }
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 422) {
-        const errors: Record<string, string> = {};
+        const cErrors: Record<number, string> = {};
+        const pErrors: Record<string, string> = {};
         const data = err.data as Record<string, unknown>;
         let errorMsg = "Error de validación (422) en los parámetros enviados.";
+
         if (Array.isArray(data?.detail)) {
           for (const item of data.detail as Array<{ loc?: string[]; msg?: string }>) {
-            const key = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : "general";
-            errors[key] = item.msg || "Parámetro inválido";
+            const msg = item.msg || "Parámetro inválido";
+            const match = msg.match(/(?:Campaña|campaña)\s*(\d+)/i);
+            if (match) {
+              const cIdx = parseInt(match[1], 10) - 1;
+              cErrors[cIdx] = msg;
+            } else if (Array.isArray(item.loc) && item.loc.includes("campaigns")) {
+              const cIdx = Number(item.loc[item.loc.indexOf("campaigns") + 1]);
+              if (!isNaN(cIdx)) {
+                cErrors[cIdx] = msg;
+              }
+            } else if (Array.isArray(item.loc)) {
+              const key = item.loc[item.loc.length - 1];
+              pErrors[key] = msg;
+            }
           }
           errorMsg = data.detail.map((d) => d.msg).filter(Boolean).join(". ") || errorMsg;
         } else if (typeof data?.detail === "string") {
           errorMsg = data.detail;
-          setGeneralError(data.detail);
+          const match = data.detail.match(/(?:Campaña|campaña)\s*(\d+)/i);
+          if (match) {
+            const cIdx = parseInt(match[1], 10) - 1;
+            cErrors[cIdx] = data.detail;
+          } else {
+            setGeneralError(data.detail);
+          }
         } else {
           setGeneralError(errorMsg);
         }
-        setParamErrors(errors);
+
+        setCardErrors(cErrors);
+        setPesimistaErrors(pErrors);
         showToast({
           kind: "error",
           title: "Error de simulación",
@@ -177,13 +285,18 @@ export function ScenarioControls() {
   const handleReset = async () => {
     if (scenario === "base" || !isModified || isSimulating) return;
     setIsSimulating(true);
-    setParamErrors({});
+    setCardErrors({});
+    setPesimistaErrors({});
     setGeneralError(null);
     try {
-      setDraftsByLever({});
-      setSelectedLever("promocion_jovenes");
-      setPesimistaDraft(defaultsForScenario("pesimista", meta));
-      await resetScenarioParams(scenario);
+      if (scenario === "intervencion") {
+        const defs = defaultsForScenario("intervencion", meta);
+        setCampaigns(defs.campaigns ?? []);
+        await resetScenarioParams("intervencion");
+      } else {
+        setPesimistaDraft(defaultsForScenario("pesimista", meta));
+        await resetScenarioParams("pesimista");
+      }
     } catch (err: unknown) {
       const msg = (err as Error)?.message || "Error al restablecer valores";
       setGeneralError(msg);
@@ -197,15 +310,20 @@ export function ScenarioControls() {
     }
   };
 
+  const scenarioDef = meta?.scenarios?.find((s) => s.id === scenario);
   const title =
     scenarioDef?.id === "pesimista"
       ? "Ajustar escenario pesimista"
       : scenarioDef?.label
       ? `Ajustar: ${scenarioDef.label}`
-      : "Ajustar intervención";
+      : "Ajustar: Intervención hipotética";
+
+  const freeLevers = ALL_LEVERS.filter(
+    (l) => !campaigns.map((c) => c.lever).includes(l)
+  );
 
   return (
-    <div className="absolute inset-x-2 bottom-2 z-30 flex max-h-[78%] flex-col overflow-hidden float-panel animate-in fade-in duration-200 lg:inset-x-auto lg:inset-y-3 lg:left-3 lg:max-h-none lg:w-[360px] select-none">
+    <div className="absolute inset-x-2 bottom-2 z-30 flex max-h-[85%] flex-col overflow-hidden float-panel animate-in fade-in duration-200 lg:inset-x-auto lg:inset-y-3 lg:left-3 lg:max-h-none lg:w-[420px] select-none">
       {/* Header */}
       <div className="flex items-start justify-between border-b border-border px-4 py-3 shrink-0">
         <div>
@@ -214,7 +332,7 @@ export function ScenarioControls() {
               {title}
             </h3>
             <InfoTip
-              term={scenarioDef?.id === "pesimista" ? "escenario.pesimista" : "escenario.intervencion"}
+              term={scenario === "pesimista" ? "escenario.pesimista" : "escenario.intervencion"}
               size="xs"
             />
           </div>
@@ -242,203 +360,566 @@ export function ScenarioControls() {
         </div>
       )}
 
-      {/* Dynamic Controls generated from meta */}
+      {/* Main Body */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        {paramsList.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-4 text-center">
-            No se encontraron parámetros configurables para este escenario.
-          </p>
-        ) : (
-          paramsList.map((p) => {
-            const currentVal = currentValues[p.key] ?? p.default;
-            const hasError = !!paramErrors[p.key];
+        {/* ===================== INTERVENCIÓN: CAMPAÑAS ===================== */}
+        {scenario === "intervencion" && (
+          <div className="space-y-4">
+            {/* Section Header */}
+            <div className="flex items-center justify-between pb-1 border-b border-border/50">
+              <div className="flex items-center gap-1.5">
+                <span className="font-display text-xs font-bold text-foreground uppercase tracking-wider">
+                  Campañas de intervención
+                </span>
+                <InfoTip term={"campanas" as any} size="xs" />
+              </div>
+              <span className="text-[11px] font-mono text-muted-foreground font-medium">
+                {campaigns.length} {campaigns.length === 1 ? "campaña" : "campañas"} (máx. 4)
+              </span>
+            </div>
 
-            if (p.type === "select") {
-              const isSegmented = p.options && p.options.length <= 3;
+            {/* Campaign Cards */}
+            <div className="space-y-3">
+              {campaigns.map((c, idx) => {
+                const usedByOthers = campaigns
+                  .filter((_, i) => i !== idx)
+                  .map((camp) => camp.lever);
+                const availableLevers = ALL_LEVERS.filter(
+                  (l) => !usedByOthers.includes(l)
+                );
 
-              return (
-                <div key={p.key} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-semibold text-foreground">
-                    <span className="flex items-center gap-1">
-                      {p.label}
-                      {PARAM_TERM[p.key] && <InfoTip term={PARAM_TERM[p.key]} size="xs" />}
-                    </span>
-                  </div>
+                const hasCardError = !!cardErrors[idx];
+                const activeScope =
+                  scopeMode[idx] ?? (c.ents.length === 0 ? "pais" : "estados");
 
-                  {isSegmented ? (
-                    <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-0.5 text-xs">
-                      {p.options?.map((opt) => (
+                return (
+                  <div
+                    key={`${idx}-${c.lever}`}
+                    className={`rounded-lg border ${
+                      hasCardError ? "border-destructive bg-destructive/5" : "border-border bg-card/60"
+                    } p-3 space-y-3 shadow-xs`}
+                  >
+                    {/* Card Header */}
+                    <div className="flex items-center justify-between border-b border-border/40 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-xs text-foreground">
+                          Campaña {idx + 1}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground font-medium">
+                          ({LEVER_SHORT_LABELS[c.lever] ?? c.lever})
+                        </span>
+                      </div>
+                      {campaigns.length > 1 && (
                         <button
-                          key={opt.value}
                           type="button"
-                          onClick={() => updateParamValue(p.key, opt.value)}
-                          className={`rounded px-1.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-                            String(currentVal) === String(opt.value)
+                          onClick={() => handleRemoveCampaign(idx)}
+                          className="text-xs text-destructive hover:text-destructive/80 font-medium px-2 py-0.5 rounded hover:bg-destructive/10 transition-colors cursor-pointer"
+                          aria-label={`Quitar campaña ${idx + 1}`}
+                        >
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+
+                    {cardErrors[idx] && (
+                      <p className="text-xs text-destructive font-medium bg-destructive/10 p-2 rounded border border-destructive/20">
+                        {cardErrors[idx]}
+                      </p>
+                    )}
+
+                    {/* Palanca select */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                        <span>Palanca</span>
+                        <InfoTip term="param.lever" size="xs" />
+                      </label>
+                      <select
+                        value={c.lever}
+                        onChange={(e) => handleLeverChange(idx, e.target.value)}
+                        className="h-9 w-full rounded-md border border-border bg-background px-3 text-xs text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/20 cursor-pointer"
+                      >
+                        {availableLevers.map((l) => (
+                          <option key={l} value={l}>
+                            {LEVER_DEFAULT_LABELS[l] ?? l}
+                          </option>
+                        ))}
+                      </select>
+                      {(() => {
+                        const optKey = optionTerm("lever", c.lever);
+                        const optEntry = optKey ? glossaryFor(optKey) : undefined;
+                        const weightVar = LEVER_WEIGHT_VARIABLE[c.lever];
+                        return (
+                          <div className="space-y-0.5 pt-0.5">
+                            {optEntry && (
+                              <p
+                                className="text-[11px] text-muted-foreground line-clamp-2"
+                                title={optEntry.body}
+                              >
+                                {optEntry.body}
+                              </p>
+                            )}
+                            {weightVar ? (
+                              <p className="text-[11px] text-muted-foreground leading-snug">
+                                Su efecto se pondera por {weightVar}: rinde más donde {weightVar} es mayor y poco en zonas donde es baja.
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-muted-foreground leading-snug">
+                                Campaña general sin ponderación sociodemográfica diferencial (peso 1× uniforme).
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Focalización (segmented) */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-foreground flex items-center gap-1">
+                        <span>Focalización por semáforo</span>
+                        <InfoTip term="param.targeting" size="xs" />
+                      </label>
+                      <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-0.5 text-xs">
+                        {[
+                          { value: "rojo", label: "Solo rojas" },
+                          { value: "rojo_naranja", label: "Rojas y naranjas" },
+                          { value: "todos", label: "Todo el país" },
+                        ].map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => updateCampaign(idx, { targeting: opt.value })}
+                            className={`rounded px-1.5 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                              c.targeting === opt.value
+                                ? "bg-card text-primary shadow-xs"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Ámbito territorial */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                        <span className="flex items-center gap-1">
+                          <span>Ámbito territorial</span>
+                          <InfoTip term={"ambito" as any} size="xs" />
+                        </span>
+                        {c.ents.length > 0 && (
+                          <span className="text-[11px] font-mono font-medium text-primary">
+                            {c.ents.length} {c.ents.length === 1 ? "estado" : "estados"}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScopeMode((prev) => ({ ...prev, [idx]: "pais" }));
+                            updateCampaign(idx, { ents: [] });
+                          }}
+                          className={`rounded px-2 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                            activeScope === "pais" && c.ents.length === 0
                               ? "bg-card text-primary shadow-xs"
                               : "text-muted-foreground hover:text-foreground"
                           }`}
                         >
-                          {opt.label}
+                          Todo el país
                         </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <select
-                      value={String(currentVal)}
-                      onChange={(e) => updateParamValue(p.key, e.target.value)}
-                      className={`h-9 w-full rounded-md border ${
-                        hasError ? "border-destructive" : "border-border"
-                      } bg-background px-3 text-xs text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary/20 cursor-pointer`}
-                    >
-                      {p.options?.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-
-                  {(() => {
-                    const optKey = optionTerm(p.key, String(currentVal));
-                    const optEntry = optKey ? glossaryFor(optKey) : undefined;
-                    if (!optEntry) return null;
-                    const weightVar = p.key === "lever" ? LEVER_WEIGHT_VARIABLE[String(currentVal)] : undefined;
-                    return (
-                      <div className="space-y-1">
-                        <p className="text-[11px] text-muted-foreground line-clamp-2" title={optEntry.body}>
-                          {optEntry.body}
-                        </p>
-                        {weightVar && (
-                          <p className="text-[11px] text-muted-foreground leading-snug">
-                            Su efecto se pondera por {weightVar}: rinde más donde {weightVar} es mayor y poco en zonas donde es baja.
-                          </p>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setScopeMode((prev) => ({ ...prev, [idx]: "estados" }));
+                          }}
+                          className={`rounded px-2 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                            activeScope === "estados" || c.ents.length > 0
+                              ? "bg-card text-primary shadow-xs"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Estados (Juntas Locales)
+                        </button>
                       </div>
-                    );
-                  })()}
-                  {hasError && (
-                    <p className="text-xs text-destructive font-medium">{paramErrors[p.key]}</p>
-                  )}
-                </div>
-              );
-            }
 
-            if (p.type === "number") {
-              const numVal = Number(currentVal);
-              const min = p.min ?? 0;
-              const max = p.max ?? 10;
-              const step = p.step ?? 0.1;
+                      {(activeScope === "estados" || c.ents.length > 0) && (
+                        <div className="rounded-md border border-border bg-background p-2.5 space-y-2 mt-1">
+                          {c.ents.length > 0 && (
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">
+                                  Seleccionados ({c.ents.length})
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateCampaign(idx, { ents: [] })}
+                                  className="text-[11px] text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                                >
+                                  Limpiar
+                                </button>
+                              </div>
+                              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-1 bg-muted/40 rounded border border-border/40">
+                                {c.ents.map((entId) => {
+                                  const st = allStates.find((s) => s.id === entId);
+                                  return (
+                                    <span
+                                      key={entId}
+                                      className="inline-flex items-center gap-1 rounded bg-primary-soft text-primary px-1.5 py-0.5 text-[11px] font-semibold"
+                                    >
+                                      <span>{st?.name ?? entId}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const next = c.ents.filter((id) => id !== entId);
+                                          updateCampaign(idx, { ents: next });
+                                        }}
+                                        className="size-3.5 inline-flex items-center justify-center rounded hover:bg-primary/20 text-primary cursor-pointer leading-none"
+                                        aria-label={`Quitar ${st?.name ?? entId}`}
+                                      >
+                                        ×
+                                      </button>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
 
-              return (
-                <div key={p.key} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-semibold text-foreground">
-                    <span className="flex items-center gap-1">
-                      {p.label}
-                      {PARAM_TERM[p.key] && <InfoTip term={PARAM_TERM[p.key]} size="xs" />}
-                    </span>
-                    <span className="tnum rounded bg-primary-soft px-1.5 py-0.5 text-xs font-semibold text-accent-foreground">
-                      {p.unit === "%"
-                        ? `${Math.round(numVal)}%`
-                        : p.unit === "pp"
-                        ? `${numVal >= 0 ? "+" : ""}${numVal.toFixed(1)} pp`
-                        : `${numVal} ${p.unit ?? ""}`}
-                    </span>
+                          {/* Search */}
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder="Buscar estado..."
+                              value={stateSearch[idx] ?? ""}
+                              onChange={(e) =>
+                                setStateSearch((prev) => ({ ...prev, [idx]: e.target.value }))
+                              }
+                              className="h-8 w-full rounded border border-border bg-card px-2.5 text-xs text-foreground outline-none focus:border-primary"
+                            />
+                            {(stateSearch[idx] ?? "") && (
+                              <button
+                                type="button"
+                                onClick={() => setStateSearch((prev) => ({ ...prev, [idx]: "" }))}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+
+                          {/* States list with checkboxes */}
+                          <div className="max-h-36 overflow-y-auto space-y-0.5 divide-y divide-border/30 rounded border border-border/40 p-1">
+                            {allStates
+                              .filter((s) => {
+                                const q = (stateSearch[idx] ?? "").toLowerCase().trim();
+                                if (!q) return true;
+                                return (
+                                  s.name.toLowerCase().includes(q) || s.id.includes(q)
+                                );
+                              })
+                              .map((st) => {
+                                const isChecked = c.ents.includes(st.id);
+                                return (
+                                  <label
+                                    key={st.id}
+                                    className="flex items-center justify-between px-2 py-1.5 hover:bg-accent/50 rounded cursor-pointer text-xs"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {
+                                          const next = isChecked
+                                            ? c.ents.filter((id) => id !== st.id)
+                                            : [...c.ents, st.id];
+                                          updateCampaign(idx, { ents: next });
+                                        }}
+                                        className="size-3.5 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                                      />
+                                      <span
+                                        className={
+                                          isChecked
+                                            ? "font-semibold text-primary"
+                                            : "text-foreground"
+                                        }
+                                      >
+                                        {st.name}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] font-mono text-muted-foreground">
+                                      {st.id}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Efecto máximo esperado slider */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                        <span className="flex items-center gap-1">
+                          <span>Efecto máximo esperado</span>
+                          <InfoTip term="param.effect_pp" size="xs" />
+                        </span>
+                        <span className="tnum rounded bg-primary-soft px-1.5 py-0.5 text-xs font-semibold text-accent-foreground font-mono">
+                          +{c.effect_pp.toFixed(1)} pp
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={0}
+                          max={10}
+                          step={0.5}
+                          value={c.effect_pp}
+                          onChange={(e) =>
+                            updateCampaign(idx, {
+                              effect_pp: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                          className="flex-1 cursor-pointer"
+                          style={{ accentColor: "var(--primary)" }}
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={10}
+                          step={0.5}
+                          value={c.effect_pp}
+                          onChange={(e) =>
+                            updateCampaign(idx, {
+                              effect_pp: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                          className="h-8 w-16 rounded-md border border-border bg-background px-2 text-xs text-foreground text-right tnum font-mono outline-none focus:border-primary"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Cobertura slider */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                        <span className="flex items-center gap-1">
+                          <span>Cobertura de la intervención</span>
+                          <InfoTip term="param.coverage" size="xs" />
+                        </span>
+                        <span className="tnum rounded bg-primary-soft px-1.5 py-0.5 text-xs font-semibold text-accent-foreground font-mono">
+                          {Math.round(c.coverage)}%
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={c.coverage}
+                          onChange={(e) =>
+                            updateCampaign(idx, {
+                              coverage: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                          className="flex-1 cursor-pointer"
+                          style={{ accentColor: "var(--primary)" }}
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={c.coverage}
+                          onChange={(e) =>
+                            updateCampaign(idx, {
+                              coverage: parseFloat(e.target.value) || 0,
+                            })
+                          }
+                          className="h-8 w-16 rounded-md border border-border bg-background px-2 text-xs text-foreground text-right tnum font-mono outline-none focus:border-primary"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Live formula for card */}
+                    {(() => {
+                      const effect = Number(c.effect_pp ?? 3.0);
+                      const covPct = Number(c.coverage ?? 100);
+                      const resultado = effect * (covPct / 100);
+                      const maxResultado = 1.5 * resultado;
+                      const variableLabel = LEVER_WEIGHT_VARIABLE[c.lever];
+
+                      return (
+                        <div className="p-2 rounded bg-muted/60 text-[11px] text-muted-foreground leading-relaxed">
+                          <p>
+                            Efecto real: {effect.toFixed(1)} pp × {Math.round(covPct)}% ={" "}
+                            <strong className="text-foreground tnum">
+                              {resultado.toFixed(2)} pp
+                            </strong>
+                            {variableLabel && c.lever !== "campana_general" ? (
+                              <span>
+                                , hasta 1.5× ({maxResultado.toFixed(2)} pp) donde {variableLabel} es mayor.
+                              </span>
+                            ) : (
+                              "."
+                            )}
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
+                );
+              })}
+            </div>
 
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="range"
-                      min={min}
-                      max={max}
-                      step={step}
-                      value={isNaN(numVal) ? min : numVal}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        updateParamValue(p.key, isNaN(val) ? min : val);
-                      }}
-                      className="flex-1 cursor-pointer"
-                      style={{ accentColor: "var(--primary)" }}
-                    />
-                    <input
-                      type="number"
-                      min={min}
-                      max={max}
-                      step={step}
-                      value={isNaN(numVal) ? "" : numVal}
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        updateParamValue(p.key, isNaN(val) ? 0 : val);
-                      }}
-                      className={`h-8 w-16 rounded-md border ${
-                        hasError ? "border-destructive" : "border-border"
-                      } bg-background px-2 text-xs text-foreground text-right tnum font-mono outline-none focus:border-primary`}
-                    />
-                  </div>
-                  {hasError && (
-                    <p className="text-xs text-destructive font-medium">{paramErrors[p.key]}</p>
-                  )}
-                </div>
-              );
-            }
+            {/* + Agregar campaña button */}
+            <button
+              type="button"
+              onClick={handleAddCampaign}
+              disabled={campaigns.length >= 4 || freeLevers.length === 0}
+              className="w-full h-9 rounded-md border border-dashed border-border hover:border-primary/50 bg-card hover:bg-accent text-primary text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>+ Agregar campaña</span>
+              {campaigns.length >= 4 && (
+                <span className="text-[10px] text-muted-foreground font-normal">(máximo 4)</span>
+              )}
+            </button>
 
-            return null;
-          })
+            {/* Regla de combinación */}
+            <div className="flex items-start gap-1.5 p-2.5 rounded-md bg-primary-soft/40 border border-primary/20 text-[11px] text-foreground leading-relaxed">
+              <InfoTip term={"combinacion" as any} size="xs" />
+              <p className="text-muted-foreground">
+                Si varias campañas llegan a las mismas personas, la segunda solo puede convencer a quien la primera no movió (rendimientos decrecientes).
+              </p>
+            </div>
+          </div>
         )}
 
-        {/* Live Formula Box */}
-        {scenarioDef?.id === "intervencion" && (() => {
-          const effect = Number(currentValues.effect_pp ?? 3.0);
-          const rawCoverage = Number(currentValues.coverage ?? 100);
-          const covPct = rawCoverage;
-          const resultado = effect * (covPct / 100);
-          const maxResultado = 1.5 * resultado;
-
-          const lever = String(currentValues.lever ?? "promocion_jovenes");
-          let variableLabel = "";
-          if (lever === "promocion_jovenes") {
-            variableLabel = "población de 18 a 24 años";
-          } else if (lever === "casillas_rurales") {
-            variableLabel = "población rural";
-          } else if (lever === "materiales_lengua_indigena") {
-            variableLabel = "población hablante de lengua indígena";
-          }
-
-          return (
-            <div className="p-2.5 rounded-md bg-muted text-[11px] text-muted-foreground leading-relaxed">
-              <p>
-                Efecto real: {effect.toFixed(1)} pp × {Math.round(covPct)}% ={" "}
-                <strong className="text-foreground tnum">{resultado.toFixed(2)} pp</strong>
-                {variableLabel && lever !== "campana_general" ? (
-                  <span>
-                    , hasta 1.5× ({maxResultado.toFixed(2)} pp) donde {variableLabel} es mayor.
-                  </span>
-                ) : (
-                  "."
-                )}
-              </p>
+        {/* ===================== PESIMISTA ===================== */}
+        {scenario === "pesimista" && (
+          <div className="space-y-4">
+            {/* Shock pp */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                <span className="flex items-center gap-1">
+                  <span>Caída general de participación</span>
+                  <InfoTip term={PARAM_TERM.shock_pp} size="xs" />
+                </span>
+                <span className="tnum rounded bg-primary-soft px-1.5 py-0.5 text-xs font-semibold text-accent-foreground font-mono">
+                  {Number(pesimistaDraft.shock_pp ?? 2.0).toFixed(1)} pp
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={5}
+                  step={0.5}
+                  value={Number(pesimistaDraft.shock_pp ?? 2.0)}
+                  onChange={(e) =>
+                    setPesimistaDraft((prev) => ({
+                      ...prev,
+                      shock_pp: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="flex-1 cursor-pointer"
+                  style={{ accentColor: "var(--primary)" }}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={5}
+                  step={0.5}
+                  value={Number(pesimistaDraft.shock_pp ?? 2.0)}
+                  onChange={(e) =>
+                    setPesimistaDraft((prev) => ({
+                      ...prev,
+                      shock_pp: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="h-8 w-16 rounded-md border border-border bg-background px-2 text-xs text-foreground text-right tnum font-mono outline-none focus:border-primary"
+                />
+              </div>
+              {pesimistaErrors.shock_pp && (
+                <p className="text-xs text-destructive font-medium">{pesimistaErrors.shock_pp}</p>
+              )}
             </div>
-          );
-        })()}
 
-        {scenarioDef?.id === "pesimista" && (() => {
-          const shock = Number(currentValues.shock_pp ?? 2.0);
-          const rawTrend = Number(currentValues.trend_amplifier ?? 50);
-          const trendPct = rawTrend;
-
-          return (
-            <div className="p-2.5 rounded-md bg-muted text-[11px] text-muted-foreground leading-relaxed">
-              <p>
-                Todos los municipios caen{" "}
-                <strong className="text-foreground tnum">{shock.toFixed(2)} pp</strong>; los que
-                vienen cayendo, además,{" "}
-                <strong className="text-foreground tnum">{Math.round(trendPct)}%</strong> de su caída
-                histórica.
-              </p>
+            {/* Trend amplifier */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                <span className="flex items-center gap-1">
+                  <span>Acentuación de tendencias negativas</span>
+                  <InfoTip term={PARAM_TERM.trend_amplifier} size="xs" />
+                </span>
+                <span className="tnum rounded bg-primary-soft px-1.5 py-0.5 text-xs font-semibold text-accent-foreground font-mono">
+                  {Math.round(Number(pesimistaDraft.trend_amplifier ?? 50))}%
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={10}
+                  value={Number(pesimistaDraft.trend_amplifier ?? 50)}
+                  onChange={(e) =>
+                    setPesimistaDraft((prev) => ({
+                      ...prev,
+                      trend_amplifier: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="flex-1 cursor-pointer"
+                  style={{ accentColor: "var(--primary)" }}
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={10}
+                  value={Number(pesimistaDraft.trend_amplifier ?? 50)}
+                  onChange={(e) =>
+                    setPesimistaDraft((prev) => ({
+                      ...prev,
+                      trend_amplifier: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="h-8 w-16 rounded-md border border-border bg-background px-2 text-xs text-foreground text-right tnum font-mono outline-none focus:border-primary"
+                />
+              </div>
+              {pesimistaErrors.trend_amplifier && (
+                <p className="text-xs text-destructive font-medium">
+                  {pesimistaErrors.trend_amplifier}
+                </p>
+              )}
             </div>
-          );
-        })()}
 
-        {/* Simulation Summary Result */}
+            {/* Live Formula Box */}
+            {(() => {
+              const shock = Number(pesimistaDraft.shock_pp ?? 2.0);
+              const trendPct = Number(pesimistaDraft.trend_amplifier ?? 50);
+
+              return (
+                <div className="p-2.5 rounded-md bg-muted text-[11px] text-muted-foreground leading-relaxed">
+                  <p>
+                    Todos los municipios caen{" "}
+                    <strong className="text-foreground tnum">{shock.toFixed(2)} pp</strong>; los que
+                    vienen cayendo, además,{" "}
+                    <strong className="text-foreground tnum">{Math.round(trendPct)}%</strong> de su caída
+                    histórica.
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ===================== RESULTADO SIMULADO ===================== */}
         {simulationResult ? (
           <div className="rounded-lg border border-border bg-card p-3 space-y-3">
             <div>
@@ -481,6 +962,7 @@ export function ScenarioControls() {
               </div>
             </div>
 
+            {/* Zones vs base */}
             {(() => {
               let down = 0;
               let up = 0;
@@ -507,7 +989,87 @@ export function ScenarioControls() {
               );
             })()}
 
-            {/* Stacked bar of risk distribution */}
+            {/* Multi-campaign breakdown table */}
+            {scenario === "intervencion" &&
+              simulationResult.summary.campaigns &&
+              simulationResult.summary.campaigns.length >= 2 && (
+                <div className="rounded-md border border-border bg-muted/40 p-2.5 space-y-2 mt-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                    <span className="flex items-center gap-1">
+                      <span>Si cada campaña fuera la única</span>
+                      <InfoTip term={"campanas" as any} size="xs" />
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px] text-left">
+                      <thead>
+                        <tr className="border-b border-border text-muted-foreground font-semibold">
+                          <th className="pb-1 font-medium">Palanca</th>
+                          <th className="pb-1 font-medium">Ámbito</th>
+                          <th className="pb-1 font-medium text-right">Votos</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/40">
+                        {simulationResult.summary.campaigns.map((cs, i) => {
+                          let scopeLabel = "Todo el país";
+                          if (cs.ents && cs.ents.length > 0) {
+                            if (cs.ents.length <= 3) {
+                              const names = cs.ents.map(
+                                (id) => allStates.find((s) => s.id === id)?.name ?? id
+                              );
+                              scopeLabel = names.join(", ");
+                            } else {
+                              scopeLabel = `${cs.ents.length} estados`;
+                            }
+                          }
+                          return (
+                            <tr key={i} className="hover:bg-muted/40">
+                              <td className="py-1 text-foreground font-medium">
+                                {LEVER_SHORT_LABELS[cs.lever] ?? cs.label}
+                              </td>
+                              <td className="py-1 text-muted-foreground">{scopeLabel}</td>
+                              <td className="py-1 text-right font-mono font-semibold text-good tnum">
+                                {formatSignedVotes(cs.votos_solo)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="border-t border-border pt-1 font-semibold text-[11px]">
+                        {simulationResult.summary.votos_suma_individual !== undefined && (
+                          <tr>
+                            <td colSpan={2} className="py-1 text-muted-foreground font-medium">
+                              Suma individual
+                            </td>
+                            <td className="py-1 text-right font-mono text-foreground tnum font-semibold">
+                              {formatSignedVotes(simulationResult.summary.votos_suma_individual)}
+                            </td>
+                          </tr>
+                        )}
+                        {simulationResult.summary.votos_traslape !== undefined && (
+                          <tr>
+                            <td colSpan={2} className="py-1 text-muted-foreground font-medium">
+                              <span className="inline-flex items-center gap-1">
+                                <span>Traslape</span>
+                                <InfoTip
+                                  term={"traslape" as any}
+                                  text="personas alcanzadas por más de una campaña"
+                                  size="xs"
+                                />
+                              </span>
+                            </td>
+                            <td className="py-1 text-right font-mono text-bad tnum font-semibold">
+                              -{Math.abs(simulationResult.summary.votos_traslape).toLocaleString("es-MX")}
+                            </td>
+                          </tr>
+                        )}
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+            {/* Stacked risk bar */}
             {(() => {
               const total = (["verde", "amarillo", "naranja", "rojo"] as const).reduce(
                 (sum, c) => sum + (simulationResult.summary.by_category?.[c] ?? 0),
@@ -587,6 +1149,14 @@ export function ScenarioControls() {
             </p>
           </div>
         )}
+
+        {/* Footer lineamientos disclaimer */}
+        <div className="flex items-start gap-1.5 p-2 rounded-md bg-muted/60 text-[11px] text-muted-foreground leading-relaxed">
+          <InfoTip term={"lineamientos" as any} size="xs" />
+          <p>
+            Escenario hipotético para planeación. Solo usa criterios territoriales y datos agregados; no considera preferencias políticas ni datos personales.
+          </p>
+        </div>
       </div>
 
       {/* Footer Actions */}
@@ -595,7 +1165,7 @@ export function ScenarioControls() {
           type="button"
           onClick={handleReset}
           disabled={!isModified || isSimulating}
-          className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted rounded-md transition-colors flex items-center gap-1.5 cursor-pointer"
+          className="px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted rounded-md transition-colors flex items-center gap-1.5 cursor-pointer min-h-[36px]"
           title="Restablecer valores originales"
           aria-label="Restablecer valores originales"
         >
@@ -614,7 +1184,7 @@ export function ScenarioControls() {
           <button
             type="button"
             onClick={() => setIsScenarioModalOpen(false)}
-            className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer min-h-[36px]"
           >
             Cerrar
           </button>
@@ -622,7 +1192,7 @@ export function ScenarioControls() {
             type="button"
             onClick={handleSimulate}
             disabled={isSimulating}
-            className="px-4 py-1.5 text-xs font-semibold text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-md transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+            className="px-4 py-1.5 text-xs font-semibold text-primary-foreground bg-primary hover:opacity-90 disabled:opacity-50 rounded-md transition-all flex items-center gap-1.5 shadow-xs cursor-pointer min-h-[36px]"
           >
             {isSimulating ? (
               <>
