@@ -53,7 +53,7 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 1023px), (orientation: landscape) and (max-height: 540px)");
+    const mq = window.matchMedia("(max-width: 1023px), (max-height: 700px)");
     if (defaultOpen === undefined) {
       setIsCollapsed(mq.matches);
     }

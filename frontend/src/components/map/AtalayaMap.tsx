@@ -368,14 +368,27 @@ function AtalayaMapImpl({
     }
 
     if (controls !== false) {
-      map.addControl(
-        new maplibregl.AttributionControl({ compact: true }),
-        "bottom-right"
-      );
+      const isCompactAttribution =
+        typeof window !== "undefined"
+          ? window.innerWidth < 640 || window.innerHeight <= 540
+          : true;
+      const attribControl = new maplibregl.AttributionControl({
+        compact: isCompactAttribution,
+      });
+      map.addControl(attribControl, "bottom-right");
       map.addControl(
         new maplibregl.NavigationControl({ visualizePitch: true }),
         "bottom-right"
       );
+
+      const handleAttribResize = () => {
+        if (typeof window !== "undefined" && attribControl) {
+          const compact = window.innerWidth < 640 || window.innerHeight <= 540;
+          (attribControl as unknown as { _compact?: boolean; _updateCompact?: () => void })._compact = compact;
+          (attribControl as unknown as { _updateCompact?: () => void })._updateCompact?.();
+        }
+      };
+      map.on("resize", handleAttribResize);
     }
 
     const tileTracker = createTileErrorTracker();

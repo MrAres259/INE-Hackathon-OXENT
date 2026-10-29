@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAtalaya } from "@/lib/state";
@@ -95,6 +95,8 @@ export function TopBar() {
   const pathname = rawPath || "/";
   const isHome = pathname === "/";
 
+  const headerRef = useRef<HTMLElement | null>(null);
+
   // Publish --topbar-h CSS variable on documentElement
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -103,7 +105,11 @@ export function TopBar() {
           window.matchMedia?.("(orientation: landscape) and (max-height: 540px)")?.matches ??
           false;
         const isDesktop = window.innerWidth >= 1024 && !isLandscape;
-        const h = isLandscape ? 48 : isDesktop ? 56 : isHome ? 116 : 76;
+        const measured = headerRef.current
+          ? Math.round(headerRef.current.getBoundingClientRect().height)
+          : null;
+        const fallback = isLandscape ? 48 : isDesktop ? 56 : isHome ? 88 : 48;
+        const h = measured && measured > 0 ? measured : fallback;
         document.documentElement.style.setProperty("--topbar-h", `${h}px`);
       };
       updateTopbarH();
@@ -135,7 +141,7 @@ export function TopBar() {
     : "Memoria";
 
   return (
-    <header className="shrink-0 bg-card border-b border-border pt-[env(safe-area-inset-top,0px)] sticky top-0 z-30 select-none">
+    <header ref={headerRef} className="shrink-0 bg-card border-b border-border pt-[env(safe-area-inset-top,0px)] sticky top-0 z-30 select-none">
       {/* PC single-row layout (>= 1024px and not compact-landscape) */}
       <div className="hidden lg:flex [@media(orientation:landscape)_and_(max-height:540px)]:!hidden h-14 items-center justify-between px-4 gap-3 min-w-0 w-full">
         {/* Brand Lockup & Section Navigation Tabs */}
@@ -453,19 +459,57 @@ export function TopBar() {
       </div>
 
       {/* Compact layout (< 1024px: mobile & vertical tablet, hidden on compact-landscape) */}
-      <div className="flex flex-col lg:hidden [@media(orientation:landscape)_and_(max-height:540px)]:!hidden px-3 py-2 gap-2">
-        {/* Row 1: BrandLockup compact + action icons */}
-        <div className="flex items-center justify-between">
-          <BrandLockup compact />
+      <div className="flex flex-col lg:hidden [@media(orientation:landscape)_and_(max-height:540px)]:!hidden px-2.5 py-1.5 gap-1.5">
+        {/* Row 1: Brand + Section Icons + Action Icons */}
+        <div className="flex items-center justify-between gap-1.5 min-w-0">
+          {/* Brand: BrandLockup on >= 640px, icon-only BrandMark on < 640px */}
+          <div className="flex items-center shrink-0">
+            <BrandLockup compact className="hidden sm:inline-flex" />
+            <Link
+              href="/"
+              aria-label="Atalaya Electoral, inicio"
+              className="sm:hidden flex items-center shrink-0 focus-visible:outline-hidden"
+            >
+              <BrandMark size={28} />
+            </Link>
+          </div>
 
-          <div className="flex items-center gap-1">
+          {/* Section tabs as icons */}
+          <nav
+            className="flex items-center gap-1 rounded-lg bg-muted p-0.5 border border-border shrink-0"
+            aria-label="Secciones principales"
+          >
+            {SECTIONS.map((sec) => {
+              const isActive = sec.href === "/" ? isHome : pathname.startsWith(sec.href);
+              return (
+                <Link
+                  key={sec.id}
+                  href={sec.href}
+                  className={`flex items-center justify-center size-8 rounded-md transition-all cursor-pointer ${
+                    isActive
+                      ? "bg-card text-primary shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  aria-label={sec.label}
+                  title={sec.label}
+                  aria-current={isActive ? "page" : undefined}
+                >
+                  {sec.icon}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Action icons */}
+          <div className="flex items-center gap-0.5 shrink-0">
             {/* Search icon button (only on /) */}
             {isHome && (
               <button
                 type="button"
                 onClick={() => setMobileSearchOpen(true)}
                 className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
-                aria-label="Buscar región"
+                aria-label="Buscar estado o municipio"
+                title="Buscar"
               >
                 <svg
                   className="w-4 h-4"
@@ -486,11 +530,12 @@ export function TopBar() {
             {/* Metodología icon link */}
             <Link
               href="/metodologia"
-              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors shrink-0"
               aria-label="Metodología"
+              title="Metodología"
             >
               <svg
-                className="w-4 h-4"
+                className="w-4 h-4 shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -508,11 +553,12 @@ export function TopBar() {
             <button
               type="button"
               onClick={handleOpenGuide}
-              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
-              aria-label="Ayuda"
+              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              aria-label="Ayuda y guía del sistema"
+              title="Ayuda y guía del sistema"
             >
               <svg
-                className="w-4 h-4"
+                className="w-4 h-4 shrink-0"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -528,32 +574,7 @@ export function TopBar() {
           </div>
         </div>
 
-        {/* Row 2: Full width section switcher without horizontal scroll */}
-        <nav
-          className="flex w-full rounded-lg bg-muted p-0.5 border border-border"
-          aria-label="Secciones principales"
-        >
-          {SECTIONS.map((sec) => {
-            const isActive = sec.href === "/" ? isHome : pathname.startsWith(sec.href);
-            return (
-              <Link
-                key={sec.id}
-                href={sec.href}
-                className={`flex-1 flex items-center justify-center gap-1 rounded-md py-1.5 text-center text-xs font-semibold transition-all cursor-pointer ${
-                  isActive
-                    ? "bg-card text-primary shadow-xs"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                aria-current={isActive ? "page" : undefined}
-              >
-                {sec.icon}
-                <span className="truncate">{sec.shortLabel}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* Row 3: Full width scenario switcher + Adjust button (Visible ONLY on /) */}
+        {/* Row 2: Scenario switcher + Adjust button (Visible ONLY on /) */}
         {isHome && (
           <div className="flex items-center gap-1.5 w-full">
             <div
@@ -565,7 +586,7 @@ export function TopBar() {
                   key={s.id}
                   type="button"
                   onClick={() => setScenario(s.id)}
-                  className={`flex-1 rounded-md py-1.5 text-center text-xs font-semibold transition-all cursor-pointer ${
+                  className={`flex-1 rounded-md py-1 text-center text-xs font-semibold transition-all cursor-pointer ${
                     scenario === s.id
                       ? "bg-card text-primary shadow-xs"
                       : "text-muted-foreground hover:text-foreground"
@@ -611,7 +632,7 @@ export function TopBar() {
                     {scenario === "intervencion" && campaignsCount >= 2 && (
                       <span className="font-medium">{campaignsCount} camp. ·</span>
                     )}
-                    <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"

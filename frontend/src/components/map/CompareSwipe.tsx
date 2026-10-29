@@ -325,12 +325,11 @@ export function CompareSwipe({
         {/* Divider line: white with subtle shadow */}
         <div className="absolute inset-y-0 left-0 -translate-x-1/2 w-0.5 bg-white shadow-[0_0_6px_rgba(0,0,0,0.25)]" />
 
-        {/* Labels attached to handle just above divider knob (avoids collision with legend, summary, or toolbar) */}
+        {/* Labels attached to handle at the height of divider knob (avoids collision with legend, summary, or toolbar) */}
         {comparePos >= 15 && (
           <div
             data-map-overlay="swipe-left-label"
-            className="absolute right-7 bottom-[calc(50%+24px)] pointer-events-none whitespace-nowrap"
-            style={{ bottom: "calc(50% + 24px)" }}
+            className="absolute right-7 top-1/2 -translate-y-1/2 pointer-events-none whitespace-nowrap"
           >
             <span className="inline-flex items-center px-2.5 py-1 [@media(orientation:landscape)_and_(max-height:540px)]:px-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:py-0.5 [@media(max-width:380px)]:px-1.5 [@media(max-width:380px)]:py-0.5 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-border text-foreground shadow-float">
               <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">◀ Sin intervención</span>
@@ -342,8 +341,7 @@ export function CompareSwipe({
         {comparePos <= 85 && (
           <div
             data-map-overlay="swipe-right-label"
-            className="absolute left-7 bottom-[calc(50%+24px)] pointer-events-none whitespace-nowrap"
-            style={{ bottom: "calc(50% + 24px)" }}
+            className="absolute left-7 top-1/2 -translate-y-1/2 pointer-events-none whitespace-nowrap"
           >
             <span className="inline-flex items-center px-2.5 py-1 [@media(orientation:landscape)_and_(max-height:540px)]:px-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:py-0.5 [@media(max-width:380px)]:px-1.5 [@media(max-width:380px)]:py-0.5 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-primary text-foreground shadow-float">
               <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">Con intervención ▶</span>

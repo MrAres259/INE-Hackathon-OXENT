@@ -124,7 +124,7 @@ describe("Intel Navigation Suite (intelNav.test.tsx)", () => {
     expect(html).not.toContain("Buscar estado o municipio");
   });
 
-  it("compact layout renders full-width navigation bar without horizontal scroll", () => {
+  it("compact layout renders navigation with responsive labels", () => {
     mockPathname = "/";
     const html = renderToStaticMarkup(
       <AtalayaContext.Provider value={createMockContext()}>
@@ -132,10 +132,26 @@ describe("Intel Navigation Suite (intelNav.test.tsx)", () => {
       </AtalayaContext.Provider>
     );
 
-    // Compact section switcher contains short labels
+    // Section switcher contains labels
     expect(html).toContain("Mapa");
     expect(html).toContain("Campañas");
     expect(html).toContain("Monitor");
+  });
+
+  it("compact-portrait renders 2 rows with section tabs as icons in brand row", () => {
+    mockPathname = "/";
+    const html = renderToStaticMarkup(
+      <AtalayaContext.Provider value={createMockContext()}>
+        <TopBar />
+      </AtalayaContext.Provider>
+    );
+
+    // Section tabs rendered with accessible labels
+    expect(html).toContain('aria-label="Mapa de riesgo"');
+    expect(html).toContain('aria-label="Plan de campaña"');
+    expect(html).toContain('aria-label="Monitor INE"');
+    // Scenario switcher is in row 2
+    expect(html).toContain('data-tour="escenario"');
   });
 
   it("applies responsive layout classes to prevent horizontal scroll at 1024-1440px", () => {

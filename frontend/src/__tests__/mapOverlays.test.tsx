@@ -181,12 +181,13 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).not.toContain("Rojo 1 → 0");
     });
 
-    it("renders swipe divider handle and labels positioned above handle without overlay collision", () => {
+    it("renders swipe divider handle and labels positioned at handle height without overlay collision", () => {
       const html = renderToStaticMarkup(<CompareSwipe data={mockData} />);
       expect(html).toContain('data-map-overlay="swipe-handle"');
       expect(html).toContain('data-map-overlay="swipe-left-label"');
       expect(html).toContain('data-map-overlay="swipe-right-label"');
-      expect(html).toContain("bottom-[calc(50%+24px)]");
+      expect(html).toContain("top-1/2");
+      expect(html).toContain("-translate-y-1/2");
     });
 
     it("renders compact Sin and Con swipe divider labels with LS classes", () => {
