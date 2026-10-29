@@ -575,7 +575,7 @@ def test_default_specs_three_services():
     assert "-p" in frontend.cmd
     p_idx = frontend.cmd.index("-p")
     assert frontend.cmd[p_idx + 1] == "3000"
-    assert frontend.health_url == "http://127.0.0.1:3000/"
+    assert frontend.health_url == "http://127.0.0.1:3000/login"
 
     # Edge
     assert edge.port == 8080
@@ -673,7 +673,7 @@ def test_edge_missing_caddy_enters_crash_loop(tmp_path: Path):
     killer = FakeKiller()
     checker = FakeHealthChecker()
     checker.set_ok("http://127.0.0.1:8001/api/health")
-    checker.set_ok("http://127.0.0.1:3000/")
+    checker.set_ok("http://127.0.0.1:3000/login")
 
     specs = get_default_specs(port=8080, repo_dir=tmp_path)
 
@@ -719,7 +719,7 @@ def test_edge_lifecycle_and_orderly_shutdown(tmp_path: Path):
     killer = FakeKiller()
     checker = FakeHealthChecker()
     checker.set_ok("http://127.0.0.1:8001/api/health")
-    checker.set_ok("http://127.0.0.1:3000/")
+    checker.set_ok("http://127.0.0.1:3000/login")
     checker.set_ok("http://127.0.0.1:8080/api/health")
 
     # Create dummy template file so render_caddyfile succeeds

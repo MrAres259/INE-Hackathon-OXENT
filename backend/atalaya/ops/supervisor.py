@@ -286,7 +286,8 @@ def get_default_specs(port: int = 8080, repo_dir: Path | None = None) -> list[Se
         ],
         cwd=frontend_dir,
         env={"NEXT_TELEMETRY_DISABLED": "1", "BACKEND_URL": "http://127.0.0.1:8001"},
-        health_url="http://127.0.0.1:3000/",
+        # "/" redirects to /login (307) since the app requires a session; /login is public and returns 200.
+        health_url="http://127.0.0.1:3000/login",
         health_ok=default_frontend_health_ok,
         start_grace_s=30.0,
         depends_on="backend",
