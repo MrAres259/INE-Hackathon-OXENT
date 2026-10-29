@@ -102,14 +102,14 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
         className={`float-panel text-xs pointer-events-auto transition-all relative ${
           isCollapsed
             ? "w-auto"
-            : "w-52 sm:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:w-auto [@media(max-width:380px)]:w-auto"
+            : "w-52 sm:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:w-auto [@media(max-width:380px)]:w-auto max-lg:w-auto"
         } ${className}`}
       >
         <div className="flex items-center justify-between gap-1.5 px-3 py-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-display font-bold text-foreground text-xs truncate">
-              <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">Cambio vs base</span>
-              <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline">Cambio</span>
+              <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden max-sm:hidden">Cambio vs base</span>
+              <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline max-sm:inline">Cambio</span>
             </span>
             <InfoTip term="modo.delta" size="xs" side="right" />
           </div>
@@ -138,7 +138,7 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
         {!isCollapsed && (
           <div
             data-map-overlay="legend-popover"
-            className="space-y-1.5 border-t border-border px-3 py-2 [@media(orientation:landscape)_and_(max-height:540px)]:absolute [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:top-full [@media(orientation:landscape)_and_(max-height:540px)]:mt-1 [@media(orientation:landscape)_and_(max-height:540px)]:z-40 [@media(orientation:landscape)_and_(max-height:540px)]:float-panel [@media(orientation:landscape)_and_(max-height:540px)]:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:max-h-[calc(100vh-80px)] [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:shadow-float [@media(max-width:380px)]:absolute [@media(max-width:380px)]:left-0 [@media(max-width:380px)]:top-full [@media(max-width:380px)]:mt-1 [@media(max-width:380px)]:z-40 [@media(max-width:380px)]:float-panel [@media(max-width:380px)]:w-56 [@media(max-width:380px)]:shadow-float"
+            className="space-y-1.5 border-t border-border px-3 py-2 [@media(orientation:landscape)_and_(max-height:540px)]:absolute [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:top-full [@media(orientation:landscape)_and_(max-height:540px)]:mt-1 [@media(orientation:landscape)_and_(max-height:540px)]:z-40 [@media(orientation:landscape)_and_(max-height:540px)]:float-panel [@media(orientation:landscape)_and_(max-height:540px)]:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:max-h-[calc(100vh-80px)] [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:shadow-float [@media(max-width:380px)]:absolute [@media(max-width:380px)]:left-0 [@media(max-width:380px)]:top-full [@media(max-width:380px)]:mt-1 [@media(max-width:380px)]:z-40 [@media(max-width:380px)]:float-panel [@media(max-width:380px)]:w-56 [@media(max-width:380px)]:shadow-float max-lg:absolute max-lg:left-0 max-lg:top-full max-lg:mt-1 max-lg:z-40 max-lg:float-panel max-lg:w-56 max-lg:shadow-float"
           >
             <div className="text-[10px] text-muted-foreground mb-1 leading-snug">
               intervención − base · azul = menos abstención
@@ -229,14 +229,14 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
       className={`float-panel text-xs pointer-events-auto transition-all relative ${
         isCollapsed
           ? "w-auto"
-          : "w-52 sm:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:w-auto [@media(max-width:380px)]:w-auto"
+          : "w-52 sm:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:w-auto [@media(max-width:380px)]:w-auto max-lg:w-auto"
       } ${className}`}
     >
       <div className="flex items-center justify-between gap-1.5 px-3 py-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="font-display font-bold text-foreground text-xs truncate">
-            <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">Semáforo 2027</span>
-            <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline">Semáforo</span>
+            <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden max-sm:hidden">Semáforo 2027</span>
+            <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline max-sm:inline">Semáforo</span>
           </span>
           <InfoTip term="semaforo" size="xs" side="right" />
         </div>
@@ -272,7 +272,7 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
       {!isCollapsed && (
         <div
           data-map-overlay="legend-popover"
-          className="space-y-1.5 border-t border-border px-3 py-2 [@media(orientation:landscape)_and_(max-height:540px)]:absolute [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:top-full [@media(orientation:landscape)_and_(max-height:540px)]:mt-1 [@media(orientation:landscape)_and_(max-height:540px)]:z-40 [@media(orientation:landscape)_and_(max-height:540px)]:float-panel [@media(orientation:landscape)_and_(max-height:540px)]:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:max-h-[calc(100vh-80px)] [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:shadow-float [@media(max-width:380px)]:absolute [@media(max-width:380px)]:left-0 [@media(max-width:380px)]:top-full [@media(max-width:380px)]:mt-1 [@media(max-width:380px)]:z-40 [@media(max-width:380px)]:float-panel [@media(max-width:380px)]:w-56 [@media(max-width:380px)]:shadow-float"
+          className="space-y-1.5 border-t border-border px-3 py-2 [@media(orientation:landscape)_and_(max-height:540px)]:absolute [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:top-full [@media(orientation:landscape)_and_(max-height:540px)]:mt-1 [@media(orientation:landscape)_and_(max-height:540px)]:z-40 [@media(orientation:landscape)_and_(max-height:540px)]:float-panel [@media(orientation:landscape)_and_(max-height:540px)]:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:max-h-[calc(100vh-80px)] [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:shadow-float [@media(max-width:380px)]:absolute [@media(max-width:380px)]:left-0 [@media(max-width:380px)]:top-full [@media(max-width:380px)]:mt-1 [@media(max-width:380px)]:z-40 [@media(max-width:380px)]:float-panel [@media(max-width:380px)]:w-56 [@media(max-width:380px)]:shadow-float max-lg:absolute max-lg:left-0 max-lg:top-full max-lg:mt-1 max-lg:z-40 max-lg:float-panel max-lg:w-56 max-lg:shadow-float"
         >
           <div className="flex items-center justify-between text-[10px] text-muted-foreground px-0.5 pb-0.5 border-b border-border font-medium">
             <span>Nivel de riesgo</span>

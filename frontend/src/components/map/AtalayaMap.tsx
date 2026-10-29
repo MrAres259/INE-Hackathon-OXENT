@@ -376,20 +376,88 @@ function AtalayaMapImpl({
         compact: isCompactAttribution,
       });
       map.addControl(attribControl, "bottom-right");
-      map.addControl(
-        new maplibregl.NavigationControl({ visualizePitch: true }),
-        "bottom-right"
-      );
+
+      const navControl = new maplibregl.NavigationControl({ visualizePitch: true });
+      // Ensure getContainer() is available on navControl for measurement and overlay tagging
+      (navControl as unknown as { getContainer?: () => HTMLElement }).getContainer = () =>
+        (navControl as unknown as { _container: HTMLElement })._container;
+      map.addControl(navControl, "bottom-right");
+
+      const closeCompactAttribution = () => {
+        if (typeof window === "undefined" || !map) return;
+        const shouldBeCompact = window.innerWidth < 640 || window.innerHeight <= 540;
+        if (shouldBeCompact) {
+          const container = typeof map.getContainer === "function" ? map.getContainer() : null;
+          const attribEl = container?.querySelector(".maplibregl-ctrl-attrib");
+          if (attribEl) {
+            attribEl.classList.remove("maplibregl-compact-show");
+          }
+        }
+      };
+
+      const updateNavControl = () => {
+        if (typeof window === "undefined" || !map) return;
+        const isTouchOrSmall = window.innerWidth < 768;
+        const hasPitch = typeof map.getPitch === "function" ? map.getPitch() > 0 : false;
+
+        const navEl =
+          ((typeof (navControl as unknown as { getContainer?: () => HTMLElement }).getContainer === "function"
+            ? (navControl as unknown as { getContainer?: () => HTMLElement }).getContainer!()
+            : null) ||
+          (navControl as unknown as { _container?: HTMLElement })._container ||
+          (typeof map.getContainer === "function" ? (map.getContainer()?.querySelector(".maplibregl-ctrl-group") as HTMLElement | null) : null)) as HTMLElement | null;
+
+        if (navEl && typeof navEl.setAttribute === "function") {
+          navEl.setAttribute("data-map-overlay", "zoom");
+          if (isTouchOrSmall) {
+            const zoomIn = navEl.querySelector(".maplibregl-ctrl-zoom-in") as HTMLElement | null;
+            const zoomOut = navEl.querySelector(".maplibregl-ctrl-zoom-out") as HTMLElement | null;
+            const compass = navEl.querySelector(".maplibregl-ctrl-compass") as HTMLElement | null;
+            if (zoomIn) zoomIn.style.display = "none";
+            if (zoomOut) zoomOut.style.display = "none";
+            if (compass) {
+              compass.style.display = hasPitch ? "" : "none";
+            }
+            navEl.style.display = hasPitch ? "" : "none";
+          } else {
+            const zoomIn = navEl.querySelector(".maplibregl-ctrl-zoom-in") as HTMLElement | null;
+            const zoomOut = navEl.querySelector(".maplibregl-ctrl-zoom-out") as HTMLElement | null;
+            const compass = navEl.querySelector(".maplibregl-ctrl-compass") as HTMLElement | null;
+            if (zoomIn) zoomIn.style.display = "";
+            if (zoomOut) zoomOut.style.display = "";
+            if (compass) compass.style.display = "";
+            navEl.style.display = "";
+          }
+        }
+      };
+
+      // F4-D: tras load, quita maplibregl-compact-show para que inicie como botón ⓘ en pantallas < 640px o <= 540px alto
+      map.on("load", () => {
+        closeCompactAttribution();
+        updateNavControl();
+      });
+      map.once("idle", () => {
+        closeCompactAttribution();
+        updateNavControl();
+      });
+      map.on("pitch", updateNavControl);
+      map.on("rotate", updateNavControl);
 
       const handleAttribResize = () => {
         if (typeof window !== "undefined" && attribControl) {
           const compact = window.innerWidth < 640 || window.innerHeight <= 540;
           (attribControl as unknown as { _compact?: boolean; _updateCompact?: () => void })._compact = compact;
           (attribControl as unknown as { _updateCompact?: () => void })._updateCompact?.();
+          closeCompactAttribution();
+          updateNavControl();
         }
       };
       map.on("resize", handleAttribResize);
+
+      closeCompactAttribution();
+      updateNavControl();
     }
+
 
     const tileTracker = createTileErrorTracker();
 

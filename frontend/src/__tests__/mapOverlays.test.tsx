@@ -56,6 +56,19 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       // LS class is present on breadcrumb container
       expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:max-w-[45vw]");
     });
+
+    it("oculta las migas en compact-portrait a nivel nacional (!selectedEnt) y las muestra con estado", async () => {
+      const { useAtalaya } = await import("@/lib/state");
+      vi.mocked(useAtalaya).mockReturnValueOnce({
+        ...vi.mocked(useAtalaya)(),
+        selectedEnt: null,
+      });
+      const nationalHtml = renderToStaticMarkup(<Breadcrumb />);
+      expect(nationalHtml).toContain("hidden lg:flex");
+
+      const stateHtml = renderToStaticMarkup(<Breadcrumb />);
+      expect(stateHtml).not.toContain("hidden lg:flex");
+    });
   });
 
   describe("MapLayerSwitcher", () => {
@@ -239,6 +252,11 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain("maplibregl-ctrl-bottom-right");
       expect(html).toContain("var(--map-inset-right,0px)");
     });
+
+    it("coloca MapLayerSwitcher y Legend en la misma fila en pantallas compactas con lg:contents para PC", () => {
+      const html = renderToStaticMarkup(<RiskMap />);
+      expect(html).toContain("flex items-center gap-2 flex-wrap lg:contents");
+    });
   });
 
   describe("MapFallback", () => {
@@ -270,4 +288,18 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(combined).not.toContain("#060a13");
     });
   });
+
+  describe("F4-D · globals.css rules and overlay classes", () => {
+    it("globals.css contains F4-D rules for compact attribution and zoom control hiding", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const cssPath = path.resolve(__dirname, "../app/globals.css");
+      const cssContent = fs.readFileSync(cssPath, "utf-8");
+      expect(cssContent).toContain("/* F4-D */");
+      expect(cssContent).toContain('[data-map-overlay="zoom"] .maplibregl-ctrl-zoom-in');
+      expect(cssContent).toContain('[data-map-overlay="zoom"] .maplibregl-ctrl-zoom-out');
+      expect(cssContent).toContain(".maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show)");
+    });
+  });
 });
+

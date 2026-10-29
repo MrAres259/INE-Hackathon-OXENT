@@ -213,4 +213,26 @@ html[data-layout="compact-landscape"] {
   margin-right: var(--map-inset-right, 0px);
 }
 
+/* F4-D */
+/* 1. Atribución compacta: iniciar como botón ⓘ sin desplegarse en celulares y pantallas bajas */
+@media (max-width: 639px), (orientation: landscape) and (max-height: 540px) {
+  .maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) {
+    padding: 0;
+  }
+}
+
+/* 2. Control de zoom nativo en pantallas táctiles < 768px: ocultar zoom +/- */
+@media (max-width: 767px) {
+  [data-map-overlay="zoom"] .maplibregl-ctrl-zoom-in,
+  [data-map-overlay="zoom"] .maplibregl-ctrl-zoom-out {
+    display: none !important;
+  }
+}
+
+/* 3. Margen para asegurar que [data-map-overlay="zoom"] no intersecte la barra de herramientas */
+[data-map-overlay="zoom"] {
+  z-index: 10;
+}
+
+
 

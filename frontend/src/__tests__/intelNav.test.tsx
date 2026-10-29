@@ -227,4 +227,48 @@ describe("Intel Navigation Suite (intelNav.test.tsx)", () => {
       expect(html).not.toContain("Pesim.");
     });
   });
+
+  describe("F4-D · Small-portrait TopBar specifications (F4-D-small-portrait.md)", () => {
+    it("renders exactly one BrandMark per layout mode container without duplicates", () => {
+      mockPathname = "/";
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={createMockContext()}>
+          <TopBar />
+        </AtalayaContext.Provider>
+      );
+
+      // Extract each layout container
+      const desktopMatch = html.match(/<div[^>]*data-layout-mode="desktop"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*data-layout-mode="compact-landscape"/);
+      const landscapeMatch = html.match(/<div[^>]*data-layout-mode="compact-landscape"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*data-layout-mode="compact-portrait"/);
+      const portraitMatch = html.match(/<div[^>]*data-layout-mode="compact-portrait"[^>]*>([\s\S]*?)<\/div>\s*<\/header>/);
+
+      const countBrandMarks = (str: string) => (str.match(/viewBox="0 0 64 64"/g) || []).length;
+
+      expect(desktopMatch).not.toBeNull();
+      expect(countBrandMarks(desktopMatch![1])).toBe(1);
+
+      expect(landscapeMatch).not.toBeNull();
+      expect(countBrandMarks(landscapeMatch![1])).toBe(1);
+
+      expect(portraitMatch).not.toBeNull();
+      expect(countBrandMarks(portraitMatch![1])).toBe(1);
+    });
+
+    it("hides brand text under 400px and displays '⋯' options menu for methodology and guide", () => {
+      mockPathname = "/";
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={createMockContext()}>
+          <TopBar />
+        </AtalayaContext.Provider>
+      );
+
+      // In compact-portrait, text is hidden under 400px
+      expect(html).toContain("hidden min-[400px]:block");
+      // "⋯" menu button is rendered with accessible aria-label
+      expect(html).toContain('aria-label="Más opciones"');
+      // Direct action buttons are rendered for >= 400px
+      expect(html).toContain("hidden min-[400px]:flex");
+    });
+  });
 });
+

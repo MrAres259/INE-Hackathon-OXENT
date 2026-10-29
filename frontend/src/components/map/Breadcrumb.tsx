@@ -34,11 +34,15 @@ export function Breadcrumb() {
   const isMun = selectedRegionId && selectedRegionId.length === 5;
   const munName = isMun && selectedDetail ? selectedDetail.name : null;
 
+  const isNational = !selectedEnt;
+
   return (
     <nav
       aria-label="Migas de navegación territorial"
       data-map-overlay="breadcrumb"
-      className="float-panel flex items-center gap-1 px-2.5 py-1 text-xs pointer-events-auto max-w-[calc(100vw-24px)] [@media(orientation:landscape)_and_(max-height:540px)]:max-w-[45vw] [@media(max-width:380px)]:max-w-[45vw] overflow-hidden whitespace-nowrap"
+      className={`float-panel items-center gap-1 px-2.5 py-1 text-xs pointer-events-auto max-w-[calc(100vw-24px)] [@media(orientation:landscape)_and_(max-height:540px)]:max-w-[45vw] [@media(max-width:380px)]:max-w-[45vw] overflow-hidden whitespace-nowrap ${
+        isNational ? "hidden lg:flex" : "flex"
+      }`}
     >
       <button
         type="button"

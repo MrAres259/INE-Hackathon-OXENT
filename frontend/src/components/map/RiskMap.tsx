@@ -252,17 +252,18 @@ export function RiskMap() {
 
       {/* Overlays Layer (pointer-events-none container with pointer-events-auto children) */}
       <div className="absolute inset-0 pointer-events-none p-3 [@media(orientation:landscape)_and_(max-height:540px)]:p-2 [@media(max-width:380px)]:p-2">
-        {/* Top Left group: Breadcrumb, MapLayerSwitcher, and CompareSummary in column with gap-2 */}
+        {/* Top Left group: Breadcrumb, MapLayerSwitcher, Legend, and CompareSummary in column with gap-2 */}
         <div className="absolute top-[calc(var(--topbar-h,0px)+8px)] left-3 [@media(orientation:landscape)_and_(max-height:540px)]:left-2 [@media(max-width:380px)]:left-2 z-20 flex flex-col items-start gap-2 pointer-events-none lg:static">
           <div className="flex flex-col items-start gap-2 pointer-events-auto z-20 lg:absolute lg:top-3 lg:left-3">
             <Breadcrumb />
-            <MapLayerSwitcher data={data} />
+            <div className="flex items-center gap-2 flex-wrap lg:contents">
+              <MapLayerSwitcher data={data} />
+              {/* Legend: in compact placed in the same row as MapLayerSwitcher (to its right); on PC (>=1024) at bottom-left */}
+              <div className="pointer-events-auto z-20 lg:absolute lg:left-3 lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)]">
+                <Legend data={data} />
+              </div>
+            </div>
             {mapMode === "compare" && <CompareSummary data={data} />}
-          </div>
-
-          {/* Legend: in compact follows MapLayerSwitcher with gap-2; on PC (>=1024) positioned at bottom-left */}
-          <div className="pointer-events-auto z-20 lg:absolute lg:left-3 lg:bottom-[calc(var(--map-inset-bottom,0px)+12px)]">
-            <Legend data={data} />
           </div>
         </div>
 

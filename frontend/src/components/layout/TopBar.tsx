@@ -84,6 +84,19 @@ export function TopBar() {
   } = useAtalaya();
 
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [moreMenuOpen]);
 
   // Determine active section route
   let rawPath: string | null = null;
@@ -143,7 +156,7 @@ export function TopBar() {
   return (
     <header ref={headerRef} className="shrink-0 bg-card border-b border-border pt-[env(safe-area-inset-top,0px)] sticky top-0 z-30 select-none">
       {/* PC single-row layout (>= 1024px and not compact-landscape) */}
-      <div className="hidden lg:flex [@media(orientation:landscape)_and_(max-height:540px)]:!hidden h-14 items-center justify-between px-4 gap-3 min-w-0 w-full">
+      <div data-layout-mode="desktop" className="hidden lg:flex [@media(orientation:landscape)_and_(max-height:540px)]:!hidden h-14 items-center justify-between px-4 gap-3 min-w-0 w-full">
         {/* Brand Lockup & Section Navigation Tabs */}
         <div className="flex items-center gap-3 xl:gap-4 shrink-0">
           <BrandLockup className="shrink-0" />
@@ -322,7 +335,7 @@ export function TopBar() {
       </div>
 
       {/* Compact-landscape single-row layout (<= 48px, orientation: landscape and height <= 540px) */}
-      <div className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:flex h-12 items-center justify-between px-3 gap-2 min-w-0 w-full">
+      <div data-layout-mode="compact-landscape" className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:flex h-12 items-center justify-between px-3 gap-2 min-w-0 w-full">
         {/* Brand icon only (no text) */}
         <Link
           href="/"
@@ -459,20 +472,23 @@ export function TopBar() {
       </div>
 
       {/* Compact layout (< 1024px: mobile & vertical tablet, hidden on compact-landscape) */}
-      <div className="flex flex-col lg:hidden [@media(orientation:landscape)_and_(max-height:540px)]:!hidden px-2.5 py-1.5 gap-1.5">
+      <div data-layout-mode="compact-portrait" className="flex flex-col lg:hidden [@media(orientation:landscape)_and_(max-height:540px)]:!hidden px-2.5 py-1.5 gap-1.5">
         {/* Row 1: Brand + Section Icons + Action Icons */}
         <div className="flex items-center justify-between gap-1.5 min-w-0">
-          {/* Brand: BrandLockup on >= 640px, icon-only BrandMark on < 640px */}
-          <div className="flex items-center shrink-0">
-            <BrandLockup compact className="hidden sm:inline-flex" />
-            <Link
-              href="/"
-              aria-label="Atalaya Electoral, inicio"
-              className="sm:hidden flex items-center shrink-0 focus-visible:outline-hidden"
-            >
-              <BrandMark size={28} />
-            </Link>
-          </div>
+          {/* Brand: single BrandMark, text hidden on < 400px */}
+          <Link
+            href="/"
+            aria-label="Atalaya Electoral, inicio"
+            className="flex items-center gap-2 shrink-0 focus-visible:outline-hidden select-none group"
+          >
+            <BrandMark size={28} aria-hidden="true" className="shrink-0" />
+            <div className="min-w-0 leading-tight hidden min-[400px]:block">
+              <div className="font-display font-extrabold text-sm tracking-tight text-ink flex items-baseline gap-1">
+                <span>Atalaya</span>
+                <span className="text-primary font-bold">Electoral</span>
+              </div>
+            </div>
+          </Link>
 
           {/* Section tabs as icons */}
           <nav
@@ -500,19 +516,139 @@ export function TopBar() {
             })}
           </nav>
 
-          {/* Action icons */}
+          {/* Action icons: on < 400px Search (on /) + menu "⋯" (Metodología + Guía); on >= 400px direct icons */}
           <div className="flex items-center gap-0.5 shrink-0">
-            {/* Search icon button (only on /) */}
-            {isHome && (
+            {/* < 400px: Search + Menu "⋯" */}
+            <div className="flex min-[400px]:hidden items-center gap-0.5 shrink-0 relative" ref={moreMenuRef}>
+              {isHome && (
+                <button
+                  type="button"
+                  onClick={() => setMobileSearchOpen(true)}
+                  className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
+                  aria-label="Buscar estado o municipio"
+                  title="Buscar"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={() => setMobileSearchOpen(true)}
+                onClick={() => setMoreMenuOpen((v) => !v)}
                 className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
-                aria-label="Buscar estado o municipio"
-                title="Buscar"
+                aria-label="Más opciones"
+                aria-haspopup="menu"
+                aria-expanded={moreMenuOpen}
+                title="Más opciones"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                  <circle cx="5" cy="12" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="19" cy="12" r="2" />
+                </svg>
+              </button>
+
+              {moreMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Opciones adicionales"
+                  className="absolute right-0 top-full mt-1 w-44 rounded-md border border-border bg-card p-1 shadow-float z-50 flex flex-col gap-0.5"
+                >
+                  <Link
+                    href="/metodologia"
+                    role="menuitem"
+                    onClick={() => setMoreMenuOpen(false)}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent rounded-sm transition-colors"
+                  >
+                    <svg
+                      className="w-3.5 h-3.5 shrink-0 text-muted-foreground"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                      />
+                    </svg>
+                    <span>Metodología</span>
+                  </Link>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      handleOpenGuide();
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent rounded-sm transition-colors text-left w-full cursor-pointer"
+                  >
+                    <svg
+                      className="w-3.5 h-3.5 shrink-0 text-muted-foreground"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle cx="12" cy="12" r="10" strokeWidth={2} />
+                      <path
+                        strokeLinecap="round"
+                        strokeWidth={2}
+                        d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
+                      />
+                    </svg>
+                    <span>Guía interactiva</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* >= 400px: Search + Metodología + Guía directly */}
+            <div className="hidden min-[400px]:flex items-center gap-0.5 shrink-0">
+              {isHome && (
+                <button
+                  type="button"
+                  onClick={() => setMobileSearchOpen(true)}
+                  className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
+                  aria-label="Buscar estado o municipio"
+                  title="Buscar"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </button>
+              )}
+
+              <Link
+                href="/metodologia"
+                className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors shrink-0"
+                aria-label="Metodología"
+                title="Metodología"
               >
                 <svg
-                  className="w-4 h-4"
+                  className="w-4 h-4 shrink-0"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -521,56 +657,33 @@ export function TopBar() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                  />
+                </svg>
+              </Link>
+
+              <button
+                type="button"
+                onClick={handleOpenGuide}
+                className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                aria-label="Ayuda y guía del sistema"
+                title="Ayuda y guía del sistema"
+              >
+                <svg
+                  className="w-4 h-4 shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <circle cx="12" cy="12" r="10" strokeWidth={2} />
+                  <path
+                    strokeLinecap="round"
+                    strokeWidth={2}
+                    d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
                   />
                 </svg>
               </button>
-            )}
-
-            {/* Metodología icon link */}
-            <Link
-              href="/metodologia"
-              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors shrink-0"
-              aria-label="Metodología"
-              title="Metodología"
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                />
-              </svg>
-            </Link>
-
-            {/* Help button (dispatches C1) */}
-            <button
-              type="button"
-              onClick={handleOpenGuide}
-              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
-              aria-label="Ayuda y guía del sistema"
-              title="Ayuda y guía del sistema"
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <circle cx="12" cy="12" r="10" strokeWidth={2} />
-                <path
-                  strokeLinecap="round"
-                  strokeWidth={2}
-                  d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
-                />
-              </svg>
-            </button>
+            </div>
           </div>
         </div>
 
