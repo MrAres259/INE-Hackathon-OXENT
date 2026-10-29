@@ -57,6 +57,40 @@ describe("NewsDetail Component Suite (newsDetail.test.tsx)", () => {
     expect(html).toContain("Ver municipios →");
   });
 
+  it("renders low impact notice in ImpactMap when no entities exceed 0.05 pp", () => {
+    const lowImpact: NewsImpact = {
+      level: "state",
+      delta_pp_national: 0.02,
+      votos_perdidos_total: 1200,
+      max_delta_pp: 0.03,
+      units: [
+        {
+          id: "09",
+          name: "Ciudad de México",
+          level: "state",
+          delta_pp: 0.03,
+          delta_low_pp: 0.01,
+          delta_high_pp: 0.04,
+          votos_perdidos: 1200,
+          exposure: 0.5,
+          category_before: "verde",
+          category_after: "verde",
+        },
+      ],
+      assumptions: ["Impacto marginal bajo el umbral de 0.05 pp"],
+      params: {},
+    };
+
+    const html = renderToStaticMarkup(
+      <ImpactMap impact={lowImpact} itemId="news_low_01" />
+    );
+
+    expect(html).toContain("Impacto estimado bajo: ninguna entidad supera 0.05 pp");
+    expect(html).toContain("+0.02 pp");
+    expect(html).toContain("1,200");
+    expect(html).not.toContain("Ver municipios →");
+  });
+
   it("ImpactMap drill-down calls getItemImpact with mun and state id", async () => {
     const mockMunImpact: NewsImpact = {
       level: "mun",

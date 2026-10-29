@@ -1,7 +1,7 @@
 // ATALAYA Intel - Monitor Page
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { IntelPageShell } from "@/components/intel/IntelPageShell";
 import { OperatorGate } from "@/components/intel/OperatorGate";
 import { getIntelStatus, getMonitor, scanMonitor, pollJob, IntelApiError } from "@/lib/intel/api";
@@ -30,6 +30,24 @@ export default function MonitorPage() {
   const [activeJob, setActiveJob] = useState<Job<MonitorSnapshot> | null>(null);
   const [cooldownMessage, setCooldownMessage] = useState<string | null>(null);
 
+  const applySnapshot = useCallback((sn: MonitorSnapshot) => {
+    setSnapshot(sn);
+    if (sn.items && sn.items.length > 0) {
+      const { verificadas, rumores } = countByTab(sn.items);
+      if (verificadas === 0 && rumores > 0) {
+        setFilters((prev) => ({ ...prev, tab: "rumores" }));
+        const firstRumor = sn.items.find((i) => i.verdict === "falsa" || i.verdict === "sin_verificar");
+        setSelectedItemId(firstRumor ? firstRumor.id : sn.items[0].id);
+      } else if (rumores === 0 && verificadas > 0) {
+        setFilters((prev) => ({ ...prev, tab: "verificadas" }));
+        const firstVerif = sn.items.find((i) => i.verdict === "verdadera" || i.verdict === "enganosa");
+        setSelectedItemId(firstVerif ? firstVerif.id : sn.items[0].id);
+      } else {
+        setSelectedItemId(sn.items[0].id);
+      }
+    }
+  }, []);
+
   // Load initial status and monitor snapshot
   useEffect(() => {
     let mounted = true;
@@ -41,10 +59,7 @@ export default function MonitorPage() {
       if (!mounted) return;
       if (st) setStatus(st);
       if (sn) {
-        setSnapshot(sn);
-        if (sn.items && sn.items.length > 0) {
-          setSelectedItemId(sn.items[0].id);
-        }
+        applySnapshot(sn);
       }
       setLoading(false);
     });
@@ -52,7 +67,7 @@ export default function MonitorPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [applySnapshot]);
 
   // Compute tab counts and filtered items
   const allItems = useMemo(() => snapshot?.items ?? [], [snapshot]);
@@ -77,10 +92,7 @@ export default function MonitorPage() {
       const res = await scanMonitor({ window_days: windowDays, refresh: true });
 
       if ("snapshot" in res) {
-        setSnapshot(res.snapshot);
-        if (res.snapshot.items?.length > 0) {
-          setSelectedItemId(res.snapshot.items[0].id);
-        }
+        applySnapshot(res.snapshot);
       } else if ("id" in res) {
         setActiveJob(res);
         const finalJob = await pollJob<MonitorSnapshot>(res.id, {
@@ -88,10 +100,7 @@ export default function MonitorPage() {
         });
 
         if (finalJob.status === "done" && finalJob.result) {
-          setSnapshot(finalJob.result);
-          if (finalJob.result.items?.length > 0) {
-            setSelectedItemId(finalJob.result.items[0].id);
-          }
+          applySnapshot(finalJob.result);
         } else if (finalJob.error) {
           setCooldownMessage(finalJob.error);
         }

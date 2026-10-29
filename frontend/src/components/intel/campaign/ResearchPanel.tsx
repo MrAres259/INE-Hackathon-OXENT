@@ -40,8 +40,18 @@ export function ResearchPanel({
                 <span>Investigación Documental</span>
                 <InfoTip term="investigacion_gemini" size="xs" />
               </div>
-              <div className="text-[11px] text-muted-foreground font-mono">
-                Motor: {research?.model || "Gemini 3.8 Flash"}
+              <div className="text-[11px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">
+                <span>
+                  Motor: {research?.model || "Gemini"} · {(() => {
+                    const sm = research?.search_mode;
+                    if (sm === "grounding") return "Búsqueda web completa (Google)";
+                    if (sm === "sin_internet") return "Sin búsqueda en internet";
+                    if (sm === "respaldo") return "Búsqueda de respaldo (noticias indexadas)";
+                    if (research?.note?.toLowerCase().includes("sin internet")) return "Sin búsqueda en internet";
+                    return "Búsqueda de respaldo (noticias indexadas)";
+                  })()}
+                </span>
+                <InfoTip term="investigacion_gemini" size="xs" />
               </div>
             </div>
           </div>

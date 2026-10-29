@@ -83,6 +83,7 @@ class ResearchBundle(BaseModel):
     generated_at: str                        # ISO datetime
     model: str = ""
     from_cache: bool = False
+    search_mode: Literal["grounding", "respaldo", "sin_internet"] = "grounding"   # added in ola-2-fix
     degraded: bool = False                   # True when Gemini was unavailable (findings empty)
     note: str | None = None                  # Spanish explanation when degraded
 
@@ -389,6 +390,7 @@ class MonitorSnapshot(BaseModel):
     queries: list[str] = []
     sources_scanned: int = 0
     model: str = ""
+    search_mode: Literal["grounding", "respaldo", "sin_internet"] = "grounding"   # added in ola-2-fix
     degraded: bool = False
     note: str | None = None
     next_scan_allowed_at: str | None = None
@@ -412,6 +414,8 @@ class Job(BaseModel):
 class IntelStatus(BaseModel):
     gemini_enabled: bool
     gemini_model: str
+    search_mode: Literal["grounding", "respaldo", "sin_internet"] = "grounding"   # added in ola-2-fix: live circuit state
+    gemini_last_model: str | None = None     # added in ola-2-fix: model that actually answered last
     llm_enabled: bool
     llm_model: str
     llm_effort: str

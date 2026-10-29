@@ -3,12 +3,13 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import fs from "node:fs";
 import path from "node:path";
-import MetodologiaPage, {
+import MetodologiaPage from "../app/metodologia/page";
+import {
   NEWS_IMPACT_PARAMS,
   SEVERITY_ACTIONS_RULES,
   type NewsImpactParam,
   type SeverityActionRule,
-} from "../app/metodologia/page";
+} from "../lib/intel/methodology";
 
 describe("Metodología: Inteligencia con IA (metodologia.test.tsx)", () => {
   describe("NEWS_IMPACT_PARAMS constant vs data/seed/news_impact_params.csv", () => {

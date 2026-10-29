@@ -93,7 +93,11 @@ export function ExportBar({ plan, drafts, className = "" }: ExportBarProps) {
             className="h-8 px-3 rounded-lg bg-good/15 hover:bg-good/25 text-good border border-good/30 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
             title="Abre el mapa con las campañas calculadas precargadas en el escenario de intervención"
           >
-            <span>🗺️</span>
+            <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+              <line x1="8" y1="2" x2="8" y2="18" />
+              <line x1="16" y1="6" x2="16" y2="22" />
+            </svg>
             <span>Simular en el mapa</span>
           </Link>
 
@@ -102,7 +106,10 @@ export function ExportBar({ plan, drafts, className = "" }: ExportBarProps) {
             className="h-8 px-3 rounded-lg border border-border bg-muted/50 hover:bg-accent text-xs font-medium text-foreground transition-colors flex items-center gap-1.5 cursor-pointer"
             title="Localizar la unidad en el mapa principal"
           >
-            <span>📍</span>
+            <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
             <span>Ver zona en el mapa</span>
           </Link>
         </div>
@@ -127,7 +134,11 @@ export function ExportBar({ plan, drafts, className = "" }: ExportBarProps) {
               </>
             ) : (
               <>
-                <span>📊</span>
+                <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
                 <span>Descargar PPTX</span>
               </>
             )}
@@ -151,7 +162,12 @@ export function ExportBar({ plan, drafts, className = "" }: ExportBarProps) {
               </>
             ) : (
               <>
-                <span>📄</span>
+                <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
                 <span>Descargar PDF</span>
               </>
             )}

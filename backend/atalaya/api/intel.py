@@ -61,6 +61,9 @@ def get_intel_status() -> IntelStatus:
     budget_limit = getattr(settings, "intel_gemini_daily_limit", int(os.getenv("INTEL_GEMINI_DAILY_LIMIT", "40")))
     gemini_model = getattr(settings, "gemini_model", os.getenv("GEMINI_MODEL", "gemini-3.8-flash"))
 
+    search_mode = "sin_internet"
+    gemini_last_model = None
+
     try:
         from atalaya import gemini
         if hasattr(gemini, "is_enabled"):
@@ -69,6 +72,9 @@ def get_intel_status() -> IntelStatus:
             bs = gemini.budget_status()
             budget_used = int(bs.get("used", 0))
             budget_limit = int(bs.get("limit", budget_limit))
+            gemini_last_model = bs.get("last_model")
+            if gemini_enabled:
+                search_mode = "grounding" if bs.get("grounding_available", True) else "respaldo"
     except Exception:
         pass
 
@@ -96,6 +102,8 @@ def get_intel_status() -> IntelStatus:
     return IntelStatus(
         gemini_enabled=gemini_enabled,
         gemini_model=gemini_model,
+        search_mode=search_mode,
+        gemini_last_model=gemini_last_model,
         llm_enabled=llm_enabled,
         llm_model=llm_model,
         llm_effort=llm_effort,

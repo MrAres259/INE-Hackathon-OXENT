@@ -156,7 +156,10 @@ export function UnitPicker({
           {selectedItem ? (
             <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-xs">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="text-primary text-base">📍</span>
+                <svg className="size-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+                  <circle cx="12" cy="10" r="3" />
+                </svg>
                 <div className="min-w-0 truncate">
                   <span className="font-bold text-foreground">{selectedItem.name}</span>
                   <span className="text-muted-foreground ml-1.5">

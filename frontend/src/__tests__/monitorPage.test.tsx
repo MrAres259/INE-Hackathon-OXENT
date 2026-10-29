@@ -4,6 +4,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import MonitorPage from "../app/monitor/page";
 import { MonitorHeader } from "../components/intel/monitor/MonitorHeader";
 import { NewsCard } from "../components/intel/monitor/NewsCard";
+import { IntelPageShell } from "../components/intel/IntelPageShell";
+import { countByTab } from "../components/intel/monitor/monitorFilters";
 import { MOCK_MONITOR } from "../lib/intel/mocks";
 import * as intelApi from "../lib/intel/api";
 import * as operatorModule from "../lib/intel/operator";
@@ -190,5 +192,41 @@ describe("MonitorPage Component Suite (monitorPage.test.tsx)", () => {
       const msg = `Podrás escanear de nuevo en ${minutes} min.`;
       expect(msg).toBe("Podrás escanear de nuevo en 15 min.");
     }
+  });
+
+  it("IntelPageShell renders content container without duplicate TopBar", () => {
+    const html = renderToStaticMarkup(
+      <IntelPageShell>
+        <div data-testid="test-shell-content">Contenido de prueba</div>
+      </IntelPageShell>
+    );
+
+    expect(html).toContain("data-testid=\"test-shell-content\"");
+    expect(html).toContain("Contenido de prueba");
+    // Verify TopBar elements are not duplicated inside IntelPageShell
+    expect(html).not.toContain("data-testid=\"topbar\"");
+    expect(html).not.toContain("Plan de campaña");
+  });
+
+  it("auto-switches to rumors tab when verified tab has 0 items and rumors has items", () => {
+    const onlyRumorsSnapshot: MonitorSnapshot = {
+      ...MOCK_MONITOR,
+      items: MOCK_MONITOR.items.filter((i) => i.verdict === "falsa" || i.verdict === "sin_verificar"),
+    };
+
+    const counts = countByTab(onlyRumorsSnapshot.items);
+    expect(counts.verificadas).toBe(0);
+    expect(counts.rumores).toBeGreaterThan(0);
+  });
+
+  it("auto-switches to verified tab when rumors tab has 0 items and verified has items", () => {
+    const onlyVerifiedSnapshot: MonitorSnapshot = {
+      ...MOCK_MONITOR,
+      items: MOCK_MONITOR.items.filter((i) => i.verdict === "verdadera" || i.verdict === "enganosa"),
+    };
+
+    const counts = countByTab(onlyVerifiedSnapshot.items);
+    expect(counts.verificadas).toBeGreaterThan(0);
+    expect(counts.rumores).toBe(0);
   });
 });

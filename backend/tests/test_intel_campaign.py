@@ -1028,3 +1028,55 @@ def test_research_unit_prioritizes_local_and_caps_national(monkeypatch):
     # Local findings (estado/municipio) should be >= 2
     local_count = sum(1 for f in bundle.findings if f.scope in ("estado", "municipio"))
     assert local_count >= 2
+    assert bundle.search_mode == "grounding"
+
+
+def test_research_unit_search_modes(monkeypatch):
+    """Test search_mode values in ResearchBundle across grounding, respaldo, and sin_internet."""
+    gemini_mod = sys.modules["atalaya.gemini"]
+    snap = DataSnapshot(
+        unit_id="32",
+        name="Zacatecas",
+        level="state",
+        ent="32",
+        ent_name="Zacatecas",
+        lista_nominal=1200000,
+        pred_abstention=0.48,
+        pred_low=0.44,
+        pred_high=0.52,
+        category="amarillo",
+        risk_score=48.0,
+        last_participation=0.52,
+        last_year=2024,
+        trend_pp=-1.2,
+        abstencion_esperada=576000,
+    )
+
+    # 1. sin_internet when Gemini disabled
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: False)
+    b_disabled = research_unit(snap)
+    assert b_disabled.search_mode == "sin_internet"
+    assert b_disabled.degraded is True
+
+    # 2. respaldo when mode is rss_url_context
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+    res_rss = DummyGroundedResult(
+        sources=[DummyGroundedSource(url="https://elpais.com/noticia", title="Nota", domain="elpais.com")],
+        mode="rss_url_context",
+    )
+    raw_json = {
+        "findings": [
+            {
+                "title": "Abstención rural",
+                "summary": "Falta de transporte en zonas rurales",
+                "category": "acceso_casillas_distancia",
+                "sources": [{"url": "https://elpais.com/noticia", "title": "Nota"}],
+                "scope": "estado",
+                "confidence": "alta",
+            }
+        ]
+    }
+    monkeypatch.setattr(gemini_mod, "grounded_json", lambda *a, **kw: (raw_json, res_rss))
+    b_rss = research_unit(snap)
+    assert b_rss.search_mode == "respaldo"
+

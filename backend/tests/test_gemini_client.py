@@ -466,3 +466,32 @@ def test_domain_of():
     assert gemini.domain_of("http://INE.MX/transparencia") == "ine.mx"
     assert gemini.domain_of("subdomain.example.org") == "subdomain.example.org"
     assert gemini.domain_of("") == ""
+
+
+def test_last_model_recorded_in_state(monkeypatch):
+    """When a model responds, last_model is stored in gemini_state.json and budget_status."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        mock_resp = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": '{"status": "ok"}'}],
+                    },
+                }
+            ]
+        }
+        return httpx.Response(200, json=mock_resp)
+
+    monkeypatch.setattr(
+        gemini,
+        "_client_factory",
+        lambda timeout, **kw: httpx.Client(transport=httpx.MockTransport(handler), timeout=timeout),
+    )
+
+    assert gemini.get_last_model() is None
+    res = gemini.grounded_search("prueba")
+    assert res.model == "gemini-3.8-flash"
+    assert gemini.get_last_model() == "gemini-3.8-flash"
+    b_stat = gemini.budget_status()
+    assert b_stat.get("last_model") == "gemini-3.8-flash"
+

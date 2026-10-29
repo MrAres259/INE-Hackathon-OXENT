@@ -86,22 +86,41 @@ export function SlideDeck({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [totalSlides, isEditing]);
 
-  // Measure container and compute 1280x720 scale factor
+  // Measure container and compute 1280x720 scale factor (anchoContenedor / 1280)
   useEffect(() => {
-    const updateScale = () => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const targetWidth = 1280;
-      const targetHeight = 720;
-      const wScale = rect.width / targetWidth;
-      const hScale = rect.height / targetHeight;
-      const chosenScale = Math.min(wScale, hScale);
-      setScale(chosenScale > 0 ? chosenScale : 1);
+    if (!containerRef.current) return;
+
+    const update = (w: number) => {
+      if (w > 0) {
+        setScale(w / 1280);
+      }
     };
 
-    updateScale();
-    window.addEventListener("resize", updateScale);
-    return () => window.removeEventListener("resize", updateScale);
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width > 0) {
+      update(rect.width);
+    }
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const w = entry.contentRect.width;
+          if (w > 0) {
+            update(w);
+          }
+        }
+      });
+      observer.observe(containerRef.current);
+      return () => observer.disconnect();
+    } else {
+      const onResize = () => {
+        if (containerRef.current) {
+          update(containerRef.current.getBoundingClientRect().width);
+        }
+      };
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    }
   }, []);
 
   const handleFullscreenToggle = async () => {
@@ -221,7 +240,10 @@ export function SlideDeck({
             className="h-8 px-3 rounded-md bg-muted hover:bg-accent border border-border text-xs font-semibold text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
             aria-label="Editar diapositiva actual"
           >
-            <span>✏️</span>
+            <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
             <span>Editar</span>
           </button>
 

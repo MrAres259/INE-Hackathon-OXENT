@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, Suspense } from "react";
 import { IntelPageShell } from "@/components/intel/IntelPageShell";
 import { InfoTip } from "@/components/ui/InfoTip";
 import { getIntelStatus } from "@/lib/intel/api";
@@ -16,7 +16,7 @@ import {
   saveDrafts,
 } from "@/components/intel/campaign/campaignDraft";
 
-export default function CampanasPage() {
+function CampanasContent() {
   const [status, setStatus] = useState<IntelStatus | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [focus, setFocus] = useState<string>("");
@@ -81,26 +81,43 @@ export default function CampanasPage() {
           </div>
 
           {/* AI Engine & Budget Status Badge */}
-          {status && (
-            <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-card text-xs shadow-2xs">
-              <span
-                className={`size-2 rounded-full ${
-                  status.gemini_enabled ? "bg-good" : "bg-risk-mid"
-                }`}
-              />
-              <span className="font-semibold text-foreground">
-                Gemini 3.8: {status.gemini_enabled ? "Activo" : "Deshabilitado"}
-              </span>
-              <span className="text-muted-foreground font-mono">
-                · {status.budget_used} / {status.budget_limit} consultas
-              </span>
-              <span className="text-muted-foreground">·</span>
-              <span className="text-muted-foreground font-mono">
-                GLM-5.3 ({status.llm_effort})
-              </span>
-              <InfoTip term="investigacion_gemini" size="xs" />
-            </div>
-          )}
+          {status && (() => {
+            const mode = status.search_mode;
+            const model = status.gemini_last_model || status.gemini_model || "Gemini";
+            let modeLabel = "Búsqueda de respaldo (noticias indexadas)";
+            let dotColor = "bg-risk-mid";
+
+            if (!status.gemini_enabled) {
+              modeLabel = "Sin búsqueda en internet";
+              dotColor = "bg-muted-foreground";
+            } else if (mode === "grounding") {
+              modeLabel = "Búsqueda web completa (Google)";
+              dotColor = "bg-good";
+            } else if (mode === "sin_internet") {
+              modeLabel = "Sin búsqueda en internet";
+              dotColor = "bg-muted-foreground";
+            } else if (mode === "respaldo") {
+              modeLabel = "Búsqueda de respaldo (noticias indexadas)";
+              dotColor = "bg-risk-mid";
+            }
+
+            return (
+              <div className="flex flex-wrap items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-card text-xs shadow-2xs">
+                <span className={`size-2 rounded-full ${dotColor}`} />
+                <span className="font-semibold text-foreground">
+                  {model}: {modeLabel}
+                </span>
+                <span className="text-muted-foreground font-mono">
+                  · {status.budget_used} / {status.budget_limit} consultas
+                </span>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-muted-foreground font-mono">
+                  GLM-5.3 ({status.llm_effort})
+                </span>
+                <InfoTip term="investigacion_gemini" size="xs" />
+              </div>
+            );
+          })()}
         </div>
 
         {/* 2. Zone Picker & Focus Input */}
@@ -134,7 +151,9 @@ export default function CampanasPage() {
 
                 {/* Permanent Disclaimer */}
                 <div className="rounded-xl border border-border/80 bg-muted/30 p-3 text-[11px] text-muted-foreground leading-relaxed flex items-start gap-2">
-                  <span className="text-sm shrink-0">🏛️</span>
+                  <svg className="size-4 shrink-0 text-muted-foreground mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 21h18M3 10h18M5 10v11M9 10v11M15 10v11M19 10v11M12 2L2 7h20L12 2z" />
+                  </svg>
                   <span>{plan.disclaimer}</span>
                 </div>
 
@@ -161,5 +180,23 @@ export default function CampanasPage() {
         )}
       </div>
     </IntelPageShell>
+  );
+}
+
+export default function CampanasPage() {
+  return (
+    <Suspense
+      fallback={
+        <IntelPageShell>
+          <div className="space-y-6 py-2 pb-16 md:pb-6 animate-pulse">
+            <div className="h-14 bg-muted/40 rounded-xl" />
+            <div className="h-28 bg-muted/30 rounded-xl" />
+            <div className="h-64 bg-muted/20 rounded-xl" />
+          </div>
+        </IntelPageShell>
+      }
+    >
+      <CampanasContent />
+    </Suspense>
   );
 }

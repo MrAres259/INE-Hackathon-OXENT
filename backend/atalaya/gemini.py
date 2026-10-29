@@ -133,7 +133,14 @@ def _trip_grounding_circuit() -> None:
     retry_str = retry_at.isoformat()
     state_file = _get_intel_dir() / "gemini_state.json"
     try:
-        _atomic_write_json(state_file, {"grounding_unavailable_until": retry_str})
+        data: dict[str, Any] = {}
+        if state_file.is_file():
+            try:
+                data = json.loads(state_file.read_text(encoding="utf-8"))
+            except Exception:
+                data = {}
+        data["grounding_unavailable_until"] = retry_str
+        _atomic_write_json(state_file, data)
         logger.warning(
             "Circuito de grounding abierto por HTTP 429. Grounding deshabilitado hasta %s (%d min cooldown)",
             retry_str,
@@ -141,6 +148,37 @@ def _trip_grounding_circuit() -> None:
         )
     except Exception as exc:
         logger.warning("Fallo al escribir gemini_state.json: %s", exc)
+
+
+def _save_last_model(model: str) -> None:
+    """Save the model that answered successfully to gemini_state.json."""
+    if not model:
+        return
+    state_file = _get_intel_dir() / "gemini_state.json"
+    data: dict[str, Any] = {}
+    if state_file.is_file():
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    data["last_model"] = model
+    try:
+        _atomic_write_json(state_file, data)
+    except Exception as exc:
+        logger.warning("Fallo al escribir last_model en gemini_state.json: %s", exc)
+
+
+def get_last_model() -> str | None:
+    """Return the last model that responded successfully, stored in gemini_state.json."""
+    state_file = _get_intel_dir() / "gemini_state.json"
+    if not state_file.is_file():
+        return None
+    try:
+        st = json.loads(state_file.read_text(encoding="utf-8"))
+        return st.get("last_model")
+    except Exception:
+        return None
+
 
 
 # ---------------------------------------------------------------- Public helpers
@@ -297,6 +335,7 @@ def budget_status() -> dict:
         "limit": limit,
         "grounding_available": grounding_available,
         "grounding_retry_at": grounding_retry_at,
+        "last_model": get_last_model(),
     }
 
 
@@ -487,6 +526,7 @@ def _call_gemini_raw(
                 resp.raise_for_status()
                 data = resp.json()
                 result = _parse_candidate_response(data, model, latency_ms, mode=mode)
+                _save_last_model(model)
 
                 logger.info(
                     "Gemini request completed: model=%s latency_ms=%d mode=%s sources=%d queries=%d",
@@ -596,7 +636,7 @@ def _rss_fallback_json(
     system: str | None = None,
     fallback_queries: list[str],
     fallback_days: int = 30,
-    fallback_max_items: int = 25,
+    fallback_max_items: int = 40,
     **kw,
 ) -> tuple[Any, GroundedResult]:
     """Execute Gemini in RSS fallback mode using websearch candidates and url_context."""
@@ -693,7 +733,7 @@ def grounded_json(
     system: str | None = None,
     fallback_queries: list[str] | None = None,
     fallback_days: int = 30,
-    fallback_max_items: int = 25,
+    fallback_max_items: int = 40,
     **kw,
 ) -> tuple[Any, GroundedResult]:
     """Execute grounded search and parse result as JSON.

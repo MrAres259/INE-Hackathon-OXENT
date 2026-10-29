@@ -117,6 +117,7 @@ export const MOCK_CAMPAIGN_PLAN: CampaignPlan = {
     generated_at: "2026-10-25T14:30:00Z",
     model: "gemini-3.8-flash",
     from_cache: true,
+    search_mode: "grounding",
     degraded: false,
     note: null,
   },
@@ -313,6 +314,7 @@ export const MOCK_MONITOR: MonitorSnapshot = {
   ],
   sources_scanned: 48,
   model: "gemini-3.8-flash + glm-5.3",
+  search_mode: "grounding",
   degraded: false,
   note: null,
   counts: {

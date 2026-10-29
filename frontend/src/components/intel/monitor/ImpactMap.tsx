@@ -137,7 +137,19 @@ export function ImpactMap({ impact, itemId, className = "" }: ImpactMapProps) {
         </div>
       )}
 
-      {/* 2D Fragment Map */}
+      {/* If no units exceed 0.05 pp, show clear low-impact message instead of empty map */}
+      {activeImpact.units.filter((u) => u.delta_pp >= 0.05).length === 0 ? (
+        <div className="rounded-lg border border-border bg-muted/20 p-6 text-center space-y-2" data-testid="low-impact-notice">
+          <div className="text-sm font-semibold text-foreground">
+            Impacto estimado bajo: ninguna entidad supera 0.05 pp
+          </div>
+          <p className="text-xs text-muted-foreground max-w-md mx-auto">
+            El impacto nacional estimado es de +{impact.delta_pp_national.toFixed(2)} pp y {impact.votos_perdidos_total.toLocaleString("es-MX")} votos en riesgo. Ninguna demarcación territorial supera el umbral crítico de 0.05 pp de abstención adicional.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* 2D Fragment Map */}
       {!loadingMun && (
         <div className="rounded-lg border border-border bg-muted/20 p-2">
           <FragmentMap
@@ -238,6 +250,8 @@ export function ImpactMap({ impact, itemId, className = "" }: ImpactMapProps) {
           </table>
         </div>
       </div>
+      </>
+      )}
 
       {/* Assumptions Collapsible Section */}
       <div className="rounded-lg border border-border/80 bg-muted/20">

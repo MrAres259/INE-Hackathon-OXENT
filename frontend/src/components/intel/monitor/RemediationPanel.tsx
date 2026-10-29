@@ -218,7 +218,12 @@ export function RemediationPanel({
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-white font-semibold hover:bg-primary-hover transition-colors"
               data-testid="btn-simulate-map"
             >
-              <span>🗺️ Simular campaña en el mapa</span>
+              <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+                <line x1="8" y1="2" x2="8" y2="18" />
+                <line x1="16" y1="6" x2="16" y2="22" />
+              </svg>
+              <span>Simular campaña en el mapa</span>
             </Link>
           )}
 
@@ -227,7 +232,10 @@ export function RemediationPanel({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-primary/30 bg-primary-soft text-primary font-semibold hover:bg-primary-soft/80 transition-colors"
             data-testid="btn-plan-campaign-ai"
           >
-            <span>✨ Planear campaña con IA</span>
+            <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8z" />
+            </svg>
+            <span>Planear campaña con IA</span>
           </Link>
         </div>
       )}

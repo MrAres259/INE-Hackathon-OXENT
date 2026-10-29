@@ -32,7 +32,7 @@ REGLAS DE NEUTRALIDAD Y RIGOR INSTITUCIONAL:
 8. Si no encuentras noticias desfavorables en la ventana de tiempo, devuelve una lista vacía de items.
 
 FORMATO DE RESPUESTA:
-Devuelve ÚNICAMENTE un objeto JSON con la clave 'items' (máximo 8 items):
+Devuelve ÚNICAMENTE un objeto JSON con la clave 'items' (hasta 10 items):
 {
   "items": [
     {
@@ -70,7 +70,7 @@ REGLAS INSTITUCIONALES Y DE PRIVACIDAD:
 8. Ámbito territorial: identifica estados en 'ents' cuando la narrativa se focalice en entidades específicas.
 
 FORMATO DE RESPUESTA:
-Devuelve ÚNICAMENTE un objeto JSON con la clave 'items' (máximo 8 items):
+Devuelve ÚNICAMENTE un objeto JSON con la clave 'items' (hasta 10 items):
 {
   "items": [
     {
@@ -179,7 +179,9 @@ def build_news_prompt(today: date, window_days: int) -> str:
         "Reforma, Milenio, La Jornada, El Financiero, El Economista, Proceso, Animal Político, Aristegui Noticias, "
         "y medios regionales consolidados) que contengan reportes desfavorables, controversias, quejas o incidentes "
         "relacionados con el Instituto Nacional Electoral (INE).\n\n"
-        "Identifica hasta 8 noticias relevantes con su afirmación fáctica central, enlaces exactos a las notas, "
+        "Presta especial atención a la cobertura en las entidades federativas con mayor padrón electoral "
+        "(Estado de México, Ciudad de México, Jalisco, Veracruz, Puebla) para identificar afectaciones de alcance estatal o municipal.\n\n"
+        "Identifica hasta 10 noticias relevantes con su afirmación fáctica central, enlaces exactos a las notas, "
         "fecha de publicación, tema, alcance geográfico (si afecta a estados o municipios específicos), intensidad estimada "
         "y persistencia temporal. Devuelve el resultado en el formato JSON requerido."
     )
@@ -195,7 +197,7 @@ def build_rumors_prompt(today: date, window_days: int) -> str:
         "Telegram) y sitios web no reconocidos o blogs afirmaciones engañosas, rumores o acusaciones que cuestionen "
         "la legitimidad, integridad, presupuesto, módulos, funcionarios o procedimientos del Instituto Nacional Electoral (INE) "
         "o del proceso electoral mexicano.\n\n"
-        "Extrae hasta 8 afirmaciones virales distintas. Para cada una incluye la afirmación central (claim), resumen, tema, "
+        "Extrae hasta 10 afirmaciones virales distintas. Para cada una incluye la afirmación central (claim), resumen, tema, "
         "alcance territorial y las publicaciones representativas encontradas (plataforma, URL exacta del post, handle público "
         "del autor, fecha, métricas de engagement si son visibles y extracto textual). Devuelve el resultado en JSON estricto."
     )
@@ -253,6 +255,11 @@ STAGE1_FALLBACK_QUERIES: list[str] = [
     "INE credencial",
     "consejeros INE",
     "elección judicial INE",
+    "INE Estado de México",
+    "INE CDMX",
+    "INE Jalisco",
+    "INE Veracruz",
+    "INE Puebla",
 ]
 
 STAGE2_FALLBACK_QUERIES: list[str] = [

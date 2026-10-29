@@ -8,6 +8,7 @@ export type SourceTier =
   | "oficial" | "verificador" | "academico" | "medio_reconocido" | "medio_regional" | "no_reconocido" | "red_social";
 export type Confidence = "alta" | "media" | "baja";
 export type JobStatus = "queued" | "running" | "done" | "error";
+export type SearchMode = "grounding" | "respaldo" | "sin_internet";
 
 export interface SourceRef {
   id: string; url: string; title: string; domain: string;
@@ -30,7 +31,7 @@ export interface Finding {
 export interface ResearchBundle {
   unit_id: string; unit_name: string; level: Level; findings: Finding[]; sources: SourceRef[];
   discarded_sources: number; queries: string[]; generated_at: string; model: string;
-  from_cache: boolean; degraded: boolean; note?: string | null;
+  from_cache: boolean; search_mode?: SearchMode; degraded: boolean; note?: string | null;
 }
 
 export interface DriverBrief { label: string; contribution_pp: number }
@@ -146,7 +147,7 @@ export interface MonitorScanRequest { window_days?: 7 | 14 | 30; refresh?: boole
 
 export interface MonitorSnapshot {
   generated_at: string; window_days: number; items: NewsItem[]; counts: Record<string, number>;
-  queries: string[]; sources_scanned: number; model: string; degraded: boolean; note?: string | null;
+  queries: string[]; sources_scanned: number; model: string; search_mode?: SearchMode; degraded: boolean; note?: string | null;
   next_scan_allowed_at?: string | null;
 }
 
@@ -157,6 +158,6 @@ export interface Job<T = unknown> {
 }
 
 export interface IntelStatus {
-  gemini_enabled: boolean; gemini_model: string; llm_enabled: boolean; llm_model: string; llm_effort: string;
+  gemini_enabled: boolean; gemini_model: string; search_mode?: SearchMode; gemini_last_model?: string | null; llm_enabled: boolean; llm_model: string; llm_effort: string;
   operator_configured: boolean; budget_used: number; budget_limit: number; monitor_cooldown_min: number;
 }

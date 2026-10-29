@@ -200,7 +200,13 @@ export function CampaignRunner({
   if (!unitId) {
     return (
       <div className={`rounded-xl border border-dashed border-border bg-card/50 p-8 text-center space-y-2 ${className}`}>
-        <span className="text-2xl">🗺️</span>
+        <div className="mx-auto size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+          <svg className="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+            <line x1="8" y1="2" x2="8" y2="18" />
+            <line x1="16" y1="6" x2="16" y2="22" />
+          </svg>
+        </div>
         <h3 className="text-sm font-semibold text-foreground">
           Selecciona una entidad o municipio
         </h3>

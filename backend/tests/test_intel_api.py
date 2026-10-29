@@ -137,6 +137,8 @@ def test_status_endpoint_without_external_modules():
     assert resp.status_code == 200
     data = resp.json()
     assert "gemini_enabled" in data
+    assert "search_mode" in data
+    assert "gemini_last_model" in data
     assert "llm_enabled" in data
     assert "operator_configured" in data
     assert "budget_used" in data

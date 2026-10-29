@@ -87,21 +87,39 @@ export function MonitorHeader({
           )}
 
           {/* Search mode badge */}
-          {snapshot && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card">
-              <span
-                className={`size-2 rounded-full ${
-                  snapshot.degraded ? "bg-risk-mid" : "bg-good"
-                }`}
-              />
-              <span className="font-medium text-foreground">
-                {snapshot.degraded
-                  ? "Modo de respaldo (sin Gemini)"
-                  : "Búsqueda completa (Gemini + Grounding)"}
-              </span>
-              <InfoTip term="monitor_ine" size="xs" />
-            </div>
-          )}
+          {snapshot && (() => {
+            const sm = snapshot.search_mode || status?.search_mode;
+            const modelName = snapshot.model || status?.gemini_last_model || status?.gemini_model;
+            let modeLabel = "Búsqueda de respaldo (noticias indexadas)";
+            let dotColor = "bg-risk-mid";
+
+            if (sm === "grounding") {
+              modeLabel = "Búsqueda web completa (Google)";
+              dotColor = "bg-good";
+            } else if (sm === "sin_internet") {
+              modeLabel = "Sin búsqueda en internet";
+              dotColor = "bg-muted-foreground";
+            } else if (sm === "respaldo") {
+              modeLabel = "Búsqueda de respaldo (noticias indexadas)";
+              dotColor = "bg-risk-mid";
+            } else if (snapshot.note?.toLowerCase().includes("sin internet")) {
+              modeLabel = "Sin búsqueda en internet";
+              dotColor = "bg-muted-foreground";
+            } else if (snapshot.degraded) {
+              modeLabel = "Búsqueda de respaldo (noticias indexadas)";
+              dotColor = "bg-risk-mid";
+            }
+
+            return (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card">
+                <span className={`size-2 rounded-full ${dotColor}`} />
+                <span className="font-medium text-foreground">
+                  {modelName ? `${modelName}: ` : ""}{modeLabel}
+                </span>
+                <InfoTip term="fuentes_verificadas" size="xs" />
+              </div>
+            );
+          })()}
         </div>
       </div>
 

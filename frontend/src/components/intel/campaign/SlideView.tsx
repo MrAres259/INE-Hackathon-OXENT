@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import type { Slide, CampaignPlan, SlideKind } from "@/lib/intel/types";
 import { LEVER_LABELS, SOURCE_TIER_LABELS } from "@/lib/intel/labels";
 import { FragmentMap } from "@/components/intel/FragmentMap";
+import { BrandMark } from "@/components/brand/BrandMark";
 
 export interface SlideViewProps {
   slide: Slide;
@@ -69,9 +70,135 @@ export function SlideView({
     return parts;
   };
 
+  if (slide.kind === "portada") {
+    return (
+      <div
+        className={`relative flex flex-col justify-between w-[1280px] h-[720px] bg-white rounded-2xl border border-border shadow-lg overflow-hidden select-text text-foreground ${className}`}
+        data-slide-kind="portada"
+      >
+        {/* Portada Banner: Magenta header with Logo & Sello */}
+        <div className="bg-[#b5186b] px-12 py-7 text-white flex flex-col justify-between shrink-0 shadow-xs">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <BrandMark size={40} className="drop-shadow-sm" />
+              <div>
+                <span className="font-display text-xl font-black tracking-tight text-white block">
+                  Atalaya Electoral
+                </span>
+                <span className="text-[11px] text-pink-100 font-semibold tracking-wider uppercase block">
+                  Instituto Nacional Electoral · México
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center px-3.5 py-1 rounded-full text-xs font-bold tracking-wider uppercase bg-white/20 border border-white/40 text-white shadow-2xs">
+                Borrador generado con IA — propuesta del equipo OXENT
+              </span>
+              {slide.notes && (
+                <button
+                  type="button"
+                  onClick={() => setShowNotes(!showNotes)}
+                  className="text-xs font-medium text-pink-100 hover:text-white flex items-center gap-1 cursor-pointer bg-white/10 px-2.5 py-1 rounded-md"
+                >
+                  <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <span>{showNotes ? "Ocultar notas" : "Ver notas"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <h1 className="font-display text-[32px] font-black text-white leading-tight tracking-tight mt-1">
+            {slide.title}
+          </h1>
+          {slide.subtitle && (
+            <p className="text-base text-pink-100 font-medium mt-1">
+              {slide.subtitle}
+            </p>
+          )}
+        </div>
+
+        {/* Portada Body */}
+        <div className="flex-1 p-8 flex flex-col justify-between overflow-hidden bg-card/40">
+          {/* 4 Metadata Cards */}
+          <div className="grid grid-cols-4 gap-4">
+            <div className="bg-card p-4 rounded-xl border border-border shadow-2xs">
+              <span className="text-xs text-muted-foreground block font-medium">Entidad / Territorio</span>
+              <span className="text-base font-bold text-foreground block mt-0.5 truncate">
+                {plan.unit.name}, {plan.unit.ent_name}
+              </span>
+            </div>
+            <div className="bg-card p-4 rounded-xl border border-border shadow-2xs">
+              <span className="text-xs text-muted-foreground block font-medium">Nivel Territorial</span>
+              <span className="text-base font-bold text-foreground block mt-0.5">
+                {plan.unit.level === "mun" ? "Municipio" : "Estado"}
+              </span>
+            </div>
+            <div className="bg-card p-4 rounded-xl border border-border shadow-2xs">
+              <span className="text-xs text-muted-foreground block font-medium">Lista Nominal</span>
+              <span className="text-base font-bold text-foreground font-mono block mt-0.5">
+                {plan.unit.lista_nominal.toLocaleString("es-MX")} electores
+              </span>
+            </div>
+            <div className="bg-card p-4 rounded-xl border border-border shadow-2xs">
+              <span className="text-xs text-muted-foreground block font-medium">Riesgo Atalaya</span>
+              <span className="inline-block mt-1 font-bold text-xs uppercase px-2.5 py-1 rounded-full border border-border bg-muted">
+                {plan.unit.category}
+              </span>
+            </div>
+          </div>
+
+          {/* Enfoque prioritario if exists */}
+          {plan.focus && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-2 text-xs text-foreground flex items-center gap-2">
+              <span className="font-bold text-primary">Enfoque prioritario:</span>
+              <span>{plan.focus}</span>
+            </div>
+          )}
+
+          {/* Bullets box */}
+          <div className="rounded-xl border-l-4 border-primary bg-muted/40 p-4 space-y-2">
+            {slide.bullets.map((b, i) => (
+              <div key={i} className="flex items-start gap-2.5 text-sm text-foreground leading-relaxed">
+                <span className="text-primary font-bold text-base leading-none">▸</span>
+                <span>{renderTextWithCitations(b)}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Speaker notes if toggled */}
+          {showNotes && slide.notes && (
+            <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 text-xs text-foreground space-y-1">
+              <div className="font-bold text-primary flex items-center gap-1.5">
+                <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span>Notas del Orador:</span>
+              </div>
+              <p className="leading-relaxed text-muted-foreground italic">
+                {slide.notes}
+              </p>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="border-t border-border/60 pt-2 flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-primary" />
+              <span>Atalaya Electoral · Modelo de intervención institucional con IA</span>
+            </div>
+            <span className="font-mono">{plan.unit.name} · {plan.id}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`relative flex flex-col justify-between w-full h-full p-6 md:p-8 rounded-2xl border border-border bg-gradient-to-br from-card to-card/70 shadow-lg overflow-hidden select-text text-foreground ${className}`}
+      className={`relative flex flex-col justify-between w-[1280px] h-[720px] p-6 md:p-8 rounded-2xl border border-border bg-gradient-to-br from-card to-card/70 shadow-lg overflow-hidden select-text text-foreground ${className}`}
       data-slide-kind={slide.kind}
     >
       {/* 1. Header: Brand chip, Slide Kind Badge & Titles */}
@@ -96,7 +223,9 @@ export function SlideView({
               className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
             >
               <span>{showNotes ? "Ocultar notas" : "Ver notas"}</span>
-              <span className="text-xs">💬</span>
+              <svg className="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
             </button>
           )}
         </div>
@@ -115,24 +244,6 @@ export function SlideView({
 
       {/* 2. Slide Content Body (Customized per Kind) */}
       <div className="flex-1 py-4 overflow-y-auto min-h-0 space-y-4">
-        {/* KIND: Portada */}
-        {slide.kind === "portada" && (
-          <div className="h-full flex flex-col justify-center space-y-4 max-w-2xl">
-            <div className="space-y-1">
-              <span className="inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold bg-primary/10 text-primary border border-primary/20">
-                Propuesta estratégica del equipo OXENT con IA
-              </span>
-            </div>
-            <ul className="space-y-2 text-xs md:text-sm">
-              {slide.bullets.map((b, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="text-primary font-bold">▪</span>
-                  <span className="leading-relaxed">{renderTextWithCitations(b)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* KIND: Diagnóstico de Datos */}
         {slide.kind === "diagnostico_datos" && (

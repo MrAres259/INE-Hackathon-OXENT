@@ -45,6 +45,15 @@ logger = logging.getLogger("atalaya.intel.monitor")
 # ---------------------------------------------------------------- helpers & normalization
 
 
+def _compute_search_mode(modes: list[str]) -> str:
+    """Compute overall search mode across monitor stages. Worst mode wins (sin_internet < respaldo < grounding)."""
+    if not modes or any(m in ("sin_internet", "none", "") for m in modes):
+        return "sin_internet"
+    if any(m in ("respaldo", "rss_url_context") for m in modes):
+        return "respaldo"
+    return "grounding"
+
+
 def normalize_claim_for_id(claim: str) -> str:
     """Normalize a claim string for deterministic hashing across scans."""
     s = unicodedata.normalize("NFKD", str(claim or "")).lower()
@@ -446,6 +455,7 @@ def run_scan(
             queries=[],
             sources_scanned=0,
             model="",
+            search_mode="sin_internet",
             degraded=True,
             note="Gemini no está habilitado o no tiene API key configurada; escaneo en modo degradado.",
             next_scan_allowed_at=(now_dt + timedelta(minutes=cooldown_min)).isoformat(),
@@ -493,6 +503,7 @@ def run_scan(
                 cache_ttl_s=ttl_s,
                 fallback_queries=prompts_monitor.STAGE1_FALLBACK_QUERIES,
                 fallback_days=req.window_days,
+                fallback_max_items=40,
             )
         except TypeError as type_err:
             if "fallback_queries" in str(type_err):
@@ -539,6 +550,7 @@ def run_scan(
                 cache_ttl_s=ttl_s,
                 fallback_queries=prompts_monitor.STAGE2_FALLBACK_QUERIES,
                 fallback_days=req.window_days,
+                fallback_max_items=40,
             )
         except TypeError as type_err:
             if "fallback_queries" in str(type_err):
@@ -585,6 +597,7 @@ def run_scan(
         else:
             empty_note_parts.append("No se identificaron notas ni rumores en la ventana.")
         err_msg = " ".join(empty_note_parts)
+        empty_search_mode = _compute_search_mode([stage1_mode, stage2_mode])
         snapshot = MonitorSnapshot(
             generated_at=now_dt.isoformat(),
             window_days=req.window_days,
@@ -600,6 +613,7 @@ def run_scan(
             queries=sorted(list(set(queries_collected))),
             sources_scanned=sources_scanned_count,
             model=model_name,
+            search_mode=empty_search_mode,
             degraded=bool(stage_notes) or any(m == "rss_url_context" for m in (stage1_mode, stage2_mode)),
             note=err_msg,
             next_scan_allowed_at=(now_dt + timedelta(minutes=cooldown_min)).isoformat(),
@@ -619,7 +633,7 @@ def run_scan(
         matched_idx = -1
         for idx, exist in enumerate(preliminary_items):
             exist_tokens = tokenize_claim(exist["claim"])
-            if jaccard_similarity(cand_tokens, exist_tokens) >= 0.6:
+            if jaccard_similarity(cand_tokens, exist_tokens) >= 0.7:
                 matched_idx = idx
                 break
 
@@ -689,6 +703,7 @@ def run_scan(
                     cache_ttl_s=ttl_s,
                     fallback_queries=stage3_fallback_queries,
                     fallback_days=req.window_days,
+                    fallback_max_items=40,
                 )
             except TypeError as type_err:
                 if "fallback_queries" in str(type_err):
@@ -836,9 +851,30 @@ def run_scan(
         v_verdict = v_info.get("verdict")
         is_contradicted = (v_verdict in ("falsa", "enganosa")) and (bool(resolved_fcs) or bool(v_info.get("rationale")))
 
-        verifiable_domains = {s.domain for s in resolved_sources if s.tier in sources.VERIFIABLE_TIERS}
-        has_official = any(s.tier == "oficial" for s in resolved_sources) or any(fc.tier == "oficial" for fc in resolved_fcs)
-        n_verifiable = len(verifiable_domains)
+        official_sources = [s for s in resolved_sources if s.tier == "oficial"] + [fc for fc in resolved_fcs if fc.tier == "oficial"]
+        has_official = len(official_sources) > 0
+
+        # Verifiable media sources (excluding official)
+        media_sources = [s for s in resolved_sources if s.tier in ("medio_reconocido", "medio_regional", "academico", "verificador")]
+        # Deduplicate media sources by distinct domain
+        seen_media_domains: set[str] = set()
+        distinct_media_sources: list[SourceRef] = []
+        for s in media_sources:
+            if s.domain and s.domain not in seen_media_domains:
+                seen_media_domains.add(s.domain)
+                distinct_media_sources.append(s)
+        n_media = len(distinct_media_sources)
+
+        has_reconocido = any(s.tier == "medio_reconocido" for s in distinct_media_sources)
+        has_regional_or_academico = any(s.tier in ("medio_regional", "academico") for s in distinct_media_sources)
+
+        v_verdict_str = str(v_info.get("verdict") or "").lower().strip()
+        v_rat_str = str(v_info.get("rationale") or "").lower()
+        is_dudosa = (
+            v_verdict_str in ("dudosa", "cuestionada")
+            or "dudos" in v_rat_str
+            or "cuestionad" in v_rat_str
+        )
 
         if is_contradicted:
             raw_verdict = v_verdict
@@ -846,22 +882,56 @@ def run_scan(
             if verdict_conf not in ("alta", "media", "baja"):
                 verdict_conf = "media"
             verdict_rat = v_info.get("rationale") or "Afirmación desmentida o identificada como engañosa por verificadores de hechos o canales oficiales del INE."
-        elif kind == "noticia" and (n_verifiable >= 2 or has_official):
-            raw_verdict = "verdadera"
-            verdict_conf = "alta" if (n_verifiable >= 3 or (has_official and n_verifiable >= 2)) else "media"
-            if has_official:
-                verdict_rat = "Hecho respaldado por fuentes oficiales del INE y cobertura informativa institucional."
-            else:
-                verdict_rat = f"Reportado de manera coincidente por {n_verifiable} medios de comunicación verificables sin registro de desmentido oficial."
         elif kind == "noticia":
-            raw_verdict = "verdadera" if (v_verdict == "verdadera" and n_verifiable >= 1) else "sin_verificar"
-            verdict_conf = "baja"
-            verdict_rat = v_info.get("rationale") or (
-                "Reportado en medio verificable pero sin confirmación independiente ni desmentido oficial."
-                if n_verifiable >= 1 else "Cobertura informativa sin fuentes verificables suficientes."
-            )
+            if n_media >= 3 or (has_official and n_media >= 1):
+                raw_verdict = "verdadera"
+                verdict_conf = "alta"
+                if has_official and n_media >= 1:
+                    off_outlets = list(dict.fromkeys([s.outlet or s.domain for s in official_sources if s.outlet or s.domain]))
+                    med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
+                    off_str = ", ".join(off_outlets) or "fuentes oficiales del INE"
+                    med_str = ", ".join(med_outlets) or "medios reconocidos"
+                    verdict_rat = f"Respaldada por {off_str} y cobertura informativa en {med_str}; sin registro de desmentido oficial."
+                else:
+                    med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
+                    names_str = ", ".join(med_outlets[:3])
+                    verdict_rat = f"Reportada de manera coincidente por {n_media} medios de comunicación verificables ({names_str}); sin registro de desmentido oficial."
+            elif n_media >= 2:
+                raw_verdict = "verdadera"
+                verdict_conf = "media"
+                med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
+                names_str = " y ".join(med_outlets)
+                verdict_rat = f"Reportada por {names_str} ({n_media} medios distintos); sin registro de desmentido oficial."
+            elif has_official or has_reconocido:
+                raw_verdict = "verdadera"
+                verdict_conf = "baja"
+                if has_official:
+                    src = official_sources[0]
+                    name = src.outlet or src.domain or "fuente oficial"
+                    tier_str = "fuente oficial"
+                else:
+                    src = [s for s in distinct_media_sources if s.tier == "medio_reconocido"][0]
+                    name = src.outlet or src.domain or "medio reconocido"
+                    tier_str = "medio reconocido"
+                verdict_rat = f"Publicada por {name} ({tier_str}); sin confirmación independiente ni desmentido."
+            elif has_regional_or_academico:
+                if is_dudosa:
+                    raw_verdict = "sin_verificar"
+                    verdict_conf = "baja"
+                    verdict_rat = v_info.get("rationale") or "Publicada por medio regional o académico pero clasificada como dudosa en verificación."
+                else:
+                    raw_verdict = "verdadera"
+                    verdict_conf = "baja"
+                    src = [s for s in distinct_media_sources if s.tier in ("medio_regional", "academico")][0]
+                    name = src.outlet or src.domain or "medio regional"
+                    tier_str = "medio regional" if src.tier == "medio_regional" else "fuente académica"
+                    verdict_rat = f"Publicada por {name} ({tier_str}); sin confirmación independiente ni desmentido."
+            else:
+                raw_verdict = "sin_verificar"
+                verdict_conf = "baja"
+                verdict_rat = "Cobertura informativa sin fuentes verificables suficientes."
         else:
-            if v_verdict in ("verdadera", "falsa", "enganosa") and resolved_fcs:
+            if v_verdict in ("verdadera", "falsa", "enganosa") and (resolved_fcs or has_official):
                 raw_verdict = v_verdict
                 verdict_conf = v_info.get("confidence", "media")
                 verdict_rat = v_info.get("rationale") or "Evaluado conforme a dictamen de verificación de hechos."
@@ -1083,6 +1153,11 @@ def run_scan(
 
     note_text: str | None = " ".join(note_parts) if note_parts else None
 
+    active_modes = [stage1_mode, stage2_mode]
+    if preliminary_items:
+        active_modes.append(stage3_mode)
+    final_search_mode = _compute_search_mode(active_modes)
+
     snapshot = MonitorSnapshot(
         generated_at=now_dt.isoformat(),
         window_days=req.window_days,
@@ -1091,6 +1166,7 @@ def run_scan(
         queries=sorted(list(set(queries_collected))),
         sources_scanned=sources_scanned_count,
         model=model_name,
+        search_mode=final_search_mode,
         degraded=bool(stage_notes),
         note=note_text,
         next_scan_allowed_at=(now_dt + timedelta(minutes=cooldown_min)).isoformat(),

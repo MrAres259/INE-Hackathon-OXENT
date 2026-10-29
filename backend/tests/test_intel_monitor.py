@@ -1069,4 +1069,217 @@ def test_monitor_candidate_mapping_aggregator(monkeypatch, tmp_path):
     assert src.url == "https://news.google.com/rss/articles/CBMiABC123"
     assert src.domain == "elpais.com"
     assert src.tier == "medio_reconocido"
+    # F2-B verdict rule: 1 medio_reconocido -> verdadera baja
+    assert snap.items[0].verdict == "verdadera"
+    assert snap.items[0].verdict_confidence == "baja"
+    assert "Publicada por El País (medio reconocido); sin confirmación independiente ni desmentido." in snap.items[0].verdict_rationale
+
+
+def test_verdict_rules_f2b(monkeypatch, tmp_path):
+    """Test all verdict rules:
+    - 1 oficial -> verdadera baja
+    - 1 medio_reconocido -> verdadera baja
+    - 1 medio_regional (not dudosa) -> verdadera baja
+    - 1 medio_regional (dudosa in stage 3) -> sin_verificar baja
+    - >= 2 distinct media -> verdadera media
+    - >= 3 distinct media -> verdadera alta
+    - oficial + medio -> verdadera alta
+    """
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    # 7 news items covering each verdict rule
+    news_items = [
+        # 1. 1 oficial
+        {
+            "headline": "Boletín oficial del INE sobre padrón",
+            "claim": "El INE actualiza el padrón electoral nacional con 98 millones",
+            "sources": [{"url": "https://centralelectoral.ine.mx/boletin-padron", "title": "Boletín"}],
+        },
+        # 2. 1 medio reconocido
+        {
+            "headline": "Reporte de El País sobre casillas",
+            "claim": "El País reporta diagnóstico de casillas especiales para 2027",
+            "sources": [{"url": "https://elpais.com/casillas-especiales", "title": "Nota El País"}],
+        },
+        # 3. 1 medio regional no dudosa
+        {
+            "headline": "El Norte reporta ajuste en módulos de Monterrey",
+            "claim": "Módulos de credencialización en Monterrey ajustan horario de invierno",
+            "sources": [{"url": "https://www.elnorte.com/modulos-monterrey", "title": "Nota El Norte"}],
+        },
+        # 4. 1 medio regional marcada dudosa en etapa 3
+        {
+            "headline": "Medio regional reporta presunta falta de boletas",
+            "claim": "Diario de Chiapas reporta presunta falta de boletas en Chenalhó",
+            "sources": [{"url": "https://www.diariodechiapas.com/falta-boletas", "title": "Nota Chiapas"}],
+        },
+        # 5. 2 medios distintos
+        {
+            "headline": "Cobertura coincidente de Reforma y El Universal",
+            "claim": "Reforma y El Universal reportan recorte presupuestal operativo del INE",
+            "sources": [
+                {"url": "https://www.reforma.com/presupuesto-ine", "title": "Nota Reforma"},
+                {"url": "https://www.eluniversal.com.mx/presupuesto-ine", "title": "Nota El Universal"},
+            ],
+        },
+        # 6. 3 medios distintos
+        {
+            "headline": "Cobertura en 3 medios nacionales",
+            "claim": "Tres diarios nacionales confirman calendario de credencialización en el extranjero",
+            "sources": [
+                {"url": "https://www.jornada.com.mx/voto-extranjero", "title": "Nota Jornada"},
+                {"url": "https://www.milenio.com/voto-extranjero", "title": "Nota Milenio"},
+                {"url": "https://www.elfinanciero.com.mx/voto-extranjero", "title": "Nota Financiero"},
+            ],
+        },
+        # 7. 1 oficial + 1 medio
+        {
+            "headline": "Comunicado del INE y reporte de Aristegui Noticias",
+            "claim": "El INE y Aristegui Noticias informan sobre nuevo protocolo de casillas rurales",
+            "sources": [
+                {"url": "https://centralelectoral.ine.mx/protocolo-rural", "title": "Boletín INE"},
+                {"url": "https://aristeguinoticias.com/protocolo-rural", "title": "Nota Aristegui"},
+            ],
+        },
+    ]
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            res_sources = [
+                DummyGroundedSource("https://centralelectoral.ine.mx/boletin-padron", domain="centralelectoral.ine.mx"),
+                DummyGroundedSource("https://elpais.com/casillas-especiales", domain="elpais.com"),
+                DummyGroundedSource("https://www.elnorte.com/modulos-monterrey", domain="elnorte.com"),
+                DummyGroundedSource("https://www.diariodechiapas.com/falta-boletas", domain="diariodechiapas.com"),
+                DummyGroundedSource("https://www.reforma.com/presupuesto-ine", domain="reforma.com"),
+                DummyGroundedSource("https://www.eluniversal.com.mx/presupuesto-ine", domain="eluniversal.com.mx"),
+                DummyGroundedSource("https://www.jornada.com.mx/voto-extranjero", domain="jornada.com.mx"),
+                DummyGroundedSource("https://www.milenio.com/voto-extranjero", domain="milenio.com"),
+                DummyGroundedSource("https://www.elfinanciero.com.mx/voto-extranjero", domain="elfinanciero.com.mx"),
+                DummyGroundedSource("https://centralelectoral.ine.mx/protocolo-rural", domain="centralelectoral.ine.mx"),
+                DummyGroundedSource("https://aristeguinoticias.com/protocolo-rural", domain="aristeguinoticias.com"),
+            ]
+            return {"items": news_items}, DummyGroundedResult(sources=res_sources, mode="rss_url_context")
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "verificacion" in cache_key:
+            # Mark item 4 as dudosa
+            c4_id = monitor.item_id_for_claim("Diario de Chiapas reporta presunta falta de boletas en Chenalhó")
+            return {
+                "verifications": [
+                    {
+                        "id": c4_id,
+                        "verdict": "dudosa",
+                        "confidence": "baja",
+                        "rationale": "Nota local cuestionada sin respaldo documental.",
+                        "fact_checks": [],
+                    }
+                ]
+            }, DummyGroundedResult(mode="rss_url_context")
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 7
+    items_by_claim = {it.claim: it for it in snap.items}
+
+    # 1. 1 oficial -> verdadera baja
+    it1 = items_by_claim["El INE actualiza el padrón electoral nacional con 98 millones"]
+    assert it1.verdict == "verdadera"
+    assert it1.verdict_confidence == "baja"
+    assert "fuente oficial" in it1.verdict_rationale
+
+    # 2. 1 medio reconocido -> verdadera baja
+    it2 = items_by_claim["El País reporta diagnóstico de casillas especiales para 2027"]
+    assert it2.verdict == "verdadera"
+    assert it2.verdict_confidence == "baja"
+    assert "El País" in it2.verdict_rationale
+    assert "medio reconocido" in it2.verdict_rationale
+
+    # 3. 1 medio regional no dudosa -> verdadera baja
+    it3 = items_by_claim["Módulos de credencialización en Monterrey ajustan horario de invierno"]
+    assert it3.verdict == "verdadera"
+    assert it3.verdict_confidence == "baja"
+    assert "El Norte" in it3.verdict_rationale
+
+    # 4. 1 medio regional dudosa -> sin_verificar baja
+    it4 = items_by_claim["Diario de Chiapas reporta presunta falta de boletas en Chenalhó"]
+    assert it4.verdict == "sin_verificar"
+    assert it4.verdict_confidence == "baja"
+
+    # 5. 2 medios distintos -> verdadera media
+    it5 = items_by_claim["Reforma y El Universal reportan recorte presupuestal operativo del INE"]
+    assert it5.verdict == "verdadera"
+    assert it5.verdict_confidence == "media"
+    assert "2 medios distintos" in it5.verdict_rationale
+
+    # 6. 3 medios distintos -> verdadera alta
+    it6 = items_by_claim["Tres diarios nacionales confirman calendario de credencialización en el extranjero"]
+    assert it6.verdict == "verdadera"
+    assert it6.verdict_confidence == "alta"
+    assert "3 medios de comunicación verificables" in it6.verdict_rationale
+
+    # 7. Oficial + medio -> verdadera alta
+    it7 = items_by_claim["El INE y Aristegui Noticias informan sobre nuevo protocolo de casillas rurales"]
+    assert it7.verdict == "verdadera"
+    assert it7.verdict_confidence == "alta"
+    assert "Respaldada por" in it7.verdict_rationale
+
+
+def test_monitor_jaccard_dedupe_and_search_mode(monkeypatch, tmp_path):
+    """Test that Jaccard threshold is 0.7 (distinct items with similarity 0.65 are not merged),
+    and MonitorSnapshot.search_mode correctly selects the worst stage mode."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    # Two items with token Jaccard similarity ≈ 0.62 (< 0.7 threshold)
+    # A: "INE reporta retrasos en instalación de casillas especiales en Veracruz"
+    # B: "INE confirma retrasos en módulos de credencialización en casillas de Veracruz"
+    items = [
+        {
+            "headline": "A",
+            "claim": "INE reporta retrasos en instalación de casillas especiales en Veracruz",
+            "sources": [{"url": "https://elpais.com/a", "title": "A"}],
+        },
+        {
+            "headline": "B",
+            "claim": "INE confirma retrasos en módulos de credencialización en casillas de Veracruz",
+            "sources": [{"url": "https://elpais.com/b", "title": "B"}],
+        },
+    ]
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            res = DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource("https://elpais.com/a", domain="elpais.com"),
+                    DummyGroundedSource("https://elpais.com/b", domain="elpais.com"),
+                ],
+                mode="grounding",
+            )
+            return {"items": items}, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "verificacion" in cache_key:
+            return {"verifications": []}, DummyGroundedResult(mode="grounding")
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    # 1. Jaccard 0.7 prevents merging these 2 distinct items
+    assert len(snap.items) == 2
+
+    # 2. search_mode: stage1=grounding, stage2=rss_url_context (respaldo), stage3=grounding -> worst is "respaldo"
+    assert snap.search_mode == "respaldo"
+
 

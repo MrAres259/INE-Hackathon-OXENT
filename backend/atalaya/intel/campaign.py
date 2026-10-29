@@ -329,6 +329,7 @@ def research_unit(
             generated_at=now_iso,
             model="",
             from_cache=False,
+            search_mode="sin_internet",
             degraded=True,
             note="No se pudo investigar en internet (Gemini no está configurado). El plan usa solo los datos de Atalaya Electoral.",
         )
@@ -388,6 +389,7 @@ def research_unit(
             generated_at=now_iso,
             model="",
             from_cache=False,
+            search_mode="sin_internet",
             degraded=True,
             note=f"No se pudo investigar en internet ({exc}). El plan usa solo los datos de Atalaya Electoral.",
         )
@@ -608,6 +610,7 @@ def research_unit(
     model_name = getattr(grounded_res, "model", "gemini-3.8-flash")
     from_cache = getattr(grounded_res, "from_cache", False)
     res_mode = getattr(grounded_res, "mode", "grounding")
+    search_mode = "respaldo" if res_mode == "rss_url_context" else ("grounding" if res_mode == "grounding" else "sin_internet")
 
     note: str | None = None
     if res_mode == "rss_url_context":
@@ -624,6 +627,7 @@ def research_unit(
         generated_at=now_iso,
         model=model_name,
         from_cache=from_cache,
+        search_mode=search_mode,
         degraded=False,
         note=note,
     )
