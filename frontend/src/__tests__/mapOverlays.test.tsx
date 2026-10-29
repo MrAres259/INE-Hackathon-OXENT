@@ -253,9 +253,28 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain("var(--map-inset-right,0px)");
     });
 
-    it("coloca MapLayerSwitcher y Legend en la misma fila en pantallas compactas con lg:contents para PC", () => {
+    it("en escritorio el contenedor de la leyenda no es descendiente del grupo superior izquierdo y tiene las clases de anclaje inferior; en compacto está en la fila del selector de capas", () => {
       const html = renderToStaticMarkup(<RiskMap />);
-      expect(html).toContain("flex items-center gap-2 flex-wrap lg:contents");
+
+      // En compacto: la leyenda compacta está en la misma fila flex que el selector de capas (con lg:hidden)
+      expect(html).toContain("flex items-center gap-2 flex-wrap");
+      expect(html).toMatch(/data-map-overlay="layers"[\s\S]*?data-map-legend-compact/);
+      expect(html).toContain("data-map-legend-compact");
+      expect(html).toContain("lg:hidden");
+
+      // En escritorio: el contenedor de la leyenda no es descendiente del grupo superior izquierdo
+      expect(html).toContain('data-map-control-group="top-left"');
+      expect(html).toContain("data-map-legend-desktop");
+      const [beforeDesktopLegend] = html.split("data-map-legend-desktop");
+      const topLeftSection = beforeDesktopLegend.slice(
+        beforeDesktopLegend.indexOf('data-map-control-group="top-left"')
+      );
+      expect(topLeftSection).not.toContain("bottom-[calc(var(--map-inset-bottom,0px)+12px)]");
+
+      // El contenedor de escritorio tiene las clases de anclaje inferior y hidden lg:block
+      expect(html).toContain(
+        "hidden lg:block absolute left-3 bottom-[calc(var(--map-inset-bottom,0px)+12px)]"
+      );
     });
   });
 
