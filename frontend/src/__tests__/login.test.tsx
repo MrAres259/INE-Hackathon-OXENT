@@ -29,7 +29,7 @@ describe("Login Page Component Suite (login.test.tsx)", () => {
     // Brand and logo
     expect(html).toContain("Atalaya");
     expect(html).toContain("Electoral");
-    expect(html).toContain("Plataforma Institucional");
+    expect(html).toContain("Riesgo de abstención · Elección federal 2027");
 
     // Form inputs with attributes
     expect(html).toContain('id="username"');
@@ -43,10 +43,21 @@ describe("Login Page Component Suite (login.test.tsx)", () => {
     // Submit button
     expect(html).toContain("Entrar");
 
-    // Legal disclaimer
+    // Legal disclaimer with team OXENT attribution
     expect(html).toContain(
-      "Acceso restringido al personal autorizado. Los intentos se registran."
+      "Propuesta del equipo OXENT · Hackathon INE 2026. Acceso restringido al personal autorizado; los intentos se registran."
     );
+  });
+
+  it("applies compact two-column layout in landscape on small-height screens", () => {
+    const html = renderToStaticMarkup(<LoginPage />);
+
+    // Two-column grid in compact landscape
+    expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:grid");
+    expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:grid-cols-2");
+
+    // Soft brand background
+    expect(html).toContain("to-primary-soft/20");
   });
 
   it("includes accessible labels for all input controls", () => {

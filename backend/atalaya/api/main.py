@@ -138,15 +138,13 @@ async def auth_and_csrf_middleware(request: Request, call_next):
     if not path.startswith("/api/"):
         return await call_next(request)
 
-    # Exempted paths:
-    # GET /api/health, POST /api/auth/login, GET /api/auth/session, POST /api/auth/logout, /api/admin/*, and /api/intel/* (which manages operator auth via verify_operator)
+    # Exempted paths: exact method and path match, or /api/admin prefix
     is_exempt = (
-        path == "/api/health"
-        or path == "/api/auth/login"
-        or path == "/api/auth/session"
-        or path == "/api/auth/logout"
+        (method == "GET" and path == "/api/health")
+        or (method == "POST" and path == "/api/auth/login")
+        or (method == "GET" and path == "/api/auth/session")
+        or (method == "POST" and path == "/api/auth/logout")
         or path.startswith("/api/admin")
-        or path.startswith("/api/intel")
     )
 
     token = request.cookies.get(COOKIE_NAME)
@@ -165,7 +163,17 @@ async def auth_and_csrf_middleware(request: Request, call_next):
     if not user:
         op_token = request.headers.get("x-operator-token")
         expected_op = get_operator_token()
-        if op_token and expected_op and hmac.compare_digest(op_token.encode("utf-8"), expected_op.encode("utf-8")):
+        if op_token is not None or path == "/api/intel/operator/check":
+            if not expected_op:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Funciones de operador deshabilitadas: configura ATALAYA_OPERATOR_TOKEN."},
+                )
+            if not op_token or not hmac.compare_digest(op_token.encode("utf-8"), expected_op.encode("utf-8")):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Clave de operador inválida."},
+                )
             request.state.user = "operator"
             return await call_next(request)
 

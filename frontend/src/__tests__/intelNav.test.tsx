@@ -270,5 +270,19 @@ describe("Intel Navigation Suite (intelNav.test.tsx)", () => {
       expect(html).toContain("hidden min-[400px]:flex");
     });
   });
+
+  describe("F5-D · Login route isolation", () => {
+    it("does not render TopBar on '/login' (returns null / empty output)", () => {
+      mockPathname = "/login";
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={createMockContext()}>
+          <TopBar />
+        </AtalayaContext.Provider>
+      );
+
+      expect(html).toBe("");
+    });
+  });
 });
+
 

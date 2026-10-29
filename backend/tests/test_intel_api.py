@@ -129,11 +129,18 @@ def setup_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_intel_limiter()
 
 
+@pytest.fixture
+def auth_client() -> TestClient:
+    """Provide a TestClient with an authenticated operator session."""
+    from atalaya.auth import create_test_session
+    token = create_test_session("test_operator")
+    return TestClient(app, cookies={"atalaya_session": token})
+
+
 # ---------------------------------------------------------------- tests
 
-def test_status_endpoint_without_external_modules():
-    client = TestClient(app)
-    resp = client.get("/api/intel/status")
+def test_status_endpoint_without_external_modules(auth_client: TestClient):
+    resp = auth_client.get("/api/intel/status")
     assert resp.status_code == 200
     data = resp.json()
     assert "gemini_enabled" in data
@@ -180,8 +187,12 @@ def test_campaign_cached_public_and_uncached_requires_operator(monkeypatch: pyte
     fake_campaign.plan_campaign = lambda req, report: dummy_plan
     monkeypatch.setitem(sys.modules, "atalaya.intel.campaign", fake_campaign)
 
-    # 1. Cached plan is public (no operator header required) -> 200
-    resp = client.post("/api/intel/campaign", json={"unit_id": "07101", "refresh": False})
+    # 1. Cached plan requires session or operator token -> 200
+    resp = client.post(
+        "/api/intel/campaign",
+        json={"unit_id": "07101", "refresh": False},
+        headers={"X-Operator-Token": "valid-op-token"},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "done"
@@ -204,26 +215,26 @@ def test_campaign_cached_public_and_uncached_requires_operator(monkeypatch: pyte
 
     # Poll job until done
     for _ in range(50):
-        j_resp = client.get(f"/api/intel/jobs/{job_id}")
+        j_resp = client.get(f"/api/intel/jobs/{job_id}", headers={"X-Operator-Token": "valid-op-token"})
         if j_resp.status_code == 200 and j_resp.json()["status"] == "done":
             break
         time.sleep(0.05)
 
-    final_job = client.get(f"/api/intel/jobs/{job_id}").json()
+    final_job = client.get(f"/api/intel/jobs/{job_id}", headers={"X-Operator-Token": "valid-op-token"}).json()
     assert final_job["status"] == "done"
     assert final_job["progress"] == 100
 
-    # 4. GET /api/intel/campaign/{unit_id} public read
-    resp = client.get("/api/intel/campaign/07101")
+    # 4. GET /api/intel/campaign/{unit_id} with operator token
+    resp = client.get("/api/intel/campaign/07101", headers={"X-Operator-Token": "valid-op-token"})
     assert resp.status_code == 200
     assert resp.json()["id"] == "plan-07101"
 
-    resp = client.get("/api/intel/campaign/07")
+    resp = client.get("/api/intel/campaign/07", headers={"X-Operator-Token": "valid-op-token"})
     assert resp.status_code == 404
 
 
-def test_campaign_invalid_unit_id_handling():
-    client = TestClient(app)
+def test_campaign_invalid_unit_id_handling(auth_client: TestClient):
+    client = auth_client
 
     # Invalid regex format -> 422
     resp = client.post("/api/intel/campaign", json={"unit_id": "not-a-number"})
@@ -235,8 +246,8 @@ def test_campaign_invalid_unit_id_handling():
     assert resp.json()["detail"] == "Zona no encontrada."
 
 
-def test_export_pdf_and_pptx_with_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    client = TestClient(app)
+def test_export_pdf_and_pptx_with_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, auth_client: TestClient):
+    client = auth_client
     dummy_plan = make_dummy_plan("plan-exp", "07101")
 
     captured_slides = []
@@ -324,7 +335,7 @@ def test_monitor_endpoints_lifecycle(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setitem(sys.modules, "atalaya.intel.monitor", fake_monitor)
 
     # 1. GET /monitor without existing snapshot -> 404
-    resp = client.get("/api/intel/monitor")
+    resp = client.get("/api/intel/monitor", headers={"X-Operator-Token": "valid-op-token"})
     assert resp.status_code == 404
 
     # 2. POST /scan requires operator token -> 401
@@ -353,16 +364,16 @@ def test_monitor_endpoints_lifecycle(monkeypatch: pytest.MonkeyPatch):
     assert "Espera" in resp.json()["detail"]
 
     # 5. GET impact: 422 if level=mun without ent
-    resp = client.get("/api/intel/monitor/items/item-ok/impact?level=mun")
+    resp = client.get("/api/intel/monitor/items/item-ok/impact?level=mun", headers={"X-Operator-Token": "valid-op-token"})
     assert resp.status_code == 422
 
     # 6. GET impact: 200 if valid
-    resp = client.get("/api/intel/monitor/items/item-ok/impact?level=mun&ent=07")
+    resp = client.get("/api/intel/monitor/items/item-ok/impact?level=mun&ent=07", headers={"X-Operator-Token": "valid-op-token"})
     assert resp.status_code == 200
     assert resp.json()["level"] == "mun"
 
     # 7. GET impact: 404 on missing item
-    resp = client.get("/api/intel/monitor/items/item-bad/impact?level=state")
+    resp = client.get("/api/intel/monitor/items/item-bad/impact?level=state", headers={"X-Operator-Token": "valid-op-token"})
     assert resp.status_code == 404
 
 

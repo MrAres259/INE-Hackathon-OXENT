@@ -242,6 +242,10 @@ export function TopBar() {
   useEffect(() => {
     if (typeof document !== "undefined") {
       const updateTopbarH = () => {
+        if (pathname === "/login") {
+          document.documentElement.style.setProperty("--topbar-h", "0px");
+          return;
+        }
         const isLandscape =
           window.matchMedia?.("(orientation: landscape) and (max-height: 540px)")?.matches ??
           false;
@@ -261,7 +265,12 @@ export function TopBar() {
         window.removeEventListener("orientationchange", updateTopbarH);
       };
     }
-  }, [isHome]);
+  }, [isHome, pathname]);
+
+  // Hide TopBar completely on /login
+  if (pathname === "/login") {
+    return null;
+  }
 
   const campaignsCount =
     scenario === "intervencion" && Array.isArray(paramsByScenario.intervencion?.campaigns)

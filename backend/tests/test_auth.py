@@ -549,3 +549,110 @@ def test_cli_create_user_generate(capsys):
     # Authenticate with the generated password
     authenticated = authenticate("generated_user", generated_pwd, ip="127.0.0.1")
     assert authenticated.username == "generated_user"
+
+
+# -----------------------------------------------------------------------------
+# 14. /api/intel/* session enforcement and exact method/route exemptions
+# -----------------------------------------------------------------------------
+
+
+def test_intel_endpoints_require_session():
+    """Endpoints under /api/intel/* require valid session or operator token."""
+    client = TestClient(app)
+    client.cookies.clear()
+
+    endpoints = [
+        ("GET", "/api/intel/status", None),
+        ("GET", "/api/intel/monitor", None),
+        ("GET", "/api/intel/campaign/32", None),
+        ("POST", "/api/intel/campaign/export", {"plan_id": "32", "format": "pdf"}),
+        ("GET", "/api/intel/jobs/x", None),
+        ("GET", "/api/intel/monitor/items/x/impact", None),
+    ]
+
+    # 1. Without session -> 401 on all endpoints
+    for method, path, payload in endpoints:
+        if method == "GET":
+            resp = client.get(path)
+        else:
+            resp = client.post(path, json=payload)
+        assert resp.status_code == 401, f"{method} {path} should return 401 without session"
+        assert resp.json() == {"detail": "Sesión requerida."}
+
+
+def test_intel_endpoints_allow_session():
+    """Active session cookie allows access (no 401) on /api/intel/* endpoints."""
+    create_user("intel_user", "ValidPassword14!_#")
+    client = TestClient(app)
+    client.cookies.clear()
+
+    login_resp = client.post(
+        "/api/auth/login",
+        json={"username": "intel_user", "password": "ValidPassword14!_#"},
+    )
+    assert login_resp.status_code == 200
+
+    endpoints = [
+        ("GET", "/api/intel/status", None),
+        ("GET", "/api/intel/monitor", None),
+        ("GET", "/api/intel/campaign/32", None),
+        ("POST", "/api/intel/campaign/export", {"plan_id": "32", "format": "pdf"}),
+        ("GET", "/api/intel/jobs/x", None),
+        ("GET", "/api/intel/monitor/items/x/impact", None),
+    ]
+
+    for method, path, payload in endpoints:
+        if method == "GET":
+            resp = client.get(path)
+        else:
+            resp = client.post(path, json=payload)
+        assert resp.status_code != 401, f"{method} {path} should not return 401 with active session"
+
+
+def test_intel_endpoints_allow_operator_token(monkeypatch: pytest.MonkeyPatch):
+    """Valid X-Operator-Token allows access (no 401) on /api/intel/* without session."""
+    from atalaya.config import get_settings
+
+    monkeypatch.setenv("ATALAYA_OPERATOR_TOKEN", "valid-op-token-123")
+    get_settings.cache_clear()
+
+    client = TestClient(app)
+    client.cookies.clear()
+
+    endpoints = [
+        ("GET", "/api/intel/status", None),
+        ("GET", "/api/intel/monitor", None),
+        ("GET", "/api/intel/campaign/32", None),
+        ("POST", "/api/intel/campaign/export", {"plan_id": "32", "format": "pdf"}),
+        ("GET", "/api/intel/jobs/x", None),
+        ("GET", "/api/intel/monitor/items/x/impact", None),
+    ]
+
+    for method, path, payload in endpoints:
+        headers = {"X-Operator-Token": "valid-op-token-123"}
+        if method == "GET":
+            resp = client.get(path, headers=headers)
+        else:
+            resp = client.post(path, json=payload, headers=headers)
+        assert resp.status_code != 401, f"{method} {path} should not return 401 with valid operator token"
+
+
+def test_exact_method_and_path_exemptions():
+    """Exemptions require exact method and path; distinct methods without session return 401 or 405, not 200."""
+    client = TestClient(app)
+    client.cookies.clear()
+
+    # GET /api/auth/login without session -> not exempt, rejected with 401 or 405 (not 200)
+    resp = client.get("/api/auth/login")
+    assert resp.status_code in (401, 405)
+    assert resp.status_code != 200
+
+    # POST /api/auth/login is exempt -> returns 401 due to missing body/creds, not session required
+    resp_login = client.post("/api/auth/login", json={"username": "nobody", "password": "WrongPassword14!_#"})
+    assert resp_login.status_code == 401
+    assert resp_login.json()["detail"] == "Usuario o contraseña incorrectos."
+
+    # POST /api/health without session -> not exempt, rejected with 401 or 405 (not 200)
+    resp_health_post = client.post("/api/health")
+    assert resp_health_post.status_code in (401, 405)
+    assert resp_health_post.status_code != 200
