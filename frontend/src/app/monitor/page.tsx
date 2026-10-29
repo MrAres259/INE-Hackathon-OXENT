@@ -3,7 +3,6 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { IntelPageShell } from "@/components/intel/IntelPageShell";
-import { OperatorGate } from "@/components/intel/OperatorGate";
 import { getIntelStatus, getMonitor, scanMonitor, pollJob, IntelApiError } from "@/lib/intel/api";
 import type { MonitorSnapshot, IntelStatus, Job, RegistryEntry } from "@/lib/intel/types";
 import {
@@ -152,13 +151,6 @@ export default function MonitorPage() {
           onScan={handleScan}
           cooldownMessage={cooldownMessage}
         />
-
-        {/* Operator Gate trigger & configuration bar */}
-        <OperatorGate label="Administración de clave de operador">
-          <div className="text-xs text-muted-foreground">
-            Sesión de operador activa: clave verificada contra el servidor central de ATALAYA.
-          </div>
-        </OperatorGate>
 
         {/* Loading skeleton */}
         {loading && (

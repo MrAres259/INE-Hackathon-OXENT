@@ -164,11 +164,10 @@ export function RegistryControl({
       )}
 
       {/* Operator controls */}
-      {isOperator ? (
         <div className="space-y-3 pt-1">
           <div className="space-y-1.5 text-xs">
             <span className="font-semibold text-foreground">
-              Actualizar estado de atención (Operador):
+              Actualizar estado de atención:
             </span>
             <div className="flex flex-wrap gap-1.5">
               {OPERATOR_STATES.map((st) => {
@@ -271,11 +270,6 @@ export function RegistryControl({
             </div>
           )}
         </div>
-      ) : (
-        <div className="text-xs text-muted-foreground">
-          <span>Inicia sesión como operador para registrar actuaciones institucionales y notas de seguimiento.</span>
-        </div>
-      )}
 
       {/* History Toggle & Display */}
       <div className="pt-2 border-t border-border/80">

@@ -352,11 +352,11 @@ export const GLOSSARY = {
     relation: "Facilita la difusión ejecutiva y discusión técnica en comisiones y juntas ejecutivas.",
     example: "Ajuste de metas y fechas clave en la diapositiva de implementación operativa.",
   },
-  clave_operador: {
-    title: "Clave de Operador Institucional",
-    body: "Credencial de autenticación que protege las acciones de investigación, escaneo forzado, exportación y registro oficial en Atalaya Electoral, asegurando el control interno del personal autorizado.",
-    relation: "La consulta de diagnósticos es pública; la ejecución de procesos de IA requiere clave.",
-    example: "Configuración de ATALAYA_OPERATOR_TOKEN en el entorno del servidor institucional.",
+  sesion: {
+    title: "Inicio de Sesión y Control de Acceso",
+    body: "Mecanismo de autenticación institucional mediante usuario y contraseña seguros contra ataques de fuerza bruta. Toda la plataforma exige una sesión activa que desbloquea las funciones de investigación, escaneo de medios y registro oficial.",
+    relation: "La protección opera en el servidor mediante cookies HttpOnly; tras iniciar sesión, todas las herramientas quedan habilitadas.",
+    example: "Bloqueo temporal automático por usuario o dirección IP tras múltiples intentos fallidos de acceso.",
   },
   monitor_ine: {
     title: "Monitor Institucional de Medios",
@@ -459,6 +459,9 @@ export const GLOSSARY = {
 export type GlossaryKey = keyof typeof GLOSSARY;
 
 export function glossaryFor(key: string): GlossaryEntry | undefined {
+  if (key === "clave_operador") {
+    return GLOSSARY["sesion"];
+  }
   if (key in GLOSSARY) {
     return GLOSSARY[key as GlossaryKey];
   }

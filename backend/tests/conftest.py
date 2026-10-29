@@ -163,21 +163,6 @@ def isolate_test_environment(monkeypatch, tmp_path: Path, request):
 
     old_env = os.environ.copy()
 
-    # In test_api.py, legacy tests call /api/admin/reload without headers.
-    # Provide admin token for testclient in test_api.py so legacy tests pass.
-    if "test_api.py" in request.node.nodeid:
-        from starlette.testclient import TestClient
-        from atalaya.api.security import get_admin_token
-        orig_init = TestClient.__init__
-
-        def _patched_init(self, *args, **kwargs):
-            headers = dict(kwargs.get("headers") or {})
-            headers.setdefault("X-Admin-Token", get_admin_token())
-            kwargs["headers"] = headers
-            orig_init(self, *args, **kwargs)
-
-        monkeypatch.setattr(TestClient, "__init__", _patched_init)
-
     # Patch reload_env to only clear settings cache without reading .env,
     # except when test_config_reload_env explicitly tests reload_env with a mock load_dotenv.
     _orig_reload_env = atalaya.config.reload_env
@@ -198,6 +183,43 @@ def isolate_test_environment(monkeypatch, tmp_path: Path, request):
     # Redirect admin token path to tmp_path
     token_path = tmp_path / "admin_token"
     monkeypatch.setattr("atalaya.api.security.ADMIN_TOKEN_PATH", token_path)
+
+    # Isolate auth paths to tmp_path
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    import atalaya.auth as _auth
+    monkeypatch.setattr(_auth, "AUTH_DIR", auth_dir)
+    monkeypatch.setattr(_auth, "AUTH_LOG_DIR", logs_dir)
+    monkeypatch.setattr(_auth, "USERS_FILE", auth_dir / "users.json")
+    monkeypatch.setattr(_auth, "ATTEMPTS_FILE", auth_dir / "attempts.json")
+    monkeypatch.setattr(_auth, "SESSIONS_FILE", auth_dir / "sessions.json")
+    monkeypatch.setattr(_auth, "AUTH_LOG_FILE", logs_dir / "auth.jsonl")
+
+    # In test_api.py, legacy tests call /api/admin/reload without headers.
+    # Also inject session cookie for all tests except test_auth.py for whole-suite compatibility.
+    from starlette.testclient import TestClient
+    from atalaya.api.security import get_admin_token
+    orig_init = TestClient.__init__
+
+    def _patched_init(self, *args, **kwargs):
+        if "test_api.py" in request.node.nodeid:
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault("X-Admin-Token", get_admin_token())
+            kwargs["headers"] = headers
+
+        if "test_auth.py" not in request.node.nodeid and "test_intel_api.py" not in request.node.nodeid:
+            cookies = dict(kwargs.get("cookies") or {})
+            if "atalaya_session" not in cookies:
+                token = _auth.create_test_session("test_operator")
+                cookies["atalaya_session"] = token
+            kwargs["cookies"] = cookies
+
+        orig_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", _patched_init)
 
     try:
         yield

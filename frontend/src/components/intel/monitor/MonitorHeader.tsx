@@ -123,12 +123,11 @@ export function MonitorHeader({
         </div>
       </div>
 
-      {/* Operator Scan Control bar */}
-      {isOperator && onScan && (
+      {/* Scan Control bar */}
+      {onScan && (
         <div className="rounded-lg border border-primary/20 bg-primary-soft/30 p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-primary">Acción de Operador:</span>
-            <span className="text-muted-foreground">Ventana de escaneo:</span>
+            <span className="text-muted-foreground font-semibold">Ventana de escaneo:</span>
             <div className="inline-flex rounded-md border border-border bg-background p-0.5">
               {([7, 14, 30] as const).map((w) => (
                 <button
@@ -210,7 +209,7 @@ export function MonitorHeader({
             El Monitor detecta noticias críticas y rumores sobre el INE, calcula el impacto en participación electoral
             y sugiere medidas de mitigación institucionales.
           </p>
-          {isOperator && onScan && (
+          {onScan && (
             <div className="pt-2">
               <button
                 type="button"

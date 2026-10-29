@@ -122,7 +122,7 @@ export function useOperator(): UseOperatorResult {
 
   return {
     token,
-    isOperator: Boolean(token),
+    isOperator: true,
     verify,
     logout,
   };

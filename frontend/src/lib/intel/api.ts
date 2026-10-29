@@ -14,6 +14,7 @@ import type {
 import { getOperatorToken } from "./operator";
 import { MOCK_CAMPAIGN_PLAN, MOCK_MONITOR } from "./mocks";
 import { isMockEnabled } from "@/lib/api";
+import { redirectToLogin } from "@/lib/auth";
 
 export class IntelApiError extends Error {
   status: number;
@@ -53,6 +54,7 @@ async function requestJson<T>(url: string, init?: RequestInit, explicitToken?: s
   try {
     res = await fetch(url, {
       ...init,
+      credentials: "same-origin",
       headers,
     });
   } catch (netErr: any) {
@@ -64,6 +66,9 @@ async function requestJson<T>(url: string, init?: RequestInit, explicitToken?: s
   }
 
   if (!res.ok) {
+    if (res.status === 401) {
+      redirectToLogin();
+    }
     let detail = `Error ${res.status}: ${res.statusText}`;
     let retryAfterS = parseRetryAfter(res.headers.get("Retry-After"));
 
@@ -195,6 +200,7 @@ export async function exportCampaign(
   try {
     res = await fetch("/api/intel/campaign/export", {
       method: "POST",
+      credentials: "same-origin",
       headers,
       body: JSON.stringify(override),
     });
@@ -207,6 +213,9 @@ export async function exportCampaign(
   }
 
   if (!res.ok) {
+    if (res.status === 401) {
+      redirectToLogin();
+    }
     let detail = `Error ${res.status}: ${res.statusText}`;
     try {
       const errJson = await res.json();

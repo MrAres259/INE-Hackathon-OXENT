@@ -317,7 +317,7 @@ export default function MetodologiaPage() {
       "propuesta_palanca",
       "impacto_simulado",
       "diapositivas_editables",
-      "clave_operador",
+      "sesion",
       "monitor_ine",
       "veredicto",
       "noticia_verdadera",
@@ -1005,10 +1005,10 @@ export default function MetodologiaPage() {
                   <div className="p-3.5 rounded-lg bg-muted/40 border border-border space-y-1.5">
                     <strong className="text-foreground block font-semibold flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
-                      Clave de Operador Institucional (Control de acceso)
+                      Inicio de sesión y protección contra fuerza bruta
                     </strong>
                     <p className="text-muted-foreground leading-relaxed text-[11px]">
-                      La consulta ciudadana de diagnósticos y noticias es completamente abierta. No obstante, las acciones que consumen cuotas de IA o asientan acuerdos oficiales (investigar con Gemini, forzar escaneos y registrar decisiones del INE) requieren autenticación mediante <span className="font-mono text-foreground font-semibold">ATALAYA_OPERATOR_TOKEN</span> enviado en la cabecera segura <span className="font-mono text-foreground font-semibold">X-Operator-Token</span>.
+                      El acceso a toda la plataforma está protegido mediante credenciales institucionales de usuario y contraseña con sesiones HttpOnly cifradas. Para proteger el sistema de ataques automatizados de fuerza bruta, el servidor aplica bloqueos temporales progresivos por cuenta de usuario (15 a 60 minutos) y por dirección IP (20 fallos por hora), además de límites de tasa por minuto. Una vez dentro con sesión activa, todas las herramientas de investigación, escaneo y registro quedan plenamente desbloqueadas (los scripts automatizados locales mantienen compatibilidad mediante <span className="font-mono text-foreground font-semibold">ATALAYA_OPERATOR_TOKEN</span> en la cabecera <span className="font-mono text-foreground font-semibold">X-Operator-Token</span>).
                     </p>
                   </div>
                 </div>

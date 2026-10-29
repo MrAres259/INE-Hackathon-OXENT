@@ -265,7 +265,7 @@ describe("Glossary (Single Source of Truth)", () => {
       "propuesta_palanca",
       "impacto_simulado",
       "diapositivas_editables",
-      "clave_operador",
+      "sesion",
       "monitor_ine",
       "veredicto",
       "noticia_verdadera",

@@ -19,6 +19,8 @@ RAW_DIR = DATA_DIR / "raw"
 BUILD_DIR = DATA_DIR / "build"
 CACHE_DIR = DATA_DIR / "cache"
 SEED_DIR = DATA_DIR / "seed"
+AUTH_DIR = CACHE_DIR / "auth"
+LOGS_DIR = CACHE_DIR / "logs"
 
 # Load backend/.env without overriding already exported environment variables
 load_dotenv(BACKEND_DIR / ".env", override=False)

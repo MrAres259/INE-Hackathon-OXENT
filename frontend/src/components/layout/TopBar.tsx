@@ -8,6 +8,7 @@ import type { ScenarioId } from "@/lib/types";
 import { BrandLockup, BrandMark } from "@/components/brand/BrandMark";
 import { RegionSearch } from "@/components/map/RegionSearch";
 import { InfoTip } from "@/components/ui/InfoTip";
+import { getSession, logout } from "@/lib/auth";
 
 const SCENARIOS: { id: ScenarioId; label: string }[] = [
   { id: "base", label: "Base" },
@@ -69,6 +70,100 @@ const SECTIONS = [
   },
 ];
 
+function UserMenuDropdown({
+  username,
+  onLogout,
+  variant = "button",
+}: {
+  username: string | null;
+  onLogout: () => void;
+  variant?: "button" | "icon";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      {variant === "button" ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          className="h-8 px-2.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors cursor-pointer border border-border bg-card/60"
+          title={username ? `Usuario: ${username}` : "Usuario"}
+        >
+          <svg className="size-3.5 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span className="text-xs font-semibold max-w-[100px] truncate text-foreground">
+            {username || "Usuario"}
+          </span>
+          <svg className="size-3 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
+          aria-label="Menú de usuario"
+          title={username ? `Usuario: ${username}` : "Usuario"}
+        >
+          <svg className="size-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+        </button>
+      )}
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="Menú de usuario"
+          className="absolute right-0 top-full mt-1.5 w-48 rounded-lg border border-border bg-card p-1 shadow-lg z-50 flex flex-col gap-1"
+        >
+          <div className="px-3 py-1.5 border-b border-border text-xs">
+            <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+              Sesión activa
+            </span>
+            <span className="font-semibold text-foreground truncate block">
+              {username || "Usuario"}
+            </span>
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onLogout();
+            }}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md transition-colors w-full text-left cursor-pointer font-medium"
+          >
+            <svg className="size-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            <span>Cerrar sesión</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TopBar() {
   const {
     scenario,
@@ -86,6 +181,39 @@ export function TopBar() {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const [username, setUsername] = useState<string | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    getSession()
+      .then((sess) => {
+        if (active && sess?.user?.username) {
+          setUsername(sess.user.username);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [userMenuOpen]);
+
+  const handleLogout = async () => {
+    await logout();
+  };
 
   useEffect(() => {
     if (!moreMenuOpen) return;
@@ -331,6 +459,9 @@ export function TopBar() {
               />
             </svg>
           </button>
+
+          {/* User Menu (Desktop) */}
+          <UserMenuDropdown username={username} onLogout={handleLogout} variant="button" />
         </div>
       </div>
 
@@ -468,6 +599,9 @@ export function TopBar() {
               <path strokeLinecap="round" strokeWidth={2} d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01" />
             </svg>
           </button>
+
+          {/* User Menu (Compact Landscape) */}
+          <UserMenuDropdown username={username} onLogout={handleLogout} variant="icon" />
         </div>
       </div>
 
@@ -611,6 +745,38 @@ export function TopBar() {
                     </svg>
                     <span>Guía interactiva</span>
                   </button>
+                  <div className="px-2.5 py-1 text-[11px] text-muted-foreground border-t border-border mt-0.5 pt-1.5 flex items-center gap-1.5">
+                    <svg className="size-3 text-primary shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span className="truncate font-semibold text-foreground">
+                      {username || "Usuario"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMoreMenuOpen(false);
+                      handleLogout();
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-sm transition-colors text-left w-full cursor-pointer font-medium"
+                  >
+                    <svg
+                      className="w-3.5 h-3.5 shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                      />
+                    </svg>
+                    <span>Cerrar sesión</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -683,6 +849,9 @@ export function TopBar() {
                   />
                 </svg>
               </button>
+
+              {/* User Menu (Compact Portrait >= 400px) */}
+              <UserMenuDropdown username={username} onLogout={handleLogout} variant="icon" />
             </div>
           </div>
         </div>

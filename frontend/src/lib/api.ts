@@ -23,6 +23,7 @@ import { simulateMockScenario } from "./mocks/simulate";
 import { getMockRanking } from "./mocks/ranking";
 import { MOCK_METRICS } from "./mocks/metrics";
 import { streamMockChat } from "./mocks/chat";
+import { redirectToLogin } from "./auth";
 
 // Mock status store
 let currentIsMock = false;
@@ -62,6 +63,8 @@ export class ApiError extends Error {
 
 export function shouldFallbackToMock(err: unknown): boolean {
   if (err instanceof ApiError) {
+    // 401 Unauthorized: do NOT fallback to mock; redirect to login
+    if (err.status === 401) return false;
     // 422 Validation error: do NOT fallback to mock; UI needs the backend error message
     if (err.status === 422) return false;
     // 429 Rate limit and 413 Payload Too Large: do NOT fallback to mock
@@ -76,6 +79,7 @@ export function shouldFallbackToMock(err: unknown): boolean {
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
+    credentials: "same-origin",
     headers: {
       Accept: "application/json",
       ...init?.headers,
@@ -83,6 +87,9 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      redirectToLogin();
+    }
     let errorData: unknown;
     try {
       errorData = await res.json();
@@ -336,6 +343,7 @@ export async function streamChat(
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
@@ -345,6 +353,9 @@ export async function streamChat(
     });
 
     if (!res.ok) {
+      if (res.status === 401) {
+        redirectToLogin();
+      }
       let detail = "";
       try {
         const errorJson = await res.json();

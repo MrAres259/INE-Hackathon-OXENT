@@ -292,23 +292,17 @@ export function CampaignRunner({
             )}
           </div>
 
-          {/* Regenerate Button for Operators */}
-          {isOperator ? (
-            <button
-              type="button"
-              onClick={() => handleLaunchPlan(true)}
-              className="h-7 px-3 rounded-md border border-border bg-muted/60 hover:bg-accent text-xs font-semibold text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <svg className="size-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span>Regenerar plan</span>
-            </button>
-          ) : (
-            <span className="text-[11px] text-muted-foreground">
-              Modo lectura pública
-            </span>
-          )}
+          {/* Regenerate Button */}
+          <button
+            type="button"
+            onClick={() => handleLaunchPlan(true)}
+            className="h-7 px-3 rounded-md border border-border bg-muted/60 hover:bg-accent text-xs font-semibold text-foreground transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            <svg className="size-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>Regenerar plan</span>
+          </button>
         </div>
       )}
 
@@ -324,25 +318,16 @@ export function CampaignRunner({
             </p>
           </div>
 
-          {isOperator ? (
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => handleLaunchPlan(false)}
-                className="h-9 px-4 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer flex items-center gap-2"
-              >
-                <span>✨</span>
-                <span>Investigar y planear con IA</span>
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3 pt-1">
-              <p className="text-xs text-muted-foreground">
-                La generación de nuevos análisis con Gemini 3.8 Flash y GLM-5.3 requiere autenticación como operador del INE.
-              </p>
-              <OperatorGate label="Ingresar clave de operador para planear" />
-            </div>
-          )}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => handleLaunchPlan(false)}
+              className="h-9 px-4 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer flex items-center gap-2"
+            >
+              <span>✨</span>
+              <span>Investigar y planear con IA</span>
+            </button>
+          </div>
         </div>
       )}
     </div>

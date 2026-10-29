@@ -140,6 +140,7 @@ def _trip_grounding_circuit() -> None:
             except Exception:
                 data = {}
         data["grounding_unavailable_until"] = retry_str
+        data["had_429"] = True
         _atomic_write_json(state_file, data)
         logger.warning(
             "Circuito de grounding abierto por HTTP 429. Grounding deshabilitado hasta %s (%d min cooldown)",
@@ -148,6 +149,49 @@ def _trip_grounding_circuit() -> None:
         )
     except Exception as exc:
         logger.warning("Fallo al escribir gemini_state.json: %s", exc)
+
+
+def _save_last_mode(mode: str) -> None:
+    """Save the search mode actually used ('grounding' or 'respaldo') to gemini_state.json."""
+    if not mode:
+        return
+    canonical = "respaldo" if mode in ("rss_url_context", "respaldo") else "grounding"
+    state_file = _get_intel_dir() / "gemini_state.json"
+    data: dict[str, Any] = {}
+    if state_file.is_file():
+        try:
+            data = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    data["last_mode"] = canonical
+    try:
+        _atomic_write_json(state_file, data)
+    except Exception as exc:
+        logger.warning("Fallo al escribir last_mode en gemini_state.json: %s", exc)
+
+
+def get_last_mode() -> str | None:
+    """Return the last mode actually used, stored in gemini_state.json."""
+    state_file = _get_intel_dir() / "gemini_state.json"
+    if not state_file.is_file():
+        return None
+    try:
+        st = json.loads(state_file.read_text(encoding="utf-8"))
+        return st.get("last_mode")
+    except Exception:
+        return None
+
+
+def get_had_429() -> bool:
+    """Return True if grounding circuit ever experienced a 429."""
+    state_file = _get_intel_dir() / "gemini_state.json"
+    if not state_file.is_file():
+        return False
+    try:
+        st = json.loads(state_file.read_text(encoding="utf-8"))
+        return bool(st.get("had_429", False))
+    except Exception:
+        return False
 
 
 def _save_last_model(model: str) -> None:
@@ -336,6 +380,8 @@ def budget_status() -> dict:
         "grounding_available": grounding_available,
         "grounding_retry_at": grounding_retry_at,
         "last_model": get_last_model(),
+        "last_mode": get_last_mode(),
+        "had_429": get_had_429(),
     }
 
 
@@ -527,6 +573,8 @@ def _call_gemini_raw(
                 data = resp.json()
                 result = _parse_candidate_response(data, model, latency_ms, mode=mode)
                 _save_last_model(model)
+                if mode in ("grounding", "rss_url_context", "respaldo"):
+                    _save_last_mode(mode)
 
                 logger.info(
                     "Gemini request completed: model=%s latency_ms=%d mode=%s sources=%d queries=%d",

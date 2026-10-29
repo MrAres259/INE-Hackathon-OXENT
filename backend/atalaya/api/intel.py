@@ -73,8 +73,15 @@ def get_intel_status() -> IntelStatus:
             budget_used = int(bs.get("used", 0))
             budget_limit = int(bs.get("limit", budget_limit))
             gemini_last_model = bs.get("last_model")
-            if gemini_enabled:
-                search_mode = "grounding" if bs.get("grounding_available", True) else "respaldo"
+            if not gemini_enabled:
+                search_mode = "sin_internet"
+            else:
+                persisted_mode = bs.get("last_mode")
+                if persisted_mode in ("grounding", "respaldo", "sin_internet"):
+                    search_mode = persisted_mode
+                else:
+                    had_429 = bs.get("had_429", False) or bool(bs.get("grounding_retry_at"))
+                    search_mode = "respaldo" if had_429 else "grounding"
     except Exception:
         pass
 

@@ -200,10 +200,26 @@ def get_operator_token() -> str:
 def verify_operator(request: Request) -> None:
     """Verify operator authorization for /api/intel operator endpoints.
 
-    Requires 'X-Operator-Token' matching operator_token in constant time.
+    If request has a valid user session, operator access is granted.
+    Otherwise, requires 'X-Operator-Token' matching operator_token in constant time.
     If no token is configured: raises 401 with 'Funciones de operador deshabilitadas: configura ATALAYA_OPERATOR_TOKEN.'
     If token is invalid: raises 401 with 'Clave de operador inválida.'
     """
+    user = getattr(request.state, "user", None)
+    if not user:
+        token = request.cookies.get("atalaya_session")
+        if token:
+            try:
+                from atalaya.auth import get_session
+                sess = get_session(token)
+                if sess:
+                    user = sess.username
+                    request.state.user = user
+            except Exception:
+                pass
+    if user:
+        return
+
     expected = get_operator_token()
     if not expected:
         raise HTTPException(
