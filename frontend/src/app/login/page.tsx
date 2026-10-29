@@ -1,13 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { login, AuthError } from "@/lib/auth";
 import { isValidInternalRedirect } from "@/lib/authRoutes";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [username, setUsername] = useState("");
@@ -68,14 +67,20 @@ function LoginForm() {
     try {
       await login(trimmedUser, password);
 
-      // On success, redirect to next parameter or default /
+      // On success, full navigation so entire state re-initializes with session cookie
       const rawNext = searchParams.get("next");
       const targetRoute =
         rawNext && isValidInternalRedirect(rawNext) && rawNext !== "/login"
           ? rawNext
           : "/";
 
-      router.replace(targetRoute);
+      if (typeof window !== "undefined") {
+        if (typeof window.location?.replace === "function") {
+          window.location.replace(targetRoute);
+        } else {
+          window.location.href = targetRoute;
+        }
+      }
     } catch (err: unknown) {
       setSubmitting(false);
 

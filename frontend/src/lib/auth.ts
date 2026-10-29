@@ -157,6 +157,11 @@ export async function logout(): Promise<void> {
 }
 
 export async function getSession(): Promise<AuthSession | null> {
+  // Never query session while on /login page
+  if (typeof window !== "undefined" && window.location?.pathname === "/login") {
+    return null;
+  }
+
   if (isMockEnabled()) {
     return {
       user: { username: "operador_demo" },

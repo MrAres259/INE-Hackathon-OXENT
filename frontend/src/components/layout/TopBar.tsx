@@ -186,7 +186,21 @@ export function TopBar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
+  // Determine active section route
+  let rawPath: string | null = null;
+  try {
+    rawPath = usePathname();
+  } catch {
+    rawPath = "/";
+  }
+  const pathname = rawPath || "/";
+  const isHome = pathname === "/";
+  const isLoginPage =
+    pathname === "/login" ||
+    (typeof window !== "undefined" && window.location?.pathname === "/login");
+
   useEffect(() => {
+    if (isLoginPage) return;
     let active = true;
     getSession()
       .then((sess) => {
@@ -198,7 +212,7 @@ export function TopBar() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isLoginPage]);
 
   useEffect(() => {
     if (!userMenuOpen) return;
@@ -226,16 +240,6 @@ export function TopBar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [moreMenuOpen]);
 
-  // Determine active section route
-  let rawPath: string | null = null;
-  try {
-    rawPath = usePathname();
-  } catch {
-    rawPath = "/";
-  }
-  const pathname = rawPath || "/";
-  const isHome = pathname === "/";
-
   const headerRef = useRef<HTMLElement | null>(null);
 
   // Publish --topbar-h CSS variable on documentElement
@@ -250,7 +254,7 @@ export function TopBar() {
           window.matchMedia?.("(orientation: landscape) and (max-height: 540px)")?.matches ??
           false;
         const isDesktop = window.innerWidth >= 1024 && !isLandscape;
-        const measured = headerRef.current
+        const measured = headerRef.current?.getBoundingClientRect
           ? Math.round(headerRef.current.getBoundingClientRect().height)
           : null;
         const fallback = isLandscape ? 48 : isDesktop ? 56 : isHome ? 88 : 48;

@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import LoginPage from "../app/login/page";
 import * as authModule from "../lib/auth";
@@ -86,5 +86,172 @@ describe("Login Page Component Suite (login.test.tsx)", () => {
 
     expect(exportedKeys).toEqual(["default"]);
     expect(typeof pageModule.default).toBe("function");
+  });
+
+  it("does not call fetch to /api/* when LoginPage is mounted or rendered", () => {
+    const origFetch = globalThis.fetch;
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy;
+
+    try {
+      renderToStaticMarkup(<LoginPage />);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  describe("successful login navigation with window.location.replace", () => {
+    let origWindow: any;
+    let origDoc: any;
+    let origActEnv: any;
+    let mockReplace: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      origWindow = (globalThis as any).window;
+      origDoc = (globalThis as any).document;
+      origActEnv = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+      mockReplace = vi.fn();
+
+      (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    });
+
+    afterEach(() => {
+      (globalThis as any).window = origWindow;
+      (globalThis as any).document = origDoc;
+      (globalThis as any).IS_REACT_ACT_ENVIRONMENT = origActEnv;
+    });
+
+    async function mountAndSubmit(nextParam?: string) {
+      if (nextParam !== undefined) {
+        mockSearchParams = new URLSearchParams(`next=${encodeURIComponent(nextParam)}`);
+      } else {
+        mockSearchParams = new URLSearchParams();
+      }
+
+      const elements: Record<string, any[]> = {};
+      const fakeDoc: any = {
+        nodeType: 9,
+        createElement: (tag: string) => {
+          const el: any = {
+            tagName: tag.toUpperCase(),
+            nodeType: 1,
+            ownerDocument: null,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+            appendChild: vi.fn(),
+            removeChild: vi.fn(),
+            insertBefore: vi.fn(),
+            setAttribute: vi.fn(),
+            removeAttribute: vi.fn(),
+            focus: vi.fn(),
+            style: {},
+            childNodes: [],
+          };
+          elements[tag] = elements[tag] || [];
+          elements[tag].push(el);
+          return el;
+        },
+        createElementNS: (_ns: string, tag: string) => fakeDoc.createElement(tag),
+        createTextNode: () => ({ nodeType: 3 }),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        createComment: () => ({ nodeType: 8 }),
+        activeElement: null,
+        body: { classList: { add: vi.fn(), remove: vi.fn() } },
+      };
+
+      const defaultView: any = {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn().mockReturnValue(true),
+        HTMLIFrameElement: class {},
+        CustomEvent: typeof CustomEvent !== "undefined" ? CustomEvent : class {
+          detail: any;
+          constructor(public type: string, init?: any) {
+            this.detail = init?.detail;
+          }
+        },
+        location: {
+          pathname: "/login",
+          search: nextParam ? `?next=${encodeURIComponent(nextParam)}` : "",
+          href: "http://localhost:3000/login",
+          replace: mockReplace,
+        },
+      };
+
+      fakeDoc.defaultView = defaultView;
+      (globalThis as any).document = fakeDoc;
+      (globalThis as any).window = defaultView;
+
+      const container = fakeDoc.createElement("div");
+      container.ownerDocument = fakeDoc;
+
+      const ReactDOM = await import("react-dom/client");
+      const root = ReactDOM.createRoot(container);
+
+      await React.act(async () => {
+        root.render(<LoginPage />);
+      });
+
+      // Find input and form elements
+      const inputs = elements["input"] || [];
+      const userInput = inputs.find((el) => {
+        const propsKey = Object.keys(el).find((k) => k.startsWith("__reactProps"));
+        if (!propsKey) return false;
+        return el[propsKey]?.name === "username" || el[propsKey]?.id === "username";
+      });
+      const passInput = inputs.find((el) => {
+        const propsKey = Object.keys(el).find((k) => k.startsWith("__reactProps"));
+        if (!propsKey) return false;
+        return el[propsKey]?.name === "password" || el[propsKey]?.id === "password";
+      });
+      const formEl = (elements["form"] || [])[0];
+
+      expect(formEl).toBeDefined();
+      expect(userInput).toBeDefined();
+      expect(passInput).toBeDefined();
+
+      const userPropsKey = Object.keys(userInput).find((k) => k.startsWith("__reactProps"))!;
+      const passPropsKey = Object.keys(passInput).find((k) => k.startsWith("__reactProps"))!;
+      const formPropsKey = Object.keys(formEl).find((k) => k.startsWith("__reactProps"))!;
+
+      // Simulate input changes
+      await React.act(async () => {
+        userInput[userPropsKey].onChange({ target: { value: "operador_ine" } });
+        passInput[passPropsKey].onChange({ target: { value: "password123456" } });
+      });
+
+      // Mock authModule.login to succeed
+      vi.spyOn(authModule, "login").mockResolvedValue({
+        user: { username: "operador_ine" },
+        expires_at: "2026-10-30T12:00:00Z",
+      });
+
+      // Submit form
+      await React.act(async () => {
+        await formEl[formPropsKey].onSubmit({ preventDefault: vi.fn() });
+      });
+    }
+
+    it("calls window.location.replace with validated next route on login success", async () => {
+      await mountAndSubmit("/campanas?zona=07");
+      expect(mockReplace).toHaveBeenCalledWith("/campanas?zona=07");
+    });
+
+    it("calls window.location.replace with default / when next is malicious open redirect", async () => {
+      await mountAndSubmit("https://evil.com/phishing");
+      expect(mockReplace).toHaveBeenCalledWith("/");
+    });
+
+    it("calls window.location.replace with default / when next is /login itself", async () => {
+      await mountAndSubmit("/login");
+      expect(mockReplace).toHaveBeenCalledWith("/");
+    });
+
+    it("calls window.location.replace with default / when next parameter is not provided", async () => {
+      await mountAndSubmit();
+      expect(mockReplace).toHaveBeenCalledWith("/");
+    });
   });
 });

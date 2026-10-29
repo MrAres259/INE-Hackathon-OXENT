@@ -9,6 +9,8 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { usePathname } from "next/navigation";
+import { redirectToLogin } from "./auth";
 import type {
   ScenarioId,
   Level,
@@ -299,8 +301,23 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  let rawPath: string | null = null;
+  try {
+    rawPath = usePathname();
+  } catch {
+    rawPath = null;
+  }
+  const currentPath =
+    rawPath ??
+    (typeof window !== "undefined" && window.location?.pathname ? window.location.pathname : null) ??
+    "/";
+  const isLoginPage =
+    currentPath === "/login" ||
+    (typeof window !== "undefined" && window.location?.pathname === "/login");
+
   // Health check on startup
   useEffect(() => {
+    if (isLoginPage) return;
     getHealth()
       .then((h) => {
         setHealth(h);
@@ -312,36 +329,47 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
         }
         setApiAvailable(!isMockEnabled());
       })
-      .catch(() => {
+      .catch((err: any) => {
+        if (err?.status === 401) {
+          redirectToLogin();
+        }
         setApiAvailable(false);
         setHasData(true);
       });
-  }, []);
+  }, [isLoginPage]);
 
   // Fetch Meta once and initialize scenario defaults
   useEffect(() => {
-    getMeta().then((m) => {
-      setMeta(m);
-      if (m?.scenarios) {
-        const defInterv = defaultsForScenario("intervencion", m);
-        const defPesim = defaultsForScenario("pesimista", m);
-        const lvrDefs = leverDefaults(m);
-        const initialLever = String(defInterv.lever ?? "promocion_jovenes");
-        setParamsByScenario((prev) => ({
-          intervencion: { ...defInterv, ...prev.intervencion },
-          pesimista: { ...defPesim, ...prev.pesimista },
-        }));
-        setLeverParams((prev) => ({
-          [initialLever]: { ...lvrDefs, ...(prev[initialLever] ?? {}) },
-          ...prev,
-        }));
-      }
-    });
-  }, []);
+    if (isLoginPage) return;
+    getMeta()
+      .then((m) => {
+        setMeta(m);
+        if (m?.scenarios) {
+          const defInterv = defaultsForScenario("intervencion", m);
+          const defPesim = defaultsForScenario("pesimista", m);
+          const lvrDefs = leverDefaults(m);
+          const initialLever = String(defInterv.lever ?? "promocion_jovenes");
+          setParamsByScenario((prev) => ({
+            intervencion: { ...defInterv, ...prev.intervencion },
+            pesimista: { ...defPesim, ...prev.pesimista },
+          }));
+          setLeverParams((prev) => ({
+            [initialLever]: { ...lvrDefs, ...(prev[initialLever] ?? {}) },
+            ...prev,
+          }));
+        }
+      })
+      .catch((err: any) => {
+        if (err?.status === 401) {
+          redirectToLogin();
+        }
+        setMeta(null);
+      });
+  }, [isLoginPage]);
 
   // Campaign prefill from URL (?campanas=)
   useEffect(() => {
-    if (!meta || campanasProcessedRef.current || typeof window === "undefined") return;
+    if (isLoginPage || !meta || campanasProcessedRef.current || typeof window === "undefined") return;
 
     const sp = new URLSearchParams(window.location.search);
     const campanasParam = sp.get("campanas");
@@ -411,11 +439,11 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     const newSearch = sp.toString();
     const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`;
     window.history.replaceState(null, "", newUrl);
-  }, [meta]);
+  }, [meta, isLoginPage]);
 
   // Base scenario risk loader
   useEffect(() => {
-    if (scenario !== "base") return;
+    if (isLoginPage || scenario !== "base") return;
     const reqId = ++baseReqIdRef.current;
     setLoadingRisk(true);
     getRisk(level, selectedEnt ?? undefined, "base")
@@ -424,17 +452,21 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
           setRiskItems(res.items);
         }
       })
-      .catch(() => {})
+      .catch((err: any) => {
+        if (err?.status === 401) {
+          redirectToLogin();
+        }
+      })
       .finally(() => {
         if (reqId === baseReqIdRef.current) {
           setLoadingRisk(false);
         }
       });
-  }, [scenario, level, selectedEnt]);
+  }, [isLoginPage, scenario, level, selectedEnt]);
 
   // Non-base scenario: re-simulation with 400ms debounce
   useEffect(() => {
-    if (scenario === "base") {
+    if (isLoginPage || scenario === "base") {
       return;
     }
     if (!meta) return;
@@ -471,20 +503,25 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [scenario, paramsByScenario, level, selectedEnt, meta]);
+  }, [isLoginPage, scenario, paramsByScenario, level, selectedEnt, meta]);
 
   // Load region detail whenever selectedRegionId or scenario changes
   useEffect(() => {
-    if (!selectedRegionId) {
+    if (isLoginPage || !selectedRegionId) {
       setSelectedDetail(null);
       return;
     }
     setLoadingDetail(true);
     getRegion(selectedRegionId, scenario)
       .then((det) => setSelectedDetail(det))
-      .catch(() => setSelectedDetail(null))
+      .catch((err: any) => {
+        if (err?.status === 401) {
+          redirectToLogin();
+        }
+        setSelectedDetail(null);
+      })
       .finally(() => setLoadingDetail(false));
-  }, [selectedRegionId, scenario]);
+  }, [isLoginPage, selectedRegionId, scenario]);
 
   const selectState = useCallback((ent: string) => {
     setSelectedEnt(ent);

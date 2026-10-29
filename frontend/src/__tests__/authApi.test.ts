@@ -149,6 +149,21 @@ describe("Auth API Client Suite (authApi.test.ts)", () => {
       const sess = await getSession();
       expect(sess).toBeNull();
     });
+
+    it("returns null immediately and does NOT call fetch when on /login page", async () => {
+      window.location = {
+        pathname: "/login",
+        search: "",
+        href: "http://localhost:3000/login",
+      } as any;
+
+      const fetchSpy = vi.fn();
+      globalThis.fetch = fetchSpy;
+
+      const sess = await getSession();
+      expect(sess).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe("redirectToLogin()", () => {
