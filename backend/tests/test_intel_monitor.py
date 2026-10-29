@@ -1283,3 +1283,183 @@ def test_monitor_jaccard_dedupe_and_search_mode(monkeypatch, tmp_path):
     assert snap.search_mode == "respaldo"
 
 
+def test_opinion_analysis_item_realism(monkeypatch, tmp_path):
+    """Test realism constraints for opinion/analysis pieces:
+    - intensity x0.5 (0.25 * 0.5 = 0.125 for 1 outlet)
+    - persistence capped at coyuntural
+    - action max comunicado (never campana_intervencion)
+    - verdict_rationale notes opinion piece
+    - impact.params stores piece_type and gemini_intensity
+    """
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    opinion_item = {
+        "headline": "Crisis de confianza pone a prueba al INE: Académico IBERO",
+        "claim": "Académico IBERO señala presunta crisis de confianza en el INE",
+        "summary": "En entrevista, especialista de la IBERO analiza la percepción pública del instituto.",
+        "piece_type": "analisis",
+        "sources": [
+            {"url": "https://ibero.mx/prensa/crisis-confianza-ine", "title": "Crisis de confianza", "domain": "ibero.mx"}
+        ],
+        "intensity": 1.0,
+        "persistence": "estructural",
+        "topic": "confianza_institucional",
+        "geo": {"level": "nacional", "ents": []},
+    }
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://ibero.mx/prensa/crisis-confianza-ine", domain="ibero.mx")],
+                mode="grounding",
+            )
+            return {"items": [opinion_item]}, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="grounding")
+        elif "verificacion" in cache_key:
+            return {"verifications": []}, DummyGroundedResult(mode="grounding")
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    it = snap.items[0]
+
+    # 1. Intensity is scaled down for opinion/analysis: 1 outlet (0.25) * 0.5 = 0.125
+    assert it.intensity == 0.125
+
+    # 2. Persistence is capped at coyuntural even though Gemini proposed estructural
+    assert it.persistence == "coyuntural"
+
+    # 3. Action is at most comunicado (never campana_intervencion)
+    assert it.remediation.action in ("comunicado", "registrar")
+    assert it.remediation.action != "campana_intervencion"
+    assert "campana_intervencion" not in it.remediation.secondary_actions
+    assert it.remediation.campaign_prefill is None
+
+    # 4. Rationale announces opinion piece
+    assert "Pieza de opinión: se registra la existencia del señalamiento" in it.verdict_rationale
+
+    # 5. Impact params store piece_type and gemini_intensity
+    assert it.impact is not None
+    assert it.impact.params.get("piece_type") == "analisis"
+    assert it.impact.params.get("gemini_intensity") == 1.0
+
+
+def test_deterministic_intensity_and_persistence_scaling(monkeypatch, tmp_path):
+    """Test scaling of base intensity and persistence caps with outlet count and official sources."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    # Item with 2 outlets, Gemini proposes estructural
+    items = [
+        {
+            "headline": "Reforma y Milenio reportan ajuste de módulos",
+            "claim": "Medios reportan ajuste de módulos en el Estado de México",
+            "piece_type": "hecho",
+            "sources": [
+                {"url": "https://reforma.com/modulos", "title": "Reforma", "domain": "reforma.com"},
+                {"url": "https://milenio.com/modulos", "title": "Milenio", "domain": "milenio.com"},
+            ],
+            "intensity": 0.9,
+            "persistence": "estructural",
+            "topic": "credencial_padron",
+            "geo": {"level": "estatal", "ents": ["15"]},
+        }
+    ]
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            res = DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource("https://reforma.com/modulos", domain="reforma.com"),
+                    DummyGroundedSource("https://milenio.com/modulos", domain="milenio.com"),
+                ],
+                mode="grounding",
+            )
+            return {"items": items}, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="grounding")
+        elif "verificacion" in cache_key:
+            return {"verifications": []}, DummyGroundedResult(mode="grounding")
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    it = snap.items[0]
+
+    # 2 outlets => base intensity = 0.5 (hecho)
+    assert it.intensity == 0.5
+    # 2 outlets => persistence capped at persistente
+    assert it.persistence == "persistente"
+    # Less than 3 outlets => cannot be critica
+    assert it.severity.level != "critica"
+    assert it.severity.score < 75
+
+
+def test_latest_snapshot_legacy_search_mode_deduction(tmp_path, monkeypatch):
+    """Test that latest_snapshot correctly deduces search_mode for legacy monitor caches."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+
+    m_path = storage.monitor_result_path()
+    m_path.parent.mkdir(parents=True, exist_ok=True)
+
+    base_snapshot_dict = {
+        "generated_at": "2026-10-28T23:59:59.393550+00:00",
+        "window_days": 14,
+        "items": [],
+        "counts": {
+            "verdadera": 0,
+            "falsa": 0,
+            "enganosa": 0,
+            "sin_verificar": 0,
+            "critica": 0,
+            "pendientes": 0,
+        },
+        "queries": ["INE casillas", "INE credencial"],
+        "sources_scanned": 12,
+        "model": "gemini-3.8-flash",
+        "degraded": False,
+        "note": "Búsqueda de respaldo activa: noticias indexadas.",
+        # search_mode omitted (legacy cache)
+    }
+
+    # 1. With "respaldo" in note -> deduces "respaldo"
+    m_path.write_text(json.dumps(base_snapshot_dict, ensure_ascii=False), encoding="utf-8")
+    snap1 = monitor.latest_snapshot()
+    assert snap1 is not None
+    assert snap1.search_mode == "respaldo"
+
+    # 2. With degraded=True -> deduces "sin_internet"
+    deg_dict = dict(base_snapshot_dict)
+    deg_dict["note"] = ""
+    deg_dict["degraded"] = True
+    m_path.write_text(json.dumps(deg_dict, ensure_ascii=False), encoding="utf-8")
+    snap2 = monitor.latest_snapshot()
+    assert snap2 is not None
+    assert snap2.search_mode == "sin_internet"
+
+    # 3. With queries and no respaldo note -> deduces "grounding"
+    gro_dict = dict(base_snapshot_dict)
+    gro_dict["note"] = "Búsqueda completa realizada con éxito."
+    gro_dict["degraded"] = False
+    m_path.write_text(json.dumps(gro_dict, ensure_ascii=False), encoding="utf-8")
+    snap3 = monitor.latest_snapshot()
+    assert snap3 is not None
+    assert snap3.search_mode == "grounding"
+
+
+

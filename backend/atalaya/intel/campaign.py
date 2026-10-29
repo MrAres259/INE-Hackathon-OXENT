@@ -1318,6 +1318,20 @@ def plan_campaign(
 # ---------------------------------------------------------------- 6. cached_plan & find_plan
 
 
+def _deduce_legacy_search_mode(res_dict: dict[str, Any]) -> str:
+    """Deduce search_mode for legacy cached research bundles without an explicit search_mode."""
+    note = str(res_dict.get("note") or "").lower()
+    degraded = bool(res_dict.get("degraded", False))
+    queries = res_dict.get("queries") or []
+    if "respaldo" in note:
+        return "respaldo"
+    if degraded:
+        return "sin_internet"
+    if queries and "respaldo" not in note:
+        return "grounding"
+    return "respaldo"
+
+
 def cached_plan(
     unit_id: str,
     focus: str | None = None,
@@ -1359,6 +1373,10 @@ def cached_plan(
     if not isinstance(raw_data, dict):
         return None
 
+    res_dict = raw_data.get("research")
+    if isinstance(res_dict, dict) and ("search_mode" not in res_dict or not res_dict["search_mode"]):
+        res_dict["search_mode"] = _deduce_legacy_search_mode(res_dict)
+
     try:
         return CampaignPlan.model_validate(raw_data)
     except Exception as exc:
@@ -1385,6 +1403,9 @@ def find_plan(plan_id: str) -> CampaignPlan | None:
         try:
             raw_data = json.loads(fpath.read_text(encoding="utf-8"))
             if raw_data.get("id") == target_id:
+                res_dict = raw_data.get("research")
+                if isinstance(res_dict, dict) and ("search_mode" not in res_dict or not res_dict["search_mode"]):
+                    res_dict["search_mode"] = _deduce_legacy_search_mode(res_dict)
                 return CampaignPlan.model_validate(raw_data)
         except Exception:
             continue

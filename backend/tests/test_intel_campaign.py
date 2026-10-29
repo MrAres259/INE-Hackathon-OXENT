@@ -1080,3 +1080,117 @@ def test_research_unit_search_modes(monkeypatch):
     b_rss = research_unit(snap)
     assert b_rss.search_mode == "respaldo"
 
+
+def test_cached_plan_and_find_plan_legacy_search_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Test that cached_plan and find_plan deduce search_mode on legacy cache files missing the field."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+
+    camp_dir = tmp_path / "intel" / "results" / "campaign"
+    camp_dir.mkdir(parents=True, exist_ok=True)
+
+    real_path = Path("data/cache/intel/results/campaign/32__da39a3ee.json")
+    if real_path.is_file():
+        base_plan_dict = json.loads(real_path.read_text(encoding="utf-8"))
+    else:
+        # Fallback minimal schema
+        base_plan_dict = {
+            "id": "legacy_plan_32",
+            "unit": {
+                "unit_id": "32",
+                "name": "Zacatecas",
+                "level": "state",
+                "ent": "32",
+                "ent_name": "Zacatecas",
+                "lista_nominal": 1265939,
+                "pred_abstention": 0.4885,
+                "pred_low": 0.35,
+                "pred_high": 0.62,
+                "category": "verde",
+                "risk_score": 34.2,
+                "last_participation": 0.56,
+                "last_year": 2024,
+                "trend_pp": -0.08,
+                "abstencion_esperada": 618374,
+            },
+            "research": {
+                "unit_id": "32",
+                "unit_name": "Zacatecas",
+                "level": "state",
+                "findings": [],
+                "sources": [],
+                "queries": ["Zacatecas INE", "Zacatecas voto"],
+                "generated_at": "2026-10-28T20:15:15.193224+00:00",
+                "model": "gemini-3.1-flash-lite",
+                "degraded": False,
+                "note": "Búsqueda de respaldo: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa.",
+            },
+            "focus": None,
+            "objective": "Objetivo de prueba",
+            "target_groups": [],
+            "proposals": [],
+            "impact": {
+                "campaigns": [],
+                "abstention_base": 0.4885,
+                "abstention_scenario": 0.4633,
+                "delta_pp": -2.52,
+                "votos_adicionales": 31902,
+                "category_before": "verde",
+                "category_after": "verde",
+                "per_proposal": [],
+                "overlap_votos": 0,
+                "assumptions": [],
+            },
+            "steps": [],
+            "risks": [],
+            "kpis": ["KPI 1", "KPI 2", "KPI 3"],
+            "slides": [],
+            "generated_at": "2026-10-28T20:15:15.193224+00:00",
+            "llm": {"model": "glm-5.3", "reasoning_effort": "high", "extra_body_mode": "glm-5.3"},
+        }
+
+    # Ensure search_mode is missing from the test dictionary
+    if "search_mode" in base_plan_dict.get("research", {}):
+        del base_plan_dict["research"]["search_mode"]
+
+    # 1. Plan with "respaldo" in note -> deduces "respaldo"
+    base_plan_dict["id"] = "legacy_plan_32"
+    base_plan_dict["research"]["note"] = "Búsqueda de respaldo: noticias indexadas"
+    base_plan_dict["research"]["degraded"] = False
+    file_path = storage.campaign_result_path("32", None)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(json.dumps(base_plan_dict, ensure_ascii=False), encoding="utf-8")
+
+    plan = cached_plan("32")
+    assert plan is not None
+    assert plan.research.search_mode == "respaldo"
+
+    plan_by_id = find_plan("legacy_plan_32")
+    assert plan_by_id is not None
+    assert plan_by_id.research.search_mode == "respaldo"
+
+    # 2. Plan with degraded=True -> deduces "sin_internet"
+    degraded_dict = dict(base_plan_dict)
+    degraded_dict["id"] = "degraded_plan_32"
+    degraded_dict["research"] = dict(base_plan_dict["research"])
+    degraded_dict["research"]["note"] = ""
+    degraded_dict["research"]["degraded"] = True
+    file_path.write_text(json.dumps(degraded_dict, ensure_ascii=False), encoding="utf-8")
+
+    plan_deg = cached_plan("32")
+    assert plan_deg is not None
+    assert plan_deg.research.search_mode == "sin_internet"
+
+    # 3. Plan with queries and no respaldo note -> deduces "grounding"
+    grounding_dict = dict(base_plan_dict)
+    grounding_dict["id"] = "grounding_plan_32"
+    grounding_dict["research"] = dict(base_plan_dict["research"])
+    grounding_dict["research"]["note"] = "Búsqueda exitosa"
+    grounding_dict["research"]["degraded"] = False
+    grounding_dict["research"]["queries"] = ["INE Zacatecas"]
+    file_path.write_text(json.dumps(grounding_dict, ensure_ascii=False), encoding="utf-8")
+
+    plan_gro = cached_plan("32")
+    assert plan_gro is not None
+    assert plan_gro.research.search_mode == "grounding"
+

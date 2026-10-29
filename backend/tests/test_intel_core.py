@@ -94,6 +94,40 @@ def test_outlet_name():
     assert sources.outlet_name("desconocido-987.org") is None
 
 
+def test_partisan_sources_and_legislative_classification():
+    # Partisan subdomains of senado/diputados/congresos
+    assert sources.classify_domain("pan.senado.gob.mx") == "no_reconocido"
+    assert sources.classify_domain("pri.senado.gob.mx") == "no_reconocido"
+    assert sources.classify_domain("morena.senado.gob.mx") == "no_reconocido"
+    assert sources.classify_domain("pan.diputados.gob.mx") == "no_reconocido"
+    assert sources.classify_domain("gppan.diputados.gob.mx") == "no_reconocido"
+    assert sources.classify_domain("gpmorena.senado.gob.mx") == "no_reconocido"
+    assert sources.classify_domain("pan.congresocdmx.gob.mx") == "no_reconocido"
+
+    # Partisan party domains
+    assert sources.classify_domain("pan.org.mx") == "no_reconocido"
+    assert sources.classify_domain("morena.org") == "no_reconocido"
+    assert sources.classify_domain("pri.org.mx") == "no_reconocido"
+    assert sources.classify_domain("prd.org.mx") == "no_reconocido"
+    assert sources.classify_domain("partidoverde.org.mx") == "no_reconocido"
+    assert sources.classify_domain("partidodeltrabajo.org.mx") == "no_reconocido"
+    assert sources.classify_domain("movimientociudadano.mx") == "no_reconocido"
+
+    # Partisan outlets naming
+    assert sources.outlet_name("pan.senado.gob.mx") == "Comunicación partidista"
+    assert sources.outlet_name("morena.org") == "Comunicación partidista"
+    assert sources.outlet_name("gppan.diputados.gob.mx") == "Comunicación partidista"
+    assert sources.outlet_name("pri.diputados.gob.mx") == "Comunicación partidista"
+
+    # Institutional legislative communication remains official
+    assert sources.classify_domain("comunicacion.senado.gob.mx") == "oficial"
+    assert sources.classify_domain("comunicacionsocial.diputados.gob.mx") == "oficial"
+    assert sources.classify_domain("senado.gob.mx") == "oficial"
+    assert sources.classify_domain("diputados.gob.mx") == "oficial"
+    assert sources.outlet_name("comunicacion.senado.gob.mx") == "Senado de la República (Comunicación Social)"
+    assert sources.outlet_name("comunicacionsocial.diputados.gob.mx") == "Cámara de Diputados (Comunicación Social)"
+
+
 def test_platform_of():
     assert sources.platform_of("https://x.com/INE/status/123") == "x"
     assert sources.platform_of("https://twitter.com/INE") == "x"

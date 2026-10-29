@@ -83,16 +83,90 @@ def reload_seed_catalog() -> None:
     _load_seed_catalog.cache_clear()
 
 
+_OFFICIAL_COMM_DOMAINS: set[str] = {
+    "comunicacion.senado.gob.mx",
+    "comunicacionsocial.diputados.gob.mx",
+}
+
+_PARTY_DOMAINS: set[str] = {
+    "pan.org.mx",
+    "morena.org",
+    "pri.org.mx",
+    "prd.org.mx",
+    "partidoverde.org.mx",
+    "partidodeltrabajo.org.mx",
+    "movimientociudadano.mx",
+}
+
+_PARTISAN_PREFIXES: tuple[str, ...] = (
+    "pan.",
+    "pri.",
+    "morena.",
+    "prd.",
+    "pvem.",
+    "pt.",
+    "mc.",
+    "movimientociudadano.",
+    "gppan",
+    "gpmorena",
+    "gppri",
+    "gpprd",
+    "gppvem",
+    "gppt",
+    "gpmc",
+)
+
+
+def is_partisan_source(domain: str) -> bool:
+    """Detect political party domains and partisan parliamentary group subdomains."""
+    clean = _clean_domain(domain)
+    if not clean:
+        return False
+    if clean in _OFFICIAL_COMM_DOMAINS:
+        return False
+
+    # Check direct party domains or subdomains of them
+    for p_dom in _PARTY_DOMAINS:
+        if clean == p_dom or clean.endswith("." + p_dom):
+            return True
+
+    # Check parliamentary / legislative subdomains (Senado, Diputados, Congresos estatales)
+    is_legislative = (
+        clean.endswith(".senado.gob.mx")
+        or clean.endswith(".diputados.gob.mx")
+        or ("congreso" in clean and clean.endswith(".gob.mx"))
+    )
+    if is_legislative:
+        if any(clean.startswith(pref) for pref in _PARTISAN_PREFIXES):
+            return True
+        subparts = clean.split(".")
+        for part in subparts[:-3]:  # exclude legislative host suffix
+            if part in ("pan", "pri", "morena", "prd", "pvem", "pt", "mc", "movimientociudadano") or any(
+                part.startswith(p) for p in ("gppan", "gpmorena", "gppri", "gpprd", "gppvem", "gppt", "gpmc")
+            ):
+                return True
+
+    return False
+
+
 def classify_domain(domain: str) -> SourceTier:
     """Classify a domain into a SourceTier.
 
     Lookup hierarchy:
-    1. Exact or suffix match in the seed catalog.
-    2. Heuristic rules for .gob.mx/ine.mx/inegi, .edu.mx/unam.mx/colmex/cide, social platforms.
-    3. Default: 'no_reconocido'.
+    1. Official communication overrides (.comunicacion.senado.gob.mx, etc.).
+    2. Partisan sources rule -> 'no_reconocido'.
+    3. Exact or suffix match in the seed catalog.
+    4. Heuristic rules for .gob.mx/ine.mx/inegi, .edu.mx/unam.mx/colmex/cide, social platforms.
+    5. Default: 'no_reconocido'.
     """
     clean = _clean_domain(domain)
     if not clean:
+        return "no_reconocido"
+
+    if clean in _OFFICIAL_COMM_DOMAINS:
+        return "oficial"
+
+    if is_partisan_source(clean):
         return "no_reconocido"
 
     catalog = _load_seed_catalog()
@@ -134,6 +208,9 @@ def outlet_name(domain: str) -> str | None:
     clean = _clean_domain(domain)
     if not clean:
         return None
+
+    if is_partisan_source(clean):
+        return "Comunicación partidista"
 
     catalog = _load_seed_catalog()
     if clean in catalog:

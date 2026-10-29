@@ -163,7 +163,11 @@ export function ResearchPanel({
       {research?.queries && research.queries.length > 0 && (
         <div className="rounded-xl border border-border bg-card/60 p-3.5 space-y-2 text-xs">
           <div className="font-semibold text-foreground flex items-center gap-1.5">
-            <span>Consultas realizadas en Google Search:</span>
+            <span>
+              {research?.search_mode === "grounding"
+                ? "Consultas realizadas en Google Search:"
+                : "Consultas de búsqueda:"}
+            </span>
           </div>
           <ul className="space-y-1 text-[11px] font-mono text-muted-foreground pl-3 list-disc">
             {research.queries.map((q, i) => (

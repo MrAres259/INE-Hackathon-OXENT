@@ -656,6 +656,9 @@ def run_scan(
             if default_kind == "noticia" and candidate.get("sources"):
                 target["kind"] = "noticia"
 
+            if candidate.get("piece_type") and target.get("piece_type") != "opinion":
+                target["piece_type"] = candidate.get("piece_type")
+
             target["intensity"] = max(
                 float(target.get("intensity", 0.5)),
                 float(candidate.get("intensity", 0.5)),
@@ -669,6 +672,7 @@ def run_scan(
                 "headline": str(candidate.get("headline") or claim)[:200],
                 "summary": str(candidate.get("summary") or claim)[:300],
                 "claim": claim,
+                "piece_type": candidate.get("piece_type") or "hecho",
                 "published": candidate.get("published"),
                 "first_seen": now_dt.isoformat(),
                 "sources": list(candidate.get("sources") or []),
@@ -949,10 +953,88 @@ def run_scan(
 
         verdict_conf = verdict_conf if verdict_conf in ("alta", "media", "baja") else "baja"
 
+        # 7. Piece type and opinion/analysis classification
+        raw_pt = str(raw_it.get("piece_type") or "").lower().strip()
+        headline_summary_claim = (
+            str(raw_it.get("headline") or "") + " " +
+            str(raw_it.get("summary") or "") + " " +
+            str(raw_it.get("claim") or "")
+        ).lower()
+
+        is_opinion_or_analysis = (
+            raw_pt in ("opinion", "analisis", "opinión", "análisis")
+            or "opinión" in headline_summary_claim
+            or "opinion" in headline_summary_claim
+            or "editorial" in headline_summary_claim
+            or "columna" in headline_summary_claim
+            or "académico ibero" in headline_summary_claim
+            or "academico ibero" in headline_summary_claim
+            or "académico" in headline_summary_claim
+            or "academico" in headline_summary_claim
+            or "artículo de opinión" in headline_summary_claim
+            or "articulo de opinion" in headline_summary_claim
+            or "ante el reto de devolver la confianza" in headline_summary_claim
+        )
+        if raw_pt in ("opinion", "opinión") or "opinión" in headline_summary_claim or "opinion" in headline_summary_claim or "editorial" in headline_summary_claim or "columna" in headline_summary_claim:
+            piece_type = "opinion"
+        elif raw_pt in ("analisis", "análisis") or "académico" in headline_summary_claim or "academico" in headline_summary_claim:
+            piece_type = "analisis"
+        elif is_opinion_or_analysis:
+            piece_type = "opinion"
+        else:
+            piece_type = raw_pt if raw_pt == "hecho" else "hecho"
+
+        if is_opinion_or_analysis:
+            if "Pieza de opinión: se registra la existencia del señalamiento" not in verdict_rat:
+                verdict_rat = f"Pieza de opinión: se registra la existencia del señalamiento. {verdict_rat}".strip()
+
+        # 8. Deterministic intensity by evidence
+        verifiable_outlets = set()
+        for s in resolved_sources:
+            if s.tier in ("medio_reconocido", "medio_regional", "academico", "verificador"):
+                out = (s.outlet or s.domain or "").strip().lower()
+                if out:
+                    verifiable_outlets.add(out)
+        n_outlets = len(verifiable_outlets)
+
+        if n_outlets <= 1:
+            base_intensity = 0.25
+        elif n_outlets == 2:
+            base_intensity = 0.5
+        elif 3 <= n_outlets <= 4:
+            base_intensity = 0.75
+        else:  # >= 5
+            base_intensity = 1.0
+
+        if has_official:
+            base_intensity = min(1.0, base_intensity + 0.25)
+
+        if is_opinion_or_analysis:
+            intensity = base_intensity * 0.5
+        else:
+            intensity = base_intensity
+
+        # 9. Deterministic persistence capping by evidence
+        gemini_persistence = str(raw_it.get("persistence", "coyuntural")).lower().strip()
+        if is_opinion_or_analysis:
+            persistence = "coyuntural"
+        else:
+            if has_official or n_outlets >= 4:
+                max_pers = "estructural"
+            elif 2 <= n_outlets <= 3:
+                max_pers = "persistente"
+            else:
+                max_pers = "coyuntural"
+
+            pers_ranks = {"coyuntural": 1, "persistente": 2, "estructural": 3}
+            if pers_ranks.get(gemini_persistence, 1) > pers_ranks.get(max_pers, 1):
+                persistence = max_pers
+            else:
+                persistence = gemini_persistence if gemini_persistence in pers_ranks else "coyuntural"
+
         geo_scope = _resolve_geo(raw_it.get("geo"))
         topic = raw_it.get("topic", "otra")
-        intensity = float(raw_it.get("intensity", 0.5))
-        persistence = raw_it.get("persistence", "coyuntural")
+        gemini_intensity = float(raw_it.get("intensity", 0.5))
 
         # Deterministic Impact
         item_impact_data: NewsImpact | None = None
@@ -967,6 +1049,9 @@ def run_scan(
                     today=today,
                     level="state",
                 )
+                if item_impact_data is not None:
+                    item_impact_data.params["piece_type"] = piece_type
+                    item_impact_data.params["gemini_intensity"] = gemini_intensity
             except Exception as exc:
                 logger.warning("Error computing news impact for item %s: %s", item_id, exc)
 
@@ -988,9 +1073,23 @@ def run_scan(
         else:
             sev = Severity(level="baja", score=15, drivers=["Evaluación preliminar sin métricas suficientes"])
 
+        # Críticas solo con >= 3 outlets (salvo fuente oficial)
+        if sev.level == "critica" or sev.score >= 75:
+            if n_outlets < 3 and not has_official:
+                sev.level = "alta"
+                sev.score = min(74, sev.score)
+                if "Puntuación acotada por evidencia (menos de 3 outlets verificables)" not in sev.drivers:
+                    sev.drivers.append("Puntuación acotada por evidencia (menos de 3 outlets verificables)")
+
         action, sec_actions, deadline_h = severity.decide_action(
             raw_verdict, sev, has_posts=bool(social_posts)
         )
+
+        # Action capping for opinion/análisis: nunca campana_intervencion, máximo comunicado
+        if is_opinion_or_analysis:
+            if action == "campana_intervencion":
+                action = "comunicado"
+            sec_actions = [a for a in sec_actions if a != "campana_intervencion"]
 
         # Prefill & report targets
         campaign_prefill = None
@@ -1211,8 +1310,22 @@ def latest_snapshot(*, public: bool = True) -> MonitorSnapshot | None:
 
     path = storage.monitor_result_path()
     data = storage.read_json(path)
-    if not data:
+    if not data or not isinstance(data, dict):
         return None
+
+    # Deduce search_mode for legacy caches
+    if "search_mode" not in data or not data["search_mode"]:
+        note = str(data.get("note") or "").lower()
+        degraded = bool(data.get("degraded", False))
+        queries = data.get("queries") or []
+        if "respaldo" in note:
+            data["search_mode"] = "respaldo"
+        elif degraded:
+            data["search_mode"] = "sin_internet"
+        elif queries and "respaldo" not in note:
+            data["search_mode"] = "grounding"
+        else:
+            data["search_mode"] = "respaldo"
 
     try:
         snapshot = MonitorSnapshot.model_validate(data)
@@ -1268,7 +1381,7 @@ def item_impact(item_id: str, level: Level = "state", ent: str | None = None) ->
         raise KeyError(f"Item no encontrado en el último escaneo: {item_id}")
 
     units_df = deps.get_units_df()
-    return impact.news_impact(
+    res = impact.news_impact(
         units_df,
         topic=target_item.topic,
         geo=target_item.geo,
@@ -1277,6 +1390,11 @@ def item_impact(item_id: str, level: Level = "state", ent: str | None = None) ->
         level=level,
         ent=ent,
     )
+    if target_item.impact and "piece_type" in target_item.impact.params:
+        res.params["piece_type"] = target_item.impact.params["piece_type"]
+    if target_item.impact and "gemini_intensity" in target_item.impact.params:
+        res.params["gemini_intensity"] = target_item.impact.params["gemini_intensity"]
+    return res
 
 
 def cooldown_remaining_s() -> int:

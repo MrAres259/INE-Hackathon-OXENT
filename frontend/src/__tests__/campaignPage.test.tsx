@@ -12,6 +12,8 @@ import { AtalayaContext, type AtalayaContextValue } from "../lib/state";
 import { MOCK_META } from "../lib/mocks/meta";
 import { defaultsForScenario } from "../lib/scenarioParams";
 
+import { ResearchPanel } from "../components/intel/campaign/ResearchPanel";
+
 let mockSearchParams = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
@@ -219,6 +221,37 @@ describe("Campaign Page Full Flow (campaignPage.test.tsx)", () => {
       expect(html).toContain("Plan de Campaña con IA");
       expect(html).toContain("Entidad o municipio a intervenir");
       expect(html).toContain("Enfoque prioritario");
+    });
+  });
+
+  describe("6. ResearchPanel - Encabezado de consultas", () => {
+    it("displays 'Consultas realizadas en Google Search:' only when search_mode is grounding", () => {
+      const groundingPlan = {
+        ...MOCK_CAMPAIGN_PLAN,
+        research: {
+          ...MOCK_CAMPAIGN_PLAN.research,
+          search_mode: "grounding" as const,
+          queries: ["Zacatecas INE", "Zacatecas casillas"],
+        },
+      };
+
+      const html = renderToStaticMarkup(<ResearchPanel plan={groundingPlan} />);
+      expect(html).toContain("Consultas realizadas en Google Search:");
+    });
+
+    it("displays 'Consultas de búsqueda:' when search_mode is respaldo or legacy", () => {
+      const respaldoPlan = {
+        ...MOCK_CAMPAIGN_PLAN,
+        research: {
+          ...MOCK_CAMPAIGN_PLAN.research,
+          search_mode: "respaldo" as const,
+          queries: ["Zacatecas INE", "Zacatecas casillas"],
+        },
+      };
+
+      const html = renderToStaticMarkup(<ResearchPanel plan={respaldoPlan} />);
+      expect(html).toContain("Consultas de búsqueda:");
+      expect(html).not.toContain("Consultas realizadas en Google Search:");
     });
   });
 });

@@ -30,6 +30,10 @@ REGLAS DE NEUTRALIDAD Y RIGOR INSTITUCIONAL:
 6. Intensidad según alcance: asigna 'intensity' según la escala de difusión (nota de alcance nacional cubierta en 3 o más medios reconocidos ⇒ 0.75 a 1.0; situación relevante en una entidad federativa ⇒ 0.4 a 0.6; hecho local o aislado ⇒ 0.25 a 0.35).
 7. NUNCA inventes URLs, fechas ni datos. Solo reporta información verificada en los resultados o materiales candidatos.
 8. Si no encuentras noticias desfavorables en la ventana de tiempo, devuelve una lista vacía de items.
+9. Tipo de pieza informativa ('piece_type'): clasifica obligatoriamente cada pieza en uno de estos tres valores:
+   - 'hecho': notas informativas, coberturas y reportajes sobre hechos, sucesos o eventos concretos.
+   - 'opinion': columnas de opinión, artículos de autor, editoriales, cartas o posicionamientos personales.
+   - 'analisis': entrevistas a académicos/analistas, ensayos o piezas de análisis coyuntural.
 
 FORMATO DE RESPUESTA:
 Devuelve ÚNICAMENTE un objeto JSON con la clave 'items' (hasta 10 items):
@@ -39,6 +43,7 @@ Devuelve ÚNICAMENTE un objeto JSON con la clave 'items' (hasta 10 items):
       "headline": "Titular de la noticia en el medio",
       "summary": "Resumen conciso y objetivo del hecho reportado (máximo 60 palabras)",
       "claim": "Afirmación fáctica concreta y atribuida (ej: 'Legisladores señalan presuntos ajustes presupuestales en módulos')",
+      "piece_type": "hecho|opinion|analisis",
       "published": "YYYY-MM-DD",
       "sources": [
         {"url": "https://...", "title": "Título de la nota", "published": "YYYY-MM-DD"}
@@ -181,7 +186,7 @@ def build_news_prompt(today: date, window_days: int) -> str:
         "relacionados con el Instituto Nacional Electoral (INE).\n\n"
         "Presta especial atención a la cobertura en las entidades federativas con mayor padrón electoral "
         "(Estado de México, Ciudad de México, Jalisco, Veracruz, Puebla) para identificar afectaciones de alcance estatal o municipal.\n\n"
-        "Identifica hasta 10 noticias relevantes con su afirmación fáctica central, enlaces exactos a las notas, "
+        "Identifica hasta 10 noticias relevantes con su afirmación fáctica central, tipo de pieza ('piece_type': 'hecho', 'opinion', 'analisis'), enlaces exactos a las notas, "
         "fecha de publicación, tema, alcance geográfico (si afecta a estados o municipios específicos), intensidad estimada "
         "y persistencia temporal. Devuelve el resultado en el formato JSON requerido."
     )
