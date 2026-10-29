@@ -54,6 +54,126 @@ def _compute_search_mode(modes: list[str]) -> str:
     return "grounding"
 
 
+def _cap_verdict_confidence(proposed_conf: Any, valid_fcs: list[SourceRef]) -> str:
+    """Cap confidence based on fact check evidence tier.
+
+    1 valid dictamen (verificador) => max 'media'.
+    >= 2 valid dictámenes or >= 1 'oficial' => 'alta' allowed.
+    """
+    conf = str(proposed_conf or "media").lower().strip()
+    if conf not in ("alta", "media", "baja"):
+        conf = "media"
+    has_oficial = any(fc.tier == "oficial" for fc in valid_fcs)
+    if len(valid_fcs) < 2 and not has_oficial:
+        if conf == "alta":
+            conf = "media"
+    return conf
+
+
+def _determine_item_verdict(
+    *,
+    kind: str,
+    resolved_sources: list[SourceRef],
+    resolved_fcs: list[SourceRef],
+    v_verdict: str | None = None,
+    v_conf: str | None = None,
+    v_rat: str | None = None,
+    claim: str = "",
+    headline: str = "",
+    is_dudosa: bool = False,
+) -> tuple[str, str, str]:
+    """Deterministically determine (raw_verdict, verdict_conf, verdict_rat) according to F2-B and F3-B rules."""
+    valid_dictamen_fcs = [fc for fc in resolved_fcs if fc.tier in ("verificador", "oficial")]
+    is_contradicted = (v_verdict in ("falsa", "enganosa")) and bool(valid_dictamen_fcs)
+
+    official_sources = [s for s in resolved_sources if s.tier == "oficial"] + [fc for fc in resolved_fcs if fc.tier == "oficial"]
+    has_official = len(official_sources) > 0
+
+    media_sources = [s for s in resolved_sources if s.tier in ("medio_reconocido", "medio_regional", "academico", "verificador")]
+    seen_media_domains: set[str] = set()
+    distinct_media_sources: list[SourceRef] = []
+    for s in media_sources:
+        if s.domain and s.domain not in seen_media_domains:
+            seen_media_domains.add(s.domain)
+            distinct_media_sources.append(s)
+    n_media = len(distinct_media_sources)
+
+    has_reconocido = any(s.tier == "medio_reconocido" for s in distinct_media_sources)
+    has_regional_or_academico = any(s.tier in ("medio_regional", "academico") for s in distinct_media_sources)
+
+    if is_contradicted:
+        raw_verdict = v_verdict
+        verdict_conf = _cap_verdict_confidence(v_conf, valid_dictamen_fcs)
+        verdict_rat = v_rat or "Afirmación desmentida o identificada como engañosa por verificadores de hechos o canales oficiales del INE."
+    elif kind == "noticia":
+        if n_media >= 3 or (has_official and n_media >= 1):
+            raw_verdict = "verdadera"
+            verdict_conf = "alta"
+            if has_official and n_media >= 1:
+                off_outlets = list(dict.fromkeys([s.outlet or s.domain for s in official_sources if s.outlet or s.domain]))
+                med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
+                off_str = ", ".join(off_outlets) or "fuentes oficiales del INE"
+                med_str = ", ".join(med_outlets) or "medios reconocidos"
+                verdict_rat = f"Respaldada por {off_str} y cobertura informativa en {med_str}; sin registro de desmentido oficial."
+            else:
+                med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
+                names_str = ", ".join(med_outlets[:3])
+                verdict_rat = f"Reportada de manera coincidente por {n_media} medios de comunicación verificables ({names_str}); sin registro de desmentido oficial."
+        elif n_media >= 2:
+            raw_verdict = "verdadera"
+            verdict_conf = "media"
+            med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
+            names_str = " y ".join(med_outlets)
+            verdict_rat = f"Reportada por {names_str} ({n_media} medios distintos); sin registro de desmentido oficial."
+        elif has_official or has_reconocido:
+            raw_verdict = "verdadera"
+            verdict_conf = "baja"
+            if has_official:
+                src = official_sources[0]
+                name = src.outlet or src.domain or "fuente oficial"
+                tier_str = "fuente oficial"
+            else:
+                src = [s for s in distinct_media_sources if s.tier == "medio_reconocido"][0]
+                name = src.outlet or src.domain or "medio reconocido"
+                tier_str = "medio reconocido"
+            verdict_rat = f"Publicada por {name} ({tier_str}); sin confirmación independiente ni desmentido."
+        elif has_regional_or_academico:
+            if is_dudosa:
+                raw_verdict = "sin_verificar"
+                verdict_conf = "baja"
+                verdict_rat = v_rat or "Publicada por medio regional o académico pero clasificada como dudosa en verificación."
+            else:
+                raw_verdict = "verdadera"
+                verdict_conf = "baja"
+                src = [s for s in distinct_media_sources if s.tier in ("medio_regional", "academico")][0]
+                name = src.outlet or src.domain or "medio regional"
+                tier_str = "medio regional" if src.tier == "medio_regional" else "fuente académica"
+                verdict_rat = f"Publicada por {name} ({tier_str}); sin confirmación independiente ni desmentido."
+        else:
+            raw_verdict = "sin_verificar"
+            verdict_conf = "baja"
+            verdict_rat = "Cobertura informativa sin fuentes verificables suficientes."
+    else:
+        if v_verdict in ("verdadera", "falsa", "enganosa") and valid_dictamen_fcs:
+            raw_verdict = v_verdict
+            verdict_conf = _cap_verdict_confidence(v_conf, valid_dictamen_fcs)
+            verdict_rat = v_rat or "Evaluado conforme a dictamen de verificación de hechos."
+        else:
+            raw_verdict = "sin_verificar"
+            verdict_conf = "baja"
+            verdict_rat = "Sin dictamen formal disponible en verificadores reconocidos o canales oficiales."
+
+    accusation_kw = ("presunt", "señalamient", "acusaci", "denunci", "investig")
+    is_accusation = any(kw in claim.lower() or kw in headline.lower() for kw in accusation_kw)
+    if raw_verdict == "verdadera" and is_accusation:
+        acc_suffix = " Veredicto respecto a la existencia de la denuncia o señalamiento reportado en medios, no sobre la culpabilidad de las personas señaladas."
+        if "Veredicto respecto a la existencia" not in verdict_rat:
+            verdict_rat += acc_suffix
+
+    verdict_conf = verdict_conf if verdict_conf in ("alta", "media", "baja") else "baja"
+    return raw_verdict, verdict_conf, verdict_rat
+
+
 def normalize_claim_for_id(claim: str) -> str:
     """Normalize a claim string for deterministic hashing across scans."""
     s = unicodedata.normalize("NFKD", str(claim or "")).lower()
@@ -852,26 +972,6 @@ def run_scan(
                 kind = "rumor"
 
         # 6. Verdict determination (deterministic rules in RSS mode)
-        v_verdict = v_info.get("verdict")
-        is_contradicted = (v_verdict in ("falsa", "enganosa")) and (bool(resolved_fcs) or bool(v_info.get("rationale")))
-
-        official_sources = [s for s in resolved_sources if s.tier == "oficial"] + [fc for fc in resolved_fcs if fc.tier == "oficial"]
-        has_official = len(official_sources) > 0
-
-        # Verifiable media sources (excluding official)
-        media_sources = [s for s in resolved_sources if s.tier in ("medio_reconocido", "medio_regional", "academico", "verificador")]
-        # Deduplicate media sources by distinct domain
-        seen_media_domains: set[str] = set()
-        distinct_media_sources: list[SourceRef] = []
-        for s in media_sources:
-            if s.domain and s.domain not in seen_media_domains:
-                seen_media_domains.add(s.domain)
-                distinct_media_sources.append(s)
-        n_media = len(distinct_media_sources)
-
-        has_reconocido = any(s.tier == "medio_reconocido" for s in distinct_media_sources)
-        has_regional_or_academico = any(s.tier in ("medio_regional", "academico") for s in distinct_media_sources)
-
         v_verdict_str = str(v_info.get("verdict") or "").lower().strip()
         v_rat_str = str(v_info.get("rationale") or "").lower()
         is_dudosa = (
@@ -879,79 +979,17 @@ def run_scan(
             or "dudos" in v_rat_str
             or "cuestionad" in v_rat_str
         )
-
-        if is_contradicted:
-            raw_verdict = v_verdict
-            verdict_conf = v_info.get("confidence", "media")
-            if verdict_conf not in ("alta", "media", "baja"):
-                verdict_conf = "media"
-            verdict_rat = v_info.get("rationale") or "Afirmación desmentida o identificada como engañosa por verificadores de hechos o canales oficiales del INE."
-        elif kind == "noticia":
-            if n_media >= 3 or (has_official and n_media >= 1):
-                raw_verdict = "verdadera"
-                verdict_conf = "alta"
-                if has_official and n_media >= 1:
-                    off_outlets = list(dict.fromkeys([s.outlet or s.domain for s in official_sources if s.outlet or s.domain]))
-                    med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
-                    off_str = ", ".join(off_outlets) or "fuentes oficiales del INE"
-                    med_str = ", ".join(med_outlets) or "medios reconocidos"
-                    verdict_rat = f"Respaldada por {off_str} y cobertura informativa en {med_str}; sin registro de desmentido oficial."
-                else:
-                    med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
-                    names_str = ", ".join(med_outlets[:3])
-                    verdict_rat = f"Reportada de manera coincidente por {n_media} medios de comunicación verificables ({names_str}); sin registro de desmentido oficial."
-            elif n_media >= 2:
-                raw_verdict = "verdadera"
-                verdict_conf = "media"
-                med_outlets = list(dict.fromkeys([s.outlet or s.domain for s in distinct_media_sources if s.outlet or s.domain]))
-                names_str = " y ".join(med_outlets)
-                verdict_rat = f"Reportada por {names_str} ({n_media} medios distintos); sin registro de desmentido oficial."
-            elif has_official or has_reconocido:
-                raw_verdict = "verdadera"
-                verdict_conf = "baja"
-                if has_official:
-                    src = official_sources[0]
-                    name = src.outlet or src.domain or "fuente oficial"
-                    tier_str = "fuente oficial"
-                else:
-                    src = [s for s in distinct_media_sources if s.tier == "medio_reconocido"][0]
-                    name = src.outlet or src.domain or "medio reconocido"
-                    tier_str = "medio reconocido"
-                verdict_rat = f"Publicada por {name} ({tier_str}); sin confirmación independiente ni desmentido."
-            elif has_regional_or_academico:
-                if is_dudosa:
-                    raw_verdict = "sin_verificar"
-                    verdict_conf = "baja"
-                    verdict_rat = v_info.get("rationale") or "Publicada por medio regional o académico pero clasificada como dudosa en verificación."
-                else:
-                    raw_verdict = "verdadera"
-                    verdict_conf = "baja"
-                    src = [s for s in distinct_media_sources if s.tier in ("medio_regional", "academico")][0]
-                    name = src.outlet or src.domain or "medio regional"
-                    tier_str = "medio regional" if src.tier == "medio_regional" else "fuente académica"
-                    verdict_rat = f"Publicada por {name} ({tier_str}); sin confirmación independiente ni desmentido."
-            else:
-                raw_verdict = "sin_verificar"
-                verdict_conf = "baja"
-                verdict_rat = "Cobertura informativa sin fuentes verificables suficientes."
-        else:
-            if v_verdict in ("verdadera", "falsa", "enganosa") and (resolved_fcs or has_official):
-                raw_verdict = v_verdict
-                verdict_conf = v_info.get("confidence", "media")
-                verdict_rat = v_info.get("rationale") or "Evaluado conforme a dictamen de verificación de hechos."
-            else:
-                raw_verdict = "sin_verificar"
-                verdict_conf = "baja"
-                verdict_rat = "Sin dictamen formal disponible en verificadores reconocidos o canales oficiales."
-
-        accusation_kw = ("presunt", "señalamient", "acusaci", "denunci", "investig")
-        claim_str = raw_it.get("claim", "")
-        headline_str = raw_it.get("headline", "")
-        is_accusation = any(kw in claim_str.lower() or kw in headline_str.lower() for kw in accusation_kw)
-        if raw_verdict == "verdadera" and is_accusation:
-            verdict_rat += " Veredicto respecto a la existencia de la denuncia o señalamiento reportado en medios, no sobre la culpabilidad de las personas señaladas."
-
-        verdict_conf = verdict_conf if verdict_conf in ("alta", "media", "baja") else "baja"
+        raw_verdict, verdict_conf, verdict_rat = _determine_item_verdict(
+            kind=kind,
+            resolved_sources=resolved_sources,
+            resolved_fcs=resolved_fcs,
+            v_verdict=v_info.get("verdict"),
+            v_conf=v_info.get("confidence"),
+            v_rat=v_info.get("rationale"),
+            claim=raw_it.get("claim", ""),
+            headline=raw_it.get("headline", ""),
+            is_dudosa=is_dudosa,
+        )
 
         # 7. Piece type and opinion/analysis classification
         raw_pt = str(raw_it.get("piece_type") or "").lower().strip()
@@ -987,6 +1025,8 @@ def run_scan(
         if is_opinion_or_analysis:
             if "Pieza de opinión: se registra la existencia del señalamiento" not in verdict_rat:
                 verdict_rat = f"Pieza de opinión: se registra la existencia del señalamiento. {verdict_rat}".strip()
+
+        has_official = any(s.tier == "oficial" for s in resolved_sources) or any(fc.tier == "oficial" for fc in resolved_fcs)
 
         # 8. Deterministic intensity by evidence
         verifiable_outlets = set()
@@ -1422,3 +1462,204 @@ def cooldown_remaining_s() -> int:
         return max(0, remaining)
     except Exception:
         return 0
+
+
+def reclassify_cached_snapshot() -> MonitorSnapshot | None:
+    """Reclassify cached latest.json without network access.
+
+    Re-applies verdict, severity, and action rules.
+    Deterministic impact and virality are updated.
+    Template remediation is generated only for items whose verdict changed.
+    Persists the updated snapshot to latest.json and returns it.
+    """
+    from atalaya.intel import storage, sources
+    try:
+        from atalaya.intel import impact
+    except ImportError:
+        impact = _FallbackImpact
+    try:
+        from atalaya.intel import virality
+    except ImportError:
+        virality = _FallbackVirality
+    try:
+        from atalaya.intel import severity
+    except ImportError:
+        severity = _FallbackSeverity
+    from atalaya.api import deps
+
+    path = storage.monitor_result_path()
+    data = storage.read_json(path)
+    if not data or not isinstance(data, dict):
+        logger.warning("No latest.json found to reclassify.")
+        return None
+
+    try:
+        snapshot = MonitorSnapshot.model_validate(data)
+    except Exception as exc:
+        logger.error("Error validating latest.json: %s", exc)
+        return None
+
+    units_df = deps.get_units_df()
+    now_dt = datetime.now(timezone.utc)
+    today = now_dt.date()
+
+    for item in snapshot.items:
+        prev_verdict = item.verdict
+
+        for fc in item.fact_checks:
+            if fc.tier not in ("verificador", "oficial"):
+                if "ine.mx" in fc.domain or "verificado" in fc.domain or "animalpolitico" in fc.domain:
+                    fc.tier = "verificador" if ("verificado" in fc.domain or "animalpolitico" in fc.domain) else "oficial"
+
+        kind = item.kind
+        if kind == "noticia":
+            primary_dom = item.sources[0].domain if item.sources else ""
+            primary_tier = sources.classify_domain(primary_dom) if primary_dom else "no_reconocido"
+            if primary_tier not in sources.VERIFIABLE_TIERS:
+                kind = "rumor"
+
+        v_verdict_str = str(item.verdict or "").lower().strip()
+        v_rat_str = str(item.verdict_rationale or "").lower()
+        is_dudosa = (
+            v_verdict_str in ("dudosa", "cuestionada")
+            or "dudos" in v_rat_str
+            or "cuestionad" in v_rat_str
+        )
+
+        new_verdict, new_conf, new_rat = _determine_item_verdict(
+            kind=kind,
+            resolved_sources=item.sources,
+            resolved_fcs=item.fact_checks,
+            v_verdict=item.verdict,
+            v_conf=item.verdict_confidence,
+            v_rat=item.verdict_rationale,
+            claim=item.claim,
+            headline=item.headline,
+            is_dudosa=is_dudosa,
+        )
+
+        headline_summary_claim = f"{item.headline} {item.summary} {item.claim}".lower()
+        is_opinion_or_analysis = (
+            (item.impact and item.impact.params.get("piece_type") in ("opinion", "analisis"))
+            or any(kw in headline_summary_claim for kw in (
+                "opinión", "opinion", "editorial", "columna",
+                "académico", "academico", "análisis", "analisis"
+            ))
+        )
+        if is_opinion_or_analysis and "Pieza de opinión: se registra la existencia del señalamiento" not in new_rat:
+            new_rat = f"Pieza de opinión: se registra la existencia del señalamiento. {new_rat}".strip()
+
+        item.kind = kind
+        item.verdict = new_verdict
+        item.verdict_confidence = new_conf
+        item.verdict_rationale = new_rat
+
+        if item.verdict in ("verdadera", "enganosa"):
+            try:
+                item.impact = impact.news_impact(
+                    units_df,
+                    topic=item.topic,
+                    geo=item.geo,
+                    intensity=item.intensity,
+                    persistence=item.persistence,
+                    today=today,
+                    level="state",
+                )
+                if item.impact is not None and is_opinion_or_analysis:
+                    item.impact.params["piece_type"] = "opinion"
+            except Exception as exc:
+                logger.warning("Error recomputing impact for %s: %s", item.id, exc)
+        else:
+            item.impact = None
+
+        if item.virality and item.virality.posts:
+            try:
+                item.virality = virality.virality(item.virality.posts, topic=item.topic, today=now_dt)
+            except Exception as exc:
+                logger.warning("Error recomputing virality for %s: %s", item.id, exc)
+
+        verifiable_outlets = set()
+        for s in item.sources:
+            if s.tier in ("medio_reconocido", "medio_regional", "academico", "verificador"):
+                out = (s.outlet or s.domain or "").strip().lower()
+                if out:
+                    verifiable_outlets.add(out)
+        n_outlets = len(verifiable_outlets)
+        has_official = any(s.tier == "oficial" for s in item.sources) or any(fc.tier == "oficial" for fc in item.fact_checks)
+
+        if item.verdict == "verdadera" and item.impact is not None:
+            sev = severity.severity_true(item.impact)
+        elif item.virality is not None:
+            sev = severity.severity_fake(item.virality, item.topic, item.verdict)
+        elif item.impact is not None:
+            sev = severity.severity_true(item.impact)
+        else:
+            sev = Severity(level="baja", score=15, drivers=["Evaluación preliminar sin métricas suficientes"])
+
+        if sev.level == "critica" or sev.score >= 75:
+            if n_outlets < 3 and not has_official:
+                sev.level = "alta"
+                sev.score = min(74, sev.score)
+                if "Puntuación acotada por evidencia (menos de 3 outlets verificables)" not in sev.drivers:
+                    sev.drivers.append("Puntuación acotada por evidencia (menos de 3 outlets verificables)")
+
+        item.severity = sev
+
+        has_posts = bool(item.virality and item.virality.posts)
+        action, sec_actions, deadline_h = severity.decide_action(
+            item.verdict, item.severity, has_posts=has_posts
+        )
+        if is_opinion_or_analysis:
+            if action == "campana_intervencion":
+                action = "comunicado"
+            sec_actions = [a for a in sec_actions if a != "campana_intervencion"]
+
+        verdict_changed = (prev_verdict != item.verdict)
+        if verdict_changed:
+            tmpl = severity.template_remediation(item.model_dump(), action, item.severity)
+            item.remediation.action = action
+            item.remediation.secondary_actions = sec_actions
+            item.remediation.measures = tmpl.measures[:5] if tmpl.measures else ["Monitorear evolución del tema en medios y redes."]
+            item.remediation.rationale = tmpl.rationale or "Medidas generadas por plantilla determinista institucional."
+            item.remediation.draft_message = tmpl.draft_message
+            item.remediation.deadline_hours = deadline_h
+            item.remediation.degraded = True
+            item.remediation.campaign_prefill = None
+            item.remediation.report_targets = []
+            if action in ("reportar_plataforma", "responder_corregir", "desmentido_oficial") or any(
+                a in ("reportar_plataforma", "responder_corregir", "desmentido_oficial") for a in sec_actions
+            ):
+                if item.virality and item.virality.posts:
+                    item.remediation.report_targets = [
+                        ReportTarget(
+                            platform=post.platform,
+                            url=post.url,
+                            author=post.author,
+                            reason="Publicación con afirmaciones desfavorables no verificadas o desmentidas institucionalmente.",
+                        )
+                        for post in item.virality.posts
+                    ]
+            if action == "campana_intervencion" or "campana_intervencion" in sec_actions:
+                if item.impact is not None:
+                    try:
+                        item.remediation.campaign_prefill = impact.campaign_prefill_for(item.impact, item.topic)
+                    except Exception:
+                        pass
+        else:
+            item.remediation.action = action
+            item.remediation.secondary_actions = sec_actions
+            item.remediation.deadline_hours = deadline_h
+
+    snapshot.counts = {
+        "verdadera": sum(1 for it in snapshot.items if it.verdict == "verdadera"),
+        "falsa": sum(1 for it in snapshot.items if it.verdict == "falsa"),
+        "enganosa": sum(1 for it in snapshot.items if it.verdict == "enganosa"),
+        "sin_verificar": sum(1 for it in snapshot.items if it.verdict == "sin_verificar"),
+        "critica": sum(1 for it in snapshot.items if it.severity.level == "critica"),
+        "pendientes": sum(1 for it in snapshot.items if not it.status or it.status.status == "pendiente"),
+    }
+
+    storage.write_json_atomic(storage.monitor_result_path(), snapshot.model_dump())
+    logger.info("Successfully reclassified snapshot in cache.")
+    return snapshot
+

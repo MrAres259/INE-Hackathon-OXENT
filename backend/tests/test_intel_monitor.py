@@ -723,10 +723,15 @@ def test_message_length_trimmings(monkeypatch: pytest.MonkeyPatch):
                         "verdict": "enganosa",
                         "confidence": "alta",
                         "rationale": "Enganosa",
-                        "fact_checks": [],
+                        "fact_checks": [{"url": "https://verificado.com.mx/aclaracion", "title": "Verificado"}],
                     },
                 ]
-            }, DummyGroundedResult()
+            }, DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource("https://centralelectoral.ine.mx/doc", "Doc", "centralelectoral.ine.mx"),
+                    DummyGroundedSource("https://verificado.com.mx/aclaracion", "Verificado", "verificado.com.mx"),
+                ]
+            )
         return {}, DummyGroundedResult()
 
     monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded)
@@ -1460,6 +1465,507 @@ def test_latest_snapshot_legacy_search_mode_deduction(tmp_path, monkeypatch):
     snap3 = monitor.latest_snapshot()
     assert snap3 is not None
     assert snap3.search_mode == "grounding"
+
+
+def test_rumor_factcheck_no_reconocido_sin_verificar(monkeypatch, tmp_path):
+    """Test that a rumor with fact_check from an unrecognized tier stays sin_verificar baja."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    claim = "PAN en el Senado presenta iniciativa para restar superpoderes"
+    rumor_item = {
+        "headline": "PAN en el Senado presenta iniciativa",
+        "claim": claim,
+        "summary": "Iniciativa sobre facultades de la presidencia del INE.",
+        "sources": [{"url": "https://pan.senado.gob.mx/nota", "title": "PAN", "domain": "pan.senado.gob.mx"}],
+        "posts": [],
+        "topic": "confianza_institucional",
+    }
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "rumores" in cache_key:
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://pan.senado.gob.mx/nota", domain="pan.senado.gob.mx")],
+                mode="rss_url_context",
+            )
+            return {"items": [rumor_item]}, res
+        elif "verificacion" in cache_key:
+            # Fact check from unrecognized domain larevista.com.mx
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://larevista.com.mx/nota", domain="larevista.com.mx")],
+                mode="rss_url_context",
+            )
+            return {
+                "verifications": [
+                    {
+                        "id": monitor.item_id_for_claim(claim),
+                        "verdict": "verdadera",
+                        "confidence": "alta",
+                        "rationale": "Nota periodística sobre iniciativa.",
+                        "fact_checks": [{"url": "https://larevista.com.mx/nota", "title": "La Revista"}],
+                    }
+                ]
+            }, res
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    it = snap.items[0]
+    # Unrecognized fact_check => sin_verificar, baja
+    assert it.kind == "rumor"
+    assert it.verdict == "sin_verificar"
+    assert it.verdict_confidence == "baja"
+    assert "Sin dictamen formal disponible en verificadores reconocidos o canales oficiales." in it.verdict_rationale
+    assert it.impact is None
+    assert it.severity.level == "baja"
+    assert it.remediation.action == "registrar"
+
+
+def test_rumor_factcheck_verificador_caps_confidence(monkeypatch, tmp_path):
+    """Test that 1 valid fact-check from a 'verificador' tier accepts verdict but caps confidence to max 'media'."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    claim = "Los marcadores de boleta se borran con calor"
+    rumor_item = {
+        "headline": "Afirman que marcadores se borran",
+        "claim": claim,
+        "summary": "Rumor viral.",
+        "posts": [{"platform": "x", "url": "https://x.com/post/1", "excerpt": "Texto"}],
+        "topic": "procedimiento_votacion",
+    }
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "rumores" in cache_key:
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://x.com/post/1", domain="x.com")],
+                mode="rss_url_context",
+            )
+            return {"items": [rumor_item]}, res
+        elif "verificacion" in cache_key:
+            # 1 fact-check from 'verificador' tier (verificado.com.mx)
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://verificado.com.mx/tinta-boletas", domain="verificado.com.mx")],
+                mode="rss_url_context",
+            )
+            return {
+                "verifications": [
+                    {
+                        "id": monitor.item_id_for_claim(claim),
+                        "verdict": "falsa",
+                        "confidence": "alta",  # Gemini proposes 'alta'
+                        "rationale": "Verificado MX demostró que la tinta es indeleble.",
+                        "fact_checks": [{"url": "https://verificado.com.mx/tinta-boletas", "title": "Verificado MX"}],
+                    }
+                ]
+            }, res
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    it = snap.items[0]
+    assert it.verdict == "falsa"
+    # Capped at media because exactly 1 verificador (no oficial)
+    assert it.verdict_confidence == "media"
+
+
+def test_rumor_factcheck_two_verificadores_allows_alta(monkeypatch, tmp_path):
+    """Test that >= 2 valid fact-checks from 'verificador' tier allows confidence 'alta'."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    claim = "Los marcadores de boleta se borran con calor doble"
+    rumor_item = {
+        "headline": "Afirman que marcadores se borran",
+        "claim": claim,
+        "summary": "Rumor viral.",
+        "posts": [{"platform": "x", "url": "https://x.com/post/2", "excerpt": "Texto"}],
+        "topic": "procedimiento_votacion",
+    }
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "rumores" in cache_key:
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://x.com/post/2", domain="x.com")],
+                mode="rss_url_context",
+            )
+            return {"items": [rumor_item]}, res
+        elif "verificacion" in cache_key:
+            # 2 fact-checks from 'verificador' tier (verificado.com.mx and animalpolitico.com)
+            res = DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource("https://verificado.com.mx/tinta-boletas", domain="verificado.com.mx"),
+                    DummyGroundedSource("https://animalpolitico.com/sabueso/tinta", domain="animalpolitico.com"),
+                ],
+                mode="rss_url_context",
+            )
+            return {
+                "verifications": [
+                    {
+                        "id": monitor.item_id_for_claim(claim),
+                        "verdict": "falsa",
+                        "confidence": "alta",
+                        "rationale": "Dos verificadores independientes comprobaron la falsedad.",
+                        "fact_checks": [
+                            {"url": "https://verificado.com.mx/tinta-boletas", "title": "Verificado MX"},
+                            {"url": "https://animalpolitico.com/sabueso/tinta", "title": "El Sabueso"},
+                        ],
+                    }
+                ]
+            }, res
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    it = snap.items[0]
+    assert it.verdict == "falsa"
+    # >= 2 valid dictámenes allows alta
+    assert it.verdict_confidence == "alta"
+
+
+def test_rumor_factcheck_oficial_allows_alta(monkeypatch, tmp_path):
+    """Test that 1 valid fact-check from 'oficial' tier allows confidence 'alta'."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    claim = "Desmentido oficial del INE sobre casillas canceladas"
+    rumor_item = {
+        "headline": "Rumor de casillas",
+        "claim": claim,
+        "summary": "Rumor en redes.",
+        "posts": [{"platform": "x", "url": "https://x.com/post/3", "excerpt": "Texto"}],
+        "topic": "organizacion_casillas",
+    }
+
+    def mock_grounded_json(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "rumores" in cache_key:
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://x.com/post/3", domain="x.com")],
+                mode="rss_url_context",
+            )
+            return {"items": [rumor_item]}, res
+        elif "verificacion" in cache_key:
+            # 1 fact-check from 'oficial' tier (centralelectoral.ine.mx)
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://centralelectoral.ine.mx/desmentido-123", domain="centralelectoral.ine.mx")],
+                mode="rss_url_context",
+            )
+            return {
+                "verifications": [
+                    {
+                        "id": monitor.item_id_for_claim(claim),
+                        "verdict": "falsa",
+                        "confidence": "alta",
+                        "rationale": "El INE emitió comunicado oficial desmintiendo la cancelación.",
+                        "fact_checks": [{"url": "https://centralelectoral.ine.mx/desmentido-123", "title": "INE Boletín"}],
+                    }
+                ]
+            }, res
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_json)
+
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap = monitor.run_scan(req)
+
+    assert len(snap.items) == 1
+    it = snap.items[0]
+    assert it.verdict == "falsa"
+    # 1 oficial allows alta
+    assert it.verdict_confidence == "alta"
+
+
+def test_contradiction_only_by_valid_tiers(monkeypatch, tmp_path):
+    """Test that a news item is contradicted only by fact_checks with 'verificador' or 'oficial' tier."""
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    claim = "Reforma y El Universal reportan recorte presupuestal operativo"
+    news_item = {
+        "headline": "Recorte presupuestal",
+        "claim": claim,
+        "summary": "Reporte conjunto.",
+        "sources": [
+            {"url": "https://reforma.com/recorte", "title": "Reforma", "domain": "reforma.com"},
+            {"url": "https://eluniversal.com.mx/recorte", "title": "El Universal", "domain": "eluniversal.com.mx"},
+        ],
+        "topic": "presupuesto_recortes",
+    }
+
+    # Case A: Verification has fact check with unrecognized tier -> NOT contradicted
+    def mock_grounded_a(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            res = DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource("https://reforma.com/recorte", domain="reforma.com"),
+                    DummyGroundedSource("https://eluniversal.com.mx/recorte", domain="eluniversal.com.mx"),
+                ],
+                mode="rss_url_context",
+            )
+            return {"items": [news_item]}, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "verificacion" in cache_key:
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://sitio-desconocido.xyz/fake", domain="sitio-desconocido.xyz")],
+                mode="rss_url_context",
+            )
+            return {
+                "verifications": [
+                    {
+                        "id": monitor.item_id_for_claim(claim),
+                        "verdict": "falsa",
+                        "confidence": "alta",
+                        "rationale": "Blog alega falsedad.",
+                        "fact_checks": [{"url": "https://sitio-desconocido.xyz/fake", "title": "Fake"}],
+                    }
+                ]
+            }, res
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_a)
+    req = MonitorScanRequest(window_days=14, refresh=True)
+    snap_a = monitor.run_scan(req)
+    assert len(snap_a.items) == 1
+    # Not contradicted: 2 media => verdadera, media
+    assert snap_a.items[0].verdict == "verdadera"
+    assert snap_a.items[0].verdict_confidence == "media"
+
+    # Case B: Verification has fact check with official tier -> Contradicted!
+    def mock_grounded_b(prompt, *, system=None, cache_key=None, **kwargs):
+        if "noticias" in cache_key:
+            res = DummyGroundedResult(
+                sources=[
+                    DummyGroundedSource("https://reforma.com/recorte", domain="reforma.com"),
+                    DummyGroundedSource("https://eluniversal.com.mx/recorte", domain="eluniversal.com.mx"),
+                ],
+                mode="rss_url_context",
+            )
+            return {"items": [news_item]}, res
+        elif "rumores" in cache_key:
+            return {"items": []}, DummyGroundedResult(mode="rss_url_context")
+        elif "verificacion" in cache_key:
+            res = DummyGroundedResult(
+                sources=[DummyGroundedSource("https://centralelectoral.ine.mx/desmentido-recorte", domain="centralelectoral.ine.mx")],
+                mode="rss_url_context",
+            )
+            return {
+                "verifications": [
+                    {
+                        "id": monitor.item_id_for_claim(claim),
+                        "verdict": "falsa",
+                        "confidence": "alta",
+                        "rationale": "El INE desmintió formalmente dicho recorte presupuestal.",
+                        "fact_checks": [{"url": "https://centralelectoral.ine.mx/desmentido-recorte", "title": "INE Boletín"}],
+                    }
+                ]
+            }, res
+        return {}, DummyGroundedResult()
+
+    monkeypatch.setattr(gemini_mod, "grounded_json", mock_grounded_b)
+    snap_b = monitor.run_scan(req)
+    assert len(snap_b.items) == 1
+    # Contradicted by official channel -> falsa, alta
+    assert snap_b.items[0].verdict == "falsa"
+    assert snap_b.items[0].verdict_confidence == "alta"
+
+
+def test_reclassify_cached_snapshot(monkeypatch, tmp_path):
+    """Test reclassify_cached_snapshot() without network.
+
+    Reclassifies an unrecognized-tier rumor from verdadera to sin_verificar,
+    updates impact, virality, severity, and template remediation, while preserving
+    unchanged items' remediation.
+    """
+    from atalaya.intel import storage
+    monkeypatch.setattr(storage, "intel_dir", lambda: tmp_path / "intel")
+    m_path = storage.monitor_result_path()
+    m_path.parent.mkdir(parents=True, exist_ok=True)
+
+    pan_claim = "Legisladores presentan iniciativa formal para reformar facultades"
+    pan_id = monitor.item_id_for_claim(pan_claim)
+    elpais_claim = "Investigación periodística reporta el inicio de procesos internos"
+    elpais_id = monitor.item_id_for_claim(elpais_claim)
+
+    initial_snapshot_dict = {
+        "generated_at": "2026-10-28T12:00:00+00:00",
+        "window_days": 14,
+        "items": [
+            # Item 1: PAN rumor previously classified as verdadera alta with no_reconocido fact check
+            {
+                "id": pan_id,
+                "kind": "rumor",
+                "headline": "PAN en el Senado presenta iniciativa para restar superpoderes",
+                "summary": "Actores políticos proponen limitar atribuciones.",
+                "claim": pan_claim,
+                "published": "2026-10-28",
+                "first_seen": "2026-10-28T12:00:00+00:00",
+                "sources": [
+                    {
+                        "id": "s1",
+                        "url": "https://pan.senado.gob.mx/nota",
+                        "title": "PAN Nota",
+                        "domain": "pan.senado.gob.mx",
+                        "tier": "no_reconocido",
+                    }
+                ],
+                "verdict": "verdadera",
+                "verdict_confidence": "alta",
+                "verdict_rationale": "Existen registros periodísticos.",
+                "fact_checks": [
+                    {
+                        "id": "s2",
+                        "url": "https://larevista.com.mx/iniciativa",
+                        "title": "La Revista",
+                        "domain": "larevista.com.mx",
+                        "tier": "no_reconocido",
+                    }
+                ],
+                "topic": "confianza_institucional",
+                "geo": {"level": "nacional", "ents": [], "muns": []},
+                "intensity": 0.25,
+                "persistence": "coyuntural",
+                "impact": {
+                    "level": "state",
+                    "delta_pp_national": 0.006,
+                    "votos_perdidos_total": 6356,
+                    "units": [],
+                    "max_delta_pp": 0.0,
+                    "assumptions": [],
+                    "params": {},
+                },
+                "virality": None,
+                "severity": {"level": "baja", "score": 1, "drivers": ["Impacto"]},
+                "remediation": {
+                    "action": "registrar",
+                    "secondary_actions": [],
+                    "measures": ["Medida previa de GLM"],
+                    "rationale": "Justificación previa de GLM",
+                    "draft_message": "Mensaje previo de GLM",
+                    "deadline_hours": 168,
+                    "degraded": False,
+                },
+            },
+            # Item 2: Recognized news (El País) that should NOT change verdict or remediation
+            {
+                "id": elpais_id,
+                "kind": "noticia",
+                "headline": "El INE comienza auditoría de licitaciones",
+                "summary": "Reportan auditorías internas.",
+                "claim": elpais_claim,
+                "published": "2026-10-28",
+                "first_seen": "2026-10-28T12:00:00+00:00",
+                "sources": [
+                    {
+                        "id": "s3",
+                        "url": "https://elpais.com/auditoria",
+                        "title": "El País",
+                        "domain": "elpais.com",
+                        "tier": "medio_reconocido",
+                    }
+                ],
+                "verdict": "verdadera",
+                "verdict_confidence": "baja",
+                "verdict_rationale": "Publicada por El País (medio reconocido); sin confirmación independiente ni desmentido.",
+                "fact_checks": [],
+                "topic": "conducta_funcionarios",
+                "geo": {"level": "nacional", "ents": [], "muns": []},
+                "intensity": 0.25,
+                "persistence": "coyuntural",
+                "impact": None,
+                "virality": None,
+                "severity": {"level": "baja", "score": 0, "drivers": []},
+                "remediation": {
+                    "action": "registrar",
+                    "secondary_actions": [],
+                    "measures": ["Medida original GLM para El País"],
+                    "rationale": "Justificación original GLM",
+                    "draft_message": "Mensaje original GLM para El País",
+                    "deadline_hours": 168,
+                    "degraded": False,
+                },
+            },
+        ],
+        "counts": {
+            "verdadera": 2,
+            "falsa": 0,
+            "enganosa": 0,
+            "sin_verificar": 0,
+            "critica": 0,
+            "pendientes": 2,
+        },
+        "queries": ["INE iniciativa"],
+        "sources_scanned": 4,
+        "model": "gemini-3.8-flash",
+        "search_mode": "respaldo",
+        "degraded": False,
+        "note": "Escaneo inicial",
+    }
+
+    m_path.write_text(json.dumps(initial_snapshot_dict, ensure_ascii=False), encoding="utf-8")
+
+    # Run reclassify_cached_snapshot
+    res = monitor.reclassify_cached_snapshot()
+    assert res is not None
+
+    pan_reclassified = next(it for it in res.items if it.id == pan_id)
+    elpais_reclassified = next(it for it in res.items if it.id == elpais_id)
+
+    # 1. PAN rumor verdict changed to sin_verificar, baja
+    assert pan_reclassified.verdict == "sin_verificar"
+    assert pan_reclassified.verdict_confidence == "baja"
+    assert pan_reclassified.impact is None
+    assert pan_reclassified.severity.score == 15
+    assert pan_reclassified.remediation.action == "registrar"
+    assert pan_reclassified.remediation.degraded is True  # Template fallback applied
+    assert pan_reclassified.remediation.measures != ["Medida previa de GLM"]
+
+    # 2. El País noticia kept its verdict and GLM-generated remediation
+    assert elpais_reclassified.verdict == "verdadera"
+    assert elpais_reclassified.verdict_confidence == "baja"
+    assert elpais_reclassified.remediation.measures == ["Medida original GLM para El País"]
+    assert elpais_reclassified.remediation.draft_message == "Mensaje original GLM para El País"
+    assert elpais_reclassified.remediation.degraded is False
+
+    # 3. Counts updated
+    assert res.counts["verdadera"] == 1
+    assert res.counts["sin_verificar"] == 1
+
+    # 4. Verifying disk write
+    disk_data = json.loads(m_path.read_text(encoding="utf-8"))
+    assert disk_data["counts"]["verdadera"] == 1
+    assert disk_data["counts"]["sin_verificar"] == 1
+
 
 
 
