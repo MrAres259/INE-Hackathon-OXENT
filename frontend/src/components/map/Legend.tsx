@@ -53,7 +53,7 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 1023px)");
+    const mq = window.matchMedia("(max-width: 1023px), (orientation: landscape) and (max-height: 540px)");
     if (defaultOpen === undefined) {
       setIsCollapsed(mq.matches);
     }
@@ -99,14 +99,17 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
       <div
         data-tour="leyenda"
         data-map-overlay="legend"
-        className={`float-panel overflow-hidden text-xs pointer-events-auto transition-all ${
-          isCollapsed ? "w-auto" : "w-52 sm:w-56"
+        className={`float-panel text-xs pointer-events-auto transition-all relative ${
+          isCollapsed
+            ? "w-auto"
+            : "w-52 sm:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:w-auto [@media(max-width:380px)]:w-auto"
         } ${className}`}
       >
         <div className="flex items-center justify-between gap-1.5 px-3 py-2">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="font-display font-bold text-foreground text-xs truncate">
-              Cambio vs base
+              <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">Cambio vs base</span>
+              <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline">Cambio</span>
             </span>
             <InfoTip term="modo.delta" size="xs" side="right" />
           </div>
@@ -133,7 +136,10 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
         </div>
 
         {!isCollapsed && (
-          <div className="space-y-1.5 border-t border-border px-3 py-2">
+          <div
+            data-map-overlay="legend-popover"
+            className="space-y-1.5 border-t border-border px-3 py-2 [@media(orientation:landscape)_and_(max-height:540px)]:absolute [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:top-full [@media(orientation:landscape)_and_(max-height:540px)]:mt-1 [@media(orientation:landscape)_and_(max-height:540px)]:z-40 [@media(orientation:landscape)_and_(max-height:540px)]:float-panel [@media(orientation:landscape)_and_(max-height:540px)]:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:max-h-[calc(100vh-80px)] [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:shadow-float [@media(max-width:380px)]:absolute [@media(max-width:380px)]:left-0 [@media(max-width:380px)]:top-full [@media(max-width:380px)]:mt-1 [@media(max-width:380px)]:z-40 [@media(max-width:380px)]:float-panel [@media(max-width:380px)]:w-56 [@media(max-width:380px)]:shadow-float"
+          >
             <div className="text-[10px] text-muted-foreground mb-1 leading-snug">
               intervención − base · azul = menos abstención
             </div>
@@ -220,20 +226,23 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
     <div
       data-tour="leyenda"
       data-map-overlay="legend"
-      className={`float-panel overflow-hidden text-xs pointer-events-auto transition-all ${
-        isCollapsed ? "w-auto" : "w-52 sm:w-56"
+      className={`float-panel text-xs pointer-events-auto transition-all relative ${
+        isCollapsed
+          ? "w-auto"
+          : "w-52 sm:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:w-auto [@media(max-width:380px)]:w-auto"
       } ${className}`}
     >
       <div className="flex items-center justify-between gap-1.5 px-3 py-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="font-display font-bold text-foreground text-xs truncate">
-            Semáforo 2027
+            <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">Semáforo 2027</span>
+            <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline">Semáforo</span>
           </span>
           <InfoTip term="semaforo" size="xs" side="right" />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {!isCollapsed && (
-            <span className="tnum font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            <span className="tnum font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded [@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">
               {totalCount}
             </span>
           )}
@@ -261,7 +270,10 @@ export function Legend({ data, defaultOpen, className = "" }: LegendProps) {
       </div>
 
       {!isCollapsed && (
-        <div className="space-y-1.5 border-t border-border px-3 py-2">
+        <div
+          data-map-overlay="legend-popover"
+          className="space-y-1.5 border-t border-border px-3 py-2 [@media(orientation:landscape)_and_(max-height:540px)]:absolute [@media(orientation:landscape)_and_(max-height:540px)]:left-0 [@media(orientation:landscape)_and_(max-height:540px)]:top-full [@media(orientation:landscape)_and_(max-height:540px)]:mt-1 [@media(orientation:landscape)_and_(max-height:540px)]:z-40 [@media(orientation:landscape)_and_(max-height:540px)]:float-panel [@media(orientation:landscape)_and_(max-height:540px)]:w-56 [@media(orientation:landscape)_and_(max-height:540px)]:max-h-[calc(100vh-80px)] [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:shadow-float [@media(max-width:380px)]:absolute [@media(max-width:380px)]:left-0 [@media(max-width:380px)]:top-full [@media(max-width:380px)]:mt-1 [@media(max-width:380px)]:z-40 [@media(max-width:380px)]:float-panel [@media(max-width:380px)]:w-56 [@media(max-width:380px)]:shadow-float"
+        >
           <div className="flex items-center justify-between text-[10px] text-muted-foreground px-0.5 pb-0.5 border-b border-border font-medium">
             <span>Nivel de riesgo</span>
             <div className="flex items-center gap-2.5">

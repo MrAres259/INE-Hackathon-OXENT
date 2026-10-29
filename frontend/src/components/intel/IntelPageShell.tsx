@@ -9,7 +9,9 @@ export interface IntelPageShellProps {
 
 export function IntelPageShell({ children, className = "" }: IntelPageShellProps) {
   return (
-    <div className={`w-full flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 md:px-6 lg:px-8 ${className}`}>
+    <div
+      className={`w-full flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 [@media(orientation:landscape)_and_(max-height:540px)]:px-3 [@media(orientation:landscape)_and_(max-height:540px)]:py-3 md:px-6 lg:px-8 ${className}`}
+    >
       <div className="mx-auto w-full max-w-[1280px]">
         {children}
       </div>

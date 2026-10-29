@@ -158,4 +158,57 @@ describe("Intel Navigation Suite (intelNav.test.tsx)", () => {
     expect(html).toContain('hidden 2xl:inline whitespace-nowrap">Metodología');
     expect(html).toContain('hidden 2xl:inline text-[11px] font-medium font-mono whitespace-nowrap');
   });
+
+  describe("F4-A · Compact-landscape TopBar single row specifications", () => {
+    it("renders compact-landscape single-row layout with height <= 48px (h-12)", () => {
+      mockPathname = "/";
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={createMockContext()}>
+          <TopBar />
+        </AtalayaContext.Provider>
+      );
+
+      // Compact-landscape container exists with h-12 (48px) and orientation/max-height media queries
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:flex h-12");
+    });
+
+    it("renders icon-only brand mark and section icon links in compact-landscape", () => {
+      mockPathname = "/";
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={createMockContext()}>
+          <TopBar />
+        </AtalayaContext.Provider>
+      );
+
+      // Section tabs rendered with accessible labels
+      expect(html).toContain('aria-label="Mapa de riesgo"');
+      expect(html).toContain('aria-label="Plan de campaña"');
+      expect(html).toContain('aria-label="Monitor INE"');
+    });
+
+    it("renders compact scenario selector (Base · Interv. · Pesim.) and icon for Ajustar on '/'", () => {
+      mockPathname = "/";
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={createMockContext({ scenario: "intervencion" })}>
+          <TopBar />
+        </AtalayaContext.Provider>
+      );
+
+      expect(html).toContain("Interv.");
+      expect(html).toContain("Pesim.");
+      expect(html).toContain('aria-label="Ajustar parámetros"');
+    });
+
+    it("hides scenario controls and search on '/campanas' and '/monitor' in compact-landscape", () => {
+      mockPathname = "/campanas";
+      const html = renderToStaticMarkup(
+        <AtalayaContext.Provider value={createMockContext({ scenario: "intervencion" })}>
+          <TopBar />
+        </AtalayaContext.Provider>
+      );
+
+      expect(html).not.toContain("Interv.");
+      expect(html).not.toContain("Pesim.");
+    });
+  });
 });

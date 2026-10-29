@@ -441,5 +441,32 @@ describe("W1-A Shell & Brand Suite (shell.test.tsx)", () => {
         expect(cssContent).toContain("margin-bottom: var(--map-inset-bottom, 0px);");
       });
     });
+
+    describe("F4-A · Layout modes and compact landscape specifications", () => {
+      it("calculates peek snap height with min(132px, 22vh) on small screens", () => {
+        const smallVh = 500;
+        // 500 * 0.22 = 110px (< 132px)
+        expect(getSnapHeight("peek", smallVh)).toBe(110);
+        expect(getSnapHeight("peek", smallVh, 20)).toBe(130);
+      });
+
+      it("globals.css contains F4-A layout mode rules with --topbar-h and --map-inset variables", () => {
+        const cssPath = path.resolve(__dirname, "../app/globals.css");
+        const cssContent = fs.readFileSync(cssPath, "utf-8");
+        expect(cssContent).toContain("/* F4-A layout modes */");
+        expect(cssContent).toContain("--topbar-h: 56px;");
+        expect(cssContent).toContain("--topbar-h: 48px;");
+        expect(cssContent).toContain('html[data-layout="compact-landscape"]');
+        expect(cssContent).toContain(".maplibregl-ctrl-top-right");
+        expect(cssContent).toContain("margin-right: var(--map-inset-right, 0px);");
+      });
+
+      it("SidePanelTabs renders optional headerAction for close button", () => {
+        const closeBtn = <button data-testid="test-close">Cerrar</button>;
+        const html = renderToStaticMarkup(<SidePanelTabs headerAction={closeBtn} />);
+        expect(html).toContain('data-testid="test-close"');
+        expect(html).toContain("Cerrar");
+      });
+    });
   });
 });

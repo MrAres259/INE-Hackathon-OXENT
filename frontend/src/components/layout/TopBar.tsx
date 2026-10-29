@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAtalaya } from "@/lib/state";
 import type { ScenarioId } from "@/lib/types";
-import { BrandLockup } from "@/components/brand/BrandMark";
+import { BrandLockup, BrandMark } from "@/components/brand/BrandMark";
 import { RegionSearch } from "@/components/map/RegionSearch";
 import { InfoTip } from "@/components/ui/InfoTip";
 
@@ -95,6 +95,27 @@ export function TopBar() {
   const pathname = rawPath || "/";
   const isHome = pathname === "/";
 
+  // Publish --topbar-h CSS variable on documentElement
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      const updateTopbarH = () => {
+        const isLandscape =
+          window.matchMedia?.("(orientation: landscape) and (max-height: 540px)")?.matches ??
+          false;
+        const isDesktop = window.innerWidth >= 1024 && !isLandscape;
+        const h = isLandscape ? 48 : isDesktop ? 56 : isHome ? 116 : 76;
+        document.documentElement.style.setProperty("--topbar-h", `${h}px`);
+      };
+      updateTopbarH();
+      window.addEventListener("resize", updateTopbarH);
+      window.addEventListener("orientationchange", updateTopbarH);
+      return () => {
+        window.removeEventListener("resize", updateTopbarH);
+        window.removeEventListener("orientationchange", updateTopbarH);
+      };
+    }
+  }, [isHome]);
+
   const campaignsCount =
     scenario === "intervencion" && Array.isArray(paramsByScenario.intervencion?.campaigns)
       ? paramsByScenario.intervencion.campaigns.length
@@ -115,8 +136,8 @@ export function TopBar() {
 
   return (
     <header className="shrink-0 bg-card border-b border-border pt-[env(safe-area-inset-top,0px)] sticky top-0 z-30 select-none">
-      {/* PC single-row layout (>= 1024px) */}
-      <div className="hidden lg:flex h-14 items-center justify-between px-4 gap-3 min-w-0 w-full">
+      {/* PC single-row layout (>= 1024px and not compact-landscape) */}
+      <div className="hidden lg:flex [@media(orientation:landscape)_and_(max-height:540px)]:!hidden h-14 items-center justify-between px-4 gap-3 min-w-0 w-full">
         {/* Brand Lockup & Section Navigation Tabs */}
         <div className="flex items-center gap-3 xl:gap-4 shrink-0">
           <BrandLockup className="shrink-0" />
@@ -294,8 +315,145 @@ export function TopBar() {
         </div>
       </div>
 
-      {/* Compact layout (< 1024px: mobile & vertical tablet) */}
-      <div className="flex flex-col lg:hidden px-3 py-2 gap-2">
+      {/* Compact-landscape single-row layout (<= 48px, orientation: landscape and height <= 540px) */}
+      <div className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:flex h-12 items-center justify-between px-3 gap-2 min-w-0 w-full">
+        {/* Brand icon only (no text) */}
+        <Link
+          href="/"
+          aria-label="Atalaya Electoral, inicio"
+          className="flex items-center shrink-0 focus-visible:outline-hidden"
+        >
+          <BrandMark size={28} />
+        </Link>
+
+        {/* Section tabs as icons */}
+        <nav
+          className="flex items-center gap-1 rounded-lg bg-muted p-0.5 border border-border shrink-0"
+          aria-label="Secciones principales"
+        >
+          {SECTIONS.map((sec) => {
+            const isActive = sec.href === "/" ? isHome : pathname.startsWith(sec.href);
+            return (
+              <Link
+                key={sec.id}
+                href={sec.href}
+                className={`flex items-center justify-center size-8 rounded-md transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-card text-primary shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                aria-label={sec.label}
+                title={sec.label}
+                aria-current={isActive ? "page" : undefined}
+              >
+                {sec.icon}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Scenario controls (Base · Interv. · Pesim.) + Ajustar as icon (Visible ONLY on /) */}
+        {isHome && (
+          <div className="flex items-center gap-1 shrink-0" data-tour="escenario">
+            <div className="flex rounded-lg bg-muted p-0.5 border border-border shrink-0">
+              {[
+                { id: "base" as ScenarioId, label: "Base" },
+                { id: "intervencion" as ScenarioId, label: "Interv." },
+                { id: "pesimista" as ScenarioId, label: "Pesim." },
+              ].map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setScenario(s.id)}
+                  className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    scenario === s.id
+                      ? "bg-card text-primary shadow-xs"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {scenario !== "base" && (
+              <button
+                type="button"
+                onClick={() => setIsScenarioModalOpen(true)}
+                className="size-8 rounded-md border border-border bg-card hover:bg-accent text-primary flex items-center justify-center transition-colors shadow-xs cursor-pointer shrink-0"
+                aria-label="Ajustar parámetros"
+                title="Ajustar parámetros"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Right side icon buttons: search (only on /), metodologia, guide */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Search icon button (only on /) */}
+          {isHome && (
+            <button
+              type="button"
+              onClick={() => setMobileSearchOpen(true)}
+              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
+              aria-label="Buscar estado o municipio"
+              title="Buscar"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </button>
+          )}
+
+          {/* Metodología icon link */}
+          <Link
+            href="/metodologia"
+            className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors shrink-0"
+            aria-label="Metodología"
+            title="Metodología"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+              />
+            </svg>
+          </Link>
+
+          {/* Help button (dispatches C1) */}
+          <button
+            type="button"
+            onClick={handleOpenGuide}
+            className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            aria-label="Ayuda y guía del sistema"
+            title="Ayuda y guía del sistema"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" strokeWidth={2} />
+              <path strokeLinecap="round" strokeWidth={2} d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Compact layout (< 1024px: mobile & vertical tablet, hidden on compact-landscape) */}
+      <div className="flex flex-col lg:hidden [@media(orientation:landscape)_and_(max-height:540px)]:!hidden px-3 py-2 gap-2">
         {/* Row 1: BrandLockup compact + action icons */}
         <div className="flex items-center justify-between">
           <BrandLockup compact />
@@ -471,7 +629,7 @@ export function TopBar() {
 
       {/* Mobile search full-width overlay (Only on /) */}
       {isHome && mobileSearchOpen && (
-        <div className="fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-2 border-b border-border bg-card px-3 shadow-md lg:hidden">
+        <div className="fixed inset-x-0 top-0 z-50 flex h-12 md:h-14 items-center gap-2 border-b border-border bg-card px-3 shadow-md lg:hidden">
           <RegionSearch
             autoFocus
             showKbd={false}

@@ -103,10 +103,20 @@ export interface BalloonPlacement {
   side: BalloonSide;
 }
 
+export interface MapGuideInsets {
+  topbarH?: number;
+  insetBottom?: number;
+  insetRight?: number;
+  right?: number;
+  bottom?: number;
+  top?: number;
+  left?: number;
+}
+
 /**
  * Pure placement algorithm for the guided tour balloon.
  * Tries bottom, top, left, right (10px gap) taking the first that fits completely
- * without overlapping the anchor, respecting margin and safeTop.
+ * without overlapping the anchor, respecting margin, safeTop, and drawer insets.
  * Falls back to horizontal centering in the largest free space, or inside anchor top.
  */
 export function placeBalloon(
@@ -114,7 +124,8 @@ export function placeBalloon(
   balloon: { w: number; h: number },
   viewport: { w: number; h: number },
   margin = 12,
-  safeTop = 0
+  safeTop = 0,
+  insets?: MapGuideInsets | number
 ): BalloonPlacement {
   const aTop = anchor.top;
   const aLeft = anchor.left;
@@ -128,48 +139,84 @@ export function placeBalloon(
   const vW = viewport.w;
   const vH = viewport.h;
 
+  let insetRight = 0;
+  let insetBottom = 0;
+  if (typeof insets === "number") {
+    insetRight = insets;
+  } else if (insets && typeof insets === "object") {
+    insetRight = insets.insetRight ?? insets.right ?? 0;
+    insetBottom = insets.insetBottom ?? insets.bottom ?? 0;
+    if (insets.topbarH) safeTop = Math.max(safeTop, insets.topbarH);
+    if (insets.top) safeTop = Math.max(safeTop, insets.top);
+  }
+
   const GAP = 10;
   const minY = Math.max(margin, safeTop);
-  const maxY = Math.max(minY, vH - margin - bH);
+  const maxY = Math.max(minY, vH - margin - insetBottom - bH);
   const minX = margin;
-  const maxX = Math.max(minX, vW - margin - bW);
+  const maxAvailableX = vW - insetRight;
+  const maxX = Math.max(minX, maxAvailableX - margin - bW);
+
+  const overlapsAnchor = (top: number, left: number) => {
+    return (
+      left < aRight &&
+      left + bW > aLeft &&
+      top < aBottom &&
+      top + bH > aTop
+    );
+  };
 
   // 1. Abajo (bottom)
   const bottomTop = aBottom + GAP;
-  if (bottomTop >= minY && bottomTop + bH <= vH - margin) {
+  if (bottomTop >= minY && bottomTop + bH <= vH - margin - insetBottom) {
     let bottomLeft = aLeft + (aWidth - bW) / 2;
     bottomLeft = Math.max(minX, Math.min(bottomLeft, maxX));
-    return { top: bottomTop, left: bottomLeft, side: "bottom" };
+    if (!overlapsAnchor(bottomTop, bottomLeft)) {
+      return { top: bottomTop, left: bottomLeft, side: "bottom" };
+    }
   }
 
   // 2. Arriba (top)
   const topTop = aTop - GAP - bH;
-  if (topTop >= minY && topTop + bH <= vH - margin) {
+  if (topTop >= minY && topTop + bH <= vH - margin - insetBottom) {
     let topLeft = aLeft + (aWidth - bW) / 2;
     topLeft = Math.max(minX, Math.min(topLeft, maxX));
-    return { top: topTop, left: topLeft, side: "top" };
+    if (!overlapsAnchor(topTop, topLeft)) {
+      return { top: topTop, left: topLeft, side: "top" };
+    }
   }
 
   // 3. Izquierda (left)
   const leftLeft = aLeft - GAP - bW;
-  if (leftLeft >= minX && leftLeft <= maxX && maxY >= minY) {
+  if (leftLeft >= minX && leftLeft + bW <= maxAvailableX && maxY >= minY) {
     let leftTop = Math.max(minY, Math.min(aTop, maxY));
-    return { top: leftTop, left: leftLeft, side: "left" };
+    if (!overlapsAnchor(leftTop, leftLeft)) {
+      return { top: leftTop, left: leftLeft, side: "left" };
+    }
   }
 
   // 4. Derecha (right)
   const rightLeft = aRight + GAP;
-  if (rightLeft >= minX && rightLeft <= maxX && maxY >= minY) {
+  if (rightLeft >= minX && rightLeft + bW <= maxAvailableX - margin && maxY >= minY) {
     let rightTop = Math.max(minY, Math.min(aTop, maxY));
-    return { top: rightTop, left: rightLeft, side: "right" };
+    if (!overlapsAnchor(rightTop, rightLeft)) {
+      return { top: rightTop, left: rightLeft, side: "right" };
+    }
   }
 
-  // Fallback: horizontal center, largest free space outside anchor, or inside anchor top edge
-  let fLeft = (vW - bW) / 2;
+  // Fallback: horizontal center in usable area
+  let fLeft = (maxAvailableX - bW) / 2;
   fLeft = Math.max(minX, Math.min(fLeft, maxX));
 
   const spaceAbove = Math.max(0, aTop - minY);
-  const spaceBelow = Math.max(0, (vH - margin) - aBottom);
+  const spaceBelow = Math.max(0, (vH - margin - insetBottom) - aBottom);
+  const spaceLeft = Math.max(0, aLeft - minX);
+  const spaceRight = Math.max(0, maxAvailableX - margin - aRight);
+
+  if (spaceLeft >= bW && spaceLeft >= spaceRight && spaceLeft >= spaceBelow && spaceLeft >= spaceAbove) {
+    const fTop = Math.max(minY, Math.min(maxY, aTop));
+    return { top: fTop, left: Math.max(minX, aLeft - GAP - bW), side: "left" };
+  }
 
   if (spaceBelow > spaceAbove && spaceBelow > 0) {
     const fTop = Math.min(maxY, Math.max(minY, aBottom + GAP));
@@ -181,9 +228,32 @@ export function placeBalloon(
     return { top: fTop, left: fLeft, side: "top" };
   }
 
-  // Inside anchor pinned to its top edge under safeTop
   const fTop = Math.min(maxY, Math.max(minY, aTop + GAP));
   return { top: fTop, left: fLeft, side: "inside" };
+}
+
+/**
+ * Measures CSS variables --topbar-h, --map-inset-bottom, and --map-inset-right on documentElement.
+ */
+export function getMapInsets(doc?: Document): { topbarH: number; insetBottom: number; insetRight: number } {
+  const d = doc !== undefined ? doc : typeof document !== "undefined" ? document : null;
+  if (!d) return { topbarH: 0, insetBottom: 0, insetRight: 0 };
+  let topbarH = 0;
+  let insetBottom = 0;
+  let insetRight = 0;
+  try {
+    const root = d.documentElement;
+    if (root && typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
+      const style = window.getComputedStyle(root);
+      const th = parseFloat(style.getPropertyValue("--topbar-h"));
+      const ib = parseFloat(style.getPropertyValue("--map-inset-bottom"));
+      const ir = parseFloat(style.getPropertyValue("--map-inset-right"));
+      if (!Number.isNaN(th) && th > 0) topbarH = th;
+      if (!Number.isNaN(ib) && ib > 0) insetBottom = ib;
+      if (!Number.isNaN(ir) && ir > 0) insetRight = ir;
+    }
+  } catch {}
+  return { topbarH, insetBottom, insetRight };
 }
 
 /**
@@ -464,6 +534,11 @@ export function MapGuide({
   // Set document.body.dataset.guide = "open" and block scroll while guide is open
   useEffect(() => {
     syncGuideBodyAttr(effectiveOpen);
+    if (effectiveOpen && typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(new CustomEvent("atalaya:guide-open"));
+      } catch {}
+    }
     return () => {
       syncGuideBodyAttr(false);
     };
@@ -640,18 +715,27 @@ export function MapGuide({
   if (!currentStep) return null;
   const currentRect = activeMatch.rect;
 
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+  const vw = typeof window !== "undefined"
+    ? (window.visualViewport?.width ?? window.innerWidth)
+    : 1024;
+  const vh = typeof window !== "undefined"
+    ? (window.visualViewport?.height ?? window.innerHeight)
+    : 768;
+  const insets = getMapInsets();
   const margin = 12;
-  const w = Math.min(280, Math.max(200, vw - margin * 2));
-  const safeTop = getSafeTop();
+  const isLandscape = vh <= 540 && vw > vh;
+  const w = isLandscape
+    ? Math.min(320, Math.max(200, Math.floor(vw * 0.6)))
+    : Math.min(280, Math.max(200, vw - margin * 2));
+  const safeTop = Math.max(getSafeTop(), insets.topbarH);
 
   const placement = placeBalloon(
     currentRect,
     { w, h: balloonHeight },
     { w: vw, h: vh },
     margin,
-    safeTop
+    safeTop,
+    insets
   );
 
   // Spotlight ring surrounding targeted anchor without arbitrary height cap
@@ -736,8 +820,7 @@ export function MapGuide({
         ref={balloonRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Guía interactiva del mapa"
-        className={`fixed z-[70] float-panel p-3.5 shadow-float text-foreground ${className}`}
+        className={`fixed z-[70] float-panel p-3.5 shadow-float text-foreground max-w-[min(320px,60vw)] max-h-[calc(100dvh-var(--topbar-h,0px)-24px)] overflow-y-auto [@media(orientation:landscape)_and_(max-height:540px)]:max-w-[min(320px,60vw)] [@media(orientation:landscape)_and_(max-height:540px)]:max-h-[calc(100dvh-var(--topbar-h,0px)-24px)] [@media(orientation:landscape)_and_(max-height:540px)]:overflow-y-auto ${className}`}
         style={{
           position: "fixed",
           zIndex: 70,

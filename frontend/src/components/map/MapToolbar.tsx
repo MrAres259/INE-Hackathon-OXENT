@@ -27,16 +27,17 @@ export function MapLayerSwitcher({ className = "" }: MapLayerSwitcherProps) {
       aria-label="Modo de visualización del mapa"
       data-tour="capas"
       data-map-overlay="layers"
-      className={`float-panel flex items-center gap-0.5 p-1 text-xs pointer-events-auto ${className}`}
+      className={`float-panel flex items-center gap-0.5 p-1 text-xs pointer-events-auto h-auto [@media(orientation:landscape)_and_(max-height:540px)]:h-9 [@media(max-width:380px)]:h-9 ${className}`}
     >
       {/* Modo 1: Semáforo */}
       <button
         type="button"
         role="button"
+        aria-label="Semáforo"
         aria-pressed={currentMode === "semaforo"}
         onClick={() => setMapMode("semaforo")}
         title="Semáforo: Riesgo de abstención 2027 por semáforo de 4 niveles"
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:px-2 [@media(orientation:landscape)_and_(max-height:540px)]:py-1 [@media(orientation:landscape)_and_(max-height:540px)]:h-7 [@media(max-width:380px)]:px-2 [@media(max-width:380px)]:py-1 [@media(max-width:380px)]:h-7 rounded-md text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
           currentMode === "semaforo"
             ? "bg-primary text-primary-foreground shadow-xs"
             : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -53,13 +54,14 @@ export function MapLayerSwitcher({ className = "" }: MapLayerSwitcherProps) {
           <circle cx="8" cy="8" r="2.2" fill="#f2bf3a" />
           <circle cx="8" cy="12.5" r="2.2" fill="#c8352f" />
         </svg>
-        <span className="hidden min-[400px]:inline">Semáforo</span>
+        <span className="hidden min-[400px]:inline [@media(orientation:landscape)_and_(max-height:540px)]:!hidden [@media(max-width:380px)]:!hidden">Semáforo</span>
       </button>
 
       {/* Modo 2: Cambio Δ */}
       <button
         type="button"
         role="button"
+        aria-label="Cambio Δ"
         aria-pressed={currentMode === "delta"}
         onClick={() => setMapMode("delta")}
         title={
@@ -67,7 +69,7 @@ export function MapLayerSwitcher({ className = "" }: MapLayerSwitcherProps) {
             ? "Cambio Δ: Elige Intervención o Pesimista para ver cambios respecto a la base"
             : "Cambio Δ: Diferencia en puntos porcentuales respecto al escenario base (azul = menos abstención)"
         }
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:px-2 [@media(orientation:landscape)_and_(max-height:540px)]:py-1 [@media(orientation:landscape)_and_(max-height:540px)]:h-7 [@media(max-width:380px)]:px-2 [@media(max-width:380px)]:py-1 [@media(max-width:380px)]:h-7 rounded-md text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
           currentMode === "delta"
             ? "bg-primary text-primary-foreground shadow-xs"
             : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -83,17 +85,18 @@ export function MapLayerSwitcher({ className = "" }: MapLayerSwitcherProps) {
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M8 2.5l5.5 10.5H2.5L8 2.5z" />
         </svg>
-        <span className="hidden min-[400px]:inline">Cambio&nbsp;Δ</span>
+        <span className="hidden min-[400px]:inline [@media(orientation:landscape)_and_(max-height:540px)]:!hidden [@media(max-width:380px)]:!hidden">Cambio&nbsp;Δ</span>
       </button>
 
       {/* Modo 3: Comparar */}
       <button
         type="button"
         role="button"
+        aria-label="Comparar"
         aria-pressed={currentMode === "compare"}
         onClick={() => setMapMode("compare")}
         title="Comparar: Cortina deslizante entre escenario base y alterno"
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:px-2 [@media(orientation:landscape)_and_(max-height:540px)]:py-1 [@media(orientation:landscape)_and_(max-height:540px)]:h-7 [@media(max-width:380px)]:px-2 [@media(max-width:380px)]:py-1 [@media(max-width:380px)]:h-7 rounded-md text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${
           currentMode === "compare"
             ? "bg-primary text-primary-foreground shadow-xs"
             : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -110,7 +113,7 @@ export function MapLayerSwitcher({ className = "" }: MapLayerSwitcherProps) {
           <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
           <line x1="8" y1="2.5" x2="8" y2="13.5" strokeDasharray="2 1.5" />
         </svg>
-        <span className="hidden min-[400px]:inline">Comparar</span>
+        <span className="hidden min-[400px]:inline [@media(orientation:landscape)_and_(max-height:540px)]:!hidden [@media(max-width:380px)]:!hidden">Comparar</span>
       </button>
 
       <InfoTip
@@ -162,7 +165,15 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
   }, []);
 
   const handleToggleGuide = () => {
-    setGuideOpen((prev) => !prev);
+    setGuideOpen((prev) => {
+      const next = !prev;
+      if (next && typeof window !== "undefined") {
+        try {
+          window.dispatchEvent(new CustomEvent("atalaya:guide-open"));
+        } catch {}
+      }
+      return next;
+    });
   };
 
   return (
@@ -172,7 +183,7 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
         aria-label="Herramientas del mapa"
         data-tour="herramientas"
         data-map-overlay="toolbar"
-        className={`float-panel flex flex-col items-center gap-1 p-1 pointer-events-auto ${className}`}
+        className={`float-panel flex flex-col items-center gap-1 p-1 pointer-events-auto [@media(orientation:landscape)_and_(max-height:540px)]:p-0.5 [@media(max-width:380px)]:p-0.5 ${className}`}
       >
         {/* Toggle 3D */}
         <button
@@ -183,7 +194,7 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
           onClick={() => setExtrude3d(!extrude3d)}
           title="Vista 3D: bloques con altura = índice de riesgo (con foco al acercarte)"
           aria-label="Vista 3D (altura = riesgo)"
-          className={`size-8 [@media(pointer:coarse)]:size-10 grid place-items-center rounded-md text-xs font-medium transition-colors cursor-pointer ${
+          className={`size-8 [@media(pointer:coarse)]:size-10 [@media(orientation:landscape)_and_(max-height:540px)]:!size-9 [@media(orientation:landscape)_and_(max-height:540px)]:min-w-[36px] [@media(orientation:landscape)_and_(max-height:540px)]:min-h-[36px] grid place-items-center rounded-md text-xs font-medium transition-colors cursor-pointer ${
             extrude3d
               ? "bg-primary text-primary-foreground shadow-xs font-semibold"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -216,7 +227,7 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
               onClick={() => setView3d("inclinada")}
               title="Vista inclinada: perspectiva para apreciar la altura de los bloques"
               aria-label="Vista inclinada"
-              className={`size-7 [@media(pointer:coarse)]:size-9 grid place-items-center rounded text-xs transition-colors cursor-pointer ${
+              className={`size-7 [@media(pointer:coarse)]:size-9 [@media(orientation:landscape)_and_(max-height:540px)]:!size-8 grid place-items-center rounded text-xs transition-colors cursor-pointer ${
                 view3d === "inclinada"
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -241,7 +252,7 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
               onClick={() => setView3d("cenital")}
               title="Vista cenital: vista desde arriba manteniendo los bloques 3D"
               aria-label="Vista cenital"
-              className={`size-7 [@media(pointer:coarse)]:size-9 grid place-items-center rounded text-xs transition-colors cursor-pointer ${
+              className={`size-7 [@media(pointer:coarse)]:size-9 [@media(orientation:landscape)_and_(max-height:540px)]:!size-8 grid place-items-center rounded text-xs transition-colors cursor-pointer ${
                 view3d === "cenital"
                   ? "bg-primary text-primary-foreground shadow-xs"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -273,7 +284,7 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
             onClick={onExportPng}
             title="Exportar imagen PNG del mapa"
             aria-label="Exportar mapa a PNG"
-            className="size-8 [@media(pointer:coarse)]:size-10 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+            className="size-8 [@media(pointer:coarse)]:size-10 [@media(orientation:landscape)_and_(max-height:540px)]:!size-9 [@media(orientation:landscape)_and_(max-height:540px)]:min-w-[36px] [@media(orientation:landscape)_and_(max-height:540px)]:min-h-[36px] grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
           >
             <svg
               className="size-4 shrink-0"
@@ -296,7 +307,7 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
           aria-pressed={guideOpen}
           onClick={handleToggleGuide}
           title="Cómo leer este mapa (recorrido interactivo)"
-          className={`size-8 [@media(pointer:coarse)]:size-10 grid place-items-center rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+          className={`size-8 [@media(pointer:coarse)]:size-10 [@media(orientation:landscape)_and_(max-height:540px)]:!size-9 [@media(orientation:landscape)_and_(max-height:540px)]:min-w-[36px] [@media(orientation:landscape)_and_(max-height:540px)]:min-h-[36px] grid place-items-center rounded-md text-xs font-semibold transition-colors cursor-pointer ${
             guideOpen
               ? "bg-primary text-primary-foreground shadow-xs"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"

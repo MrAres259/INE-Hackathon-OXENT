@@ -6,9 +6,38 @@ export type SheetSnap = "peek" | "half" | "full";
 
 export const SNAP_PEEK_BASE_PX = 132;
 
+export type LayoutMode = "desktop" | "compact-portrait" | "compact-landscape";
+
+export interface LayoutDimensions {
+  width: number;
+  height: number;
+  landscape?: boolean;
+}
+
+/**
+ * Pure function computing layout mode from dimensions and orientation.
+ * - compact-landscape: (orientation: landscape) and (max-height: 540px)
+ * - compact-portrait: (max-width: 1023px) and not compact-landscape
+ * - desktop: remainder (tablets >= 1024, laptops, PC)
+ */
+export function layoutModeFor({
+  width,
+  height,
+  landscape,
+}: LayoutDimensions): LayoutMode {
+  const isLandscape = landscape !== undefined ? landscape : width > height;
+  if (isLandscape && height <= 540) {
+    return "compact-landscape";
+  }
+  if (width < 1024) {
+    return "compact-portrait";
+  }
+  return "desktop";
+}
+
 /**
  * Returns the target height in pixels for each snap position.
- * - peek: 132px + safeAreaBottom
+ * - peek: min(132px, 22vh) + safeAreaBottom (compact-portrait)
  * - half: 52% of viewport height
  * - full: viewport height - 12px
  */
@@ -18,13 +47,14 @@ export function getSnapHeight(
   safeAreaBottomPx: number = 0
 ): number {
   const vh = Math.max(1, viewportHeightPx);
+  const peekBase = Math.min(SNAP_PEEK_BASE_PX, Math.round(vh * 0.22));
   switch (snap) {
     case "peek":
-      return SNAP_PEEK_BASE_PX + safeAreaBottomPx;
+      return peekBase + safeAreaBottomPx;
     case "half":
       return Math.round(vh * 0.52);
     case "full":
-      return Math.max(SNAP_PEEK_BASE_PX + safeAreaBottomPx, vh - 12);
+      return Math.max(peekBase + safeAreaBottomPx, vh - 12);
   }
 }
 
@@ -101,8 +131,62 @@ export function useMediaQuery(query: string): boolean {
 }
 
 /**
- * Responsive breakpoint hook: matches screen width < 1024px.
+ * SSR-safe layout mode hook (initial state: "desktop").
+ * Synchronizes with viewport size and orientation on mount and publishes to
+ * document.documentElement.dataset.layout.
+ */
+export function useLayoutMode(): LayoutMode {
+  const [mode, setMode] = useState<LayoutMode>("desktop");
+
+  useEffect(() => {
+    const computeCurrentMode = (): LayoutMode => {
+      if (typeof window === "undefined") return "desktop";
+      const isLandscape =
+        window.matchMedia?.("(orientation: landscape)")?.matches ??
+        (window.innerWidth > window.innerHeight);
+      return layoutModeFor({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        landscape: isLandscape,
+      });
+    };
+
+    const update = () => {
+      const next = computeCurrentMode();
+      setMode(next);
+      if (typeof document !== "undefined" && document.documentElement) {
+        document.documentElement.dataset.layout = next;
+      }
+    };
+
+    update();
+
+    const mqlLandscape = window.matchMedia?.("(orientation: landscape) and (max-height: 540px)");
+    const mqlPortrait = window.matchMedia?.("(max-width: 1023px)");
+    const mqlOrientation = window.matchMedia?.("(orientation: landscape)");
+
+    mqlLandscape?.addEventListener?.("change", update);
+    mqlPortrait?.addEventListener?.("change", update);
+    mqlOrientation?.addEventListener?.("change", update);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+
+    return () => {
+      mqlLandscape?.removeEventListener?.("change", update);
+      mqlPortrait?.removeEventListener?.("change", update);
+      mqlOrientation?.removeEventListener?.("change", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
+  return mode;
+}
+
+/**
+ * Responsive breakpoint hook: matches compact modes (portrait or landscape).
  */
 export function useIsCompact(): boolean {
-  return useMediaQuery("(max-width: 1023px)");
+  const mode = useLayoutMode();
+  return mode !== "desktop";
 }

@@ -179,3 +179,38 @@ body[data-guide="open"] [data-map-tooltip] {
   display: none !important;
 }
 
+/* F4-A layout modes */
+:root {
+  --topbar-h: 56px;
+  --map-inset-bottom: 0px;
+  --map-inset-right: 0px;
+  --map-fit-bottom: 0px;
+  --map-fit-right: 0px;
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --topbar-h: 116px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 540px) {
+  :root {
+    --topbar-h: 48px;
+    --map-inset-bottom: 0px;
+    --map-fit-bottom: 0px;
+  }
+}
+
+html[data-layout="compact-landscape"] {
+  --topbar-h: 48px;
+  --map-inset-bottom: 0px;
+  --map-fit-bottom: 0px;
+}
+
+.maplibregl-ctrl-top-right,
+.maplibregl-ctrl-bottom-right {
+  margin-right: var(--map-inset-right, 0px);
+}
+
+

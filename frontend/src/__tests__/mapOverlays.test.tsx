@@ -46,6 +46,16 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       // Check truncation class exists for long names on mobile
       expect(html).toContain("max-w-[40vw]");
     });
+
+    it("breadcrumb truncado conserva title completo y aplica clases LS", () => {
+      const html = renderToStaticMarkup(<Breadcrumb />);
+      // Title attribute preserves full state name
+      expect(html).toContain('title="Ciudad de México"');
+      // Truncated text is rendered for compact screens
+      expect(html).toContain("Ciudad …México");
+      // LS class is present on breadcrumb container
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:max-w-[45vw]");
+    });
   });
 
   describe("MapLayerSwitcher", () => {
@@ -58,6 +68,15 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain("Δ");
       expect(html).toContain("Comparar");
       expect(html).toContain("float-panel");
+    });
+
+    it("incluye clases LS para 36px de alto y solo iconos con aria-labels", () => {
+      const html = renderToStaticMarkup(<MapLayerSwitcher />);
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:h-9");
+      expect(html).toContain('aria-label="Semáforo"');
+      expect(html).toContain('aria-label="Cambio Δ"');
+      expect(html).toContain('aria-label="Comparar"');
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:!hidden");
     });
   });
 
@@ -73,6 +92,13 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain('aria-label="Exportar mapa a PNG"');
       expect(html).toContain('aria-label="Cómo leer este mapa"');
     });
+
+    it("incluye clases LS para botones de herramientas de 36px", () => {
+      const onExportPng = vi.fn();
+      const html = renderToStaticMarkup(<MapToolbar onExportPng={onExportPng} />);
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:!size-9");
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:min-w-[36px]");
+    });
   });
 
   describe("Legend", () => {
@@ -87,6 +113,14 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       // B3: Quita "· Puntos = municipios"
       expect(html).not.toContain("Puntos = municipios");
       expect(html).toContain("Escenario: Base (inercial)");
+    });
+
+    it("incluye popover data-map-overlay='legend-popover' y chip Semáforo en clases LS", () => {
+      const html = renderToStaticMarkup(<Legend defaultOpen={true} />);
+      expect(html).toContain('data-map-overlay="legend-popover"');
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:w-auto");
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:absolute");
+      expect(html).toContain("Semáforo");
     });
   });
 
@@ -155,6 +189,14 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain("bottom-[calc(50%+24px)]");
     });
 
+    it("renders compact Sin and Con swipe divider labels with LS classes", () => {
+      const html = renderToStaticMarkup(<CompareSwipe data={mockData} />);
+      expect(html).toContain("◀ Sin");
+      expect(html).toContain("Con ▶");
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:px-1.5");
+      expect(html).toContain("[@media(orientation:landscape)_and_(max-height:540px)]:!size-8");
+    });
+
     it("render en servidor y cliente a 375 px produce el mismo HTML inicial (sin fallo de hidratacion React #418)", () => {
       const origInnerWidth = typeof window !== "undefined" ? window.innerWidth : undefined;
 
@@ -187,6 +229,14 @@ describe("Map Overlays (mapOverlays.test.tsx)", () => {
       expect(html).toContain("lg:top-[56px]");
       // B3: top-left group with gap-2
       expect(html).toContain("flex flex-col items-start gap-2");
+    });
+
+    it("respects --topbar-h and --map-inset-right in floating overlay containers", () => {
+      const html = renderToStaticMarkup(<RiskMap />);
+      expect(html).toContain("top-[calc(var(--topbar-h,0px)+8px)]");
+      expect(html).toContain("right-[calc(var(--map-inset-right,0px)+8px)]");
+      expect(html).toContain("maplibregl-ctrl-bottom-right");
+      expect(html).toContain("var(--map-inset-right,0px)");
     });
   });
 

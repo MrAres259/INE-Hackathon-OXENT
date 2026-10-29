@@ -61,6 +61,9 @@ const TABS: TabDef[] = [
 
 export interface SidePanelTabsProps {
   onTabChange?: (tab: PanelTabId) => void;
+  activeTab?: PanelTabId;
+  onSelectTab?: (tab: PanelTabId) => void;
+  headerAction?: React.ReactNode;
 }
 
 export function useSidePanelTabs(
@@ -91,30 +94,41 @@ export function useSidePanelTabs(
   return { activeTab, selectTab, setActiveTab };
 }
 
-export function SidePanelTabs({ onTabChange }: SidePanelTabsProps) {
+export function SidePanelTabs({
+  onTabChange,
+  activeTab: controlledActiveTab,
+  onSelectTab: controlledSelectTab,
+  headerAction,
+}: SidePanelTabsProps) {
   const { selectedRegionId } = useAtalaya();
-  const { activeTab, selectTab } = useSidePanelTabs(selectedRegionId, onTabChange);
+  const internalHook = useSidePanelTabs(selectedRegionId, onTabChange);
+
+  const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalHook.activeTab;
+  const selectTab = controlledSelectTab !== undefined ? controlledSelectTab : internalHook.selectTab;
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-card overflow-hidden">
       {/* Tab Navigation Bar */}
-      <div data-tour="panel" className="flex border-b border-border bg-card px-2 shrink-0">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => selectTab(t.id)}
-            data-tab={t.id}
-            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 sm:py-3 text-xs font-semibold transition-colors cursor-pointer ${
-              activeTab === t.id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.icon}
-            <span>{t.label}</span>
-          </button>
-        ))}
+      <div data-tour="panel" className="flex items-center border-b border-border bg-card px-2 shrink-0">
+        <div className="flex flex-1 min-w-0">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => selectTab(t.id)}
+              data-tab={t.id}
+              className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 sm:py-3 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === t.id
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.icon}
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+        {headerAction}
       </div>
 
       {/* Tab Content: Keep mounted with hidden to preserve chat and state */}

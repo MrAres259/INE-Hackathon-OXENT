@@ -117,7 +117,11 @@ export function RiskMap() {
   useEffect(() => {
     const handleGuideOpen = () => dispatchTooltip(tooltipIntent.guideOpen());
     window.addEventListener("atalaya:open-guide", handleGuideOpen);
-    return () => window.removeEventListener("atalaya:open-guide", handleGuideOpen);
+    window.addEventListener("atalaya:guide-open", handleGuideOpen);
+    return () => {
+      window.removeEventListener("atalaya:open-guide", handleGuideOpen);
+      window.removeEventListener("atalaya:guide-open", handleGuideOpen);
+    };
   }, []);
 
   const handleMapReady = React.useCallback((map: MapLibreMap) => {
@@ -210,7 +214,7 @@ export function RiskMap() {
       className="relative h-full w-full min-h-0 flex-1 overflow-hidden bg-[#eef0f3]"
     >
       {/* Map View Rendering inside dedicated absolute inset-0 container */}
-      <div className="absolute inset-0 [&_.maplibregl-map]:h-full [&_.maplibregl-map]:w-full">
+      <div className="absolute inset-0 [&_.maplibregl-map]:h-full [&_.maplibregl-map]:w-full [&_.maplibregl-ctrl-bottom-right]:mr-[var(--map-inset-right,0px)]">
         {mapMode === "compare" ? (
           <CompareSwipe
             data={data}
@@ -247,9 +251,9 @@ export function RiskMap() {
       </div>
 
       {/* Overlays Layer (pointer-events-none container with pointer-events-auto children) */}
-      <div className="absolute inset-0 pointer-events-none p-3">
+      <div className="absolute inset-0 pointer-events-none p-3 [@media(orientation:landscape)_and_(max-height:540px)]:p-2 [@media(max-width:380px)]:p-2">
         {/* Top Left group: Breadcrumb, MapLayerSwitcher, and CompareSummary in column with gap-2 */}
-        <div className="absolute top-3 left-3 z-20 flex flex-col items-start gap-2 pointer-events-none lg:static">
+        <div className="absolute top-[calc(var(--topbar-h,0px)+8px)] left-3 [@media(orientation:landscape)_and_(max-height:540px)]:left-2 [@media(max-width:380px)]:left-2 z-20 flex flex-col items-start gap-2 pointer-events-none lg:static">
           <div className="flex flex-col items-start gap-2 pointer-events-auto z-20 lg:absolute lg:top-3 lg:left-3">
             <Breadcrumb />
             <MapLayerSwitcher data={data} />
@@ -263,7 +267,7 @@ export function RiskMap() {
         </div>
 
         {/* Tools: top-right on compact (<1024), top-right below panel collapse button (top: 56px, right: 12px) on PC (>=1024) */}
-        <div className="absolute right-3 top-3 lg:top-[56px] z-20 pointer-events-auto">
+        <div className="absolute right-[calc(var(--map-inset-right,0px)+8px)] top-[calc(var(--topbar-h,0px)+8px)] lg:top-[56px] lg:right-3 z-20 pointer-events-auto">
           <MapToolbar data={data} onExportPng={handleExportPng} />
         </div>
 

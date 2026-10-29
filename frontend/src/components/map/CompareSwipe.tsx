@@ -27,7 +27,7 @@ export function CompareSummary({
   useEffect(() => {
     if (defaultCollapsed !== undefined) return;
     if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 1023px)");
+    const mq = window.matchMedia("(max-width: 1023px), (orientation: landscape) and (max-height: 540px)");
     setIsCollapsed(mq.matches);
     const handler = (e: MediaQueryListEvent) => {
       setIsCollapsed(e.matches);
@@ -63,7 +63,7 @@ export function CompareSummary({
   return (
     <div
       data-map-overlay="compare-summary"
-      className={`float-panel p-2.5 text-xs font-medium text-foreground shadow-float pointer-events-auto flex flex-col gap-1 ${className}`}
+      className={`float-panel p-2.5 text-xs font-medium text-foreground shadow-float pointer-events-auto flex flex-col gap-1 [@media(orientation:landscape)_and_(max-height:540px)]:p-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:text-[11px] [@media(orientation:landscape)_and_(max-height:540px)]:max-w-[280px] ${className}`}
       style={{ maxWidth: "min(26rem, calc(100% - 5.5rem))" }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -332,8 +332,9 @@ export function CompareSwipe({
             className="absolute right-7 bottom-[calc(50%+24px)] pointer-events-none whitespace-nowrap"
             style={{ bottom: "calc(50% + 24px)" }}
           >
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-border text-foreground shadow-float">
-              ◀ Sin intervención
+            <span className="inline-flex items-center px-2.5 py-1 [@media(orientation:landscape)_and_(max-height:540px)]:px-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:py-0.5 [@media(max-width:380px)]:px-1.5 [@media(max-width:380px)]:py-0.5 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-border text-foreground shadow-float">
+              <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">◀ Sin intervención</span>
+              <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline">◀ Sin</span>
             </span>
           </div>
         )}
@@ -344,8 +345,9 @@ export function CompareSwipe({
             className="absolute left-7 bottom-[calc(50%+24px)] pointer-events-none whitespace-nowrap"
             style={{ bottom: "calc(50% + 24px)" }}
           >
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-primary text-foreground shadow-float">
-              Con intervención ▶
+            <span className="inline-flex items-center px-2.5 py-1 [@media(orientation:landscape)_and_(max-height:540px)]:px-1.5 [@media(orientation:landscape)_and_(max-height:540px)]:py-0.5 [@media(max-width:380px)]:px-1.5 [@media(max-width:380px)]:py-0.5 rounded-full text-[11px] font-semibold bg-card/90 backdrop-blur-md border border-primary text-foreground shadow-float">
+              <span className="[@media(orientation:landscape)_and_(max-height:540px)]:hidden [@media(max-width:380px)]:hidden">Con intervención ▶</span>
+              <span className="hidden [@media(orientation:landscape)_and_(max-height:540px)]:inline [@media(max-width:380px)]:inline">Con ▶</span>
             </span>
           </div>
         )}
@@ -363,7 +365,7 @@ export function CompareSwipe({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onKeyDown={handleKeyDown}
-          className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 z-10 size-9 [@media(pointer:coarse)]:size-11 rounded-full bg-card border-2 border-primary text-primary shadow-float flex items-center justify-center cursor-ew-resize hover:scale-110 active:scale-95 transition-transform pointer-events-auto focus:outline-none focus:ring-2 focus:ring-primary"
+          className="absolute top-1/2 left-0 -translate-x-1/2 -translate-y-1/2 z-10 size-9 [@media(pointer:coarse)]:size-11 [@media(orientation:landscape)_and_(max-height:540px)]:!size-8 rounded-full bg-card border-2 border-primary text-primary shadow-float flex items-center justify-center cursor-ew-resize hover:scale-110 active:scale-95 transition-transform pointer-events-auto focus:outline-none focus:ring-2 focus:ring-primary"
           title="Arrastra o usa flechas ← / → para mover la cortina de comparación"
         >
           <svg

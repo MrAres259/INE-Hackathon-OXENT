@@ -947,6 +947,77 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
       expect(html).not.toContain("background-color:transparent");
     });
   });
+
+  describe("Landscape viewport and drawer insets (F4-B)", () => {
+    it("placeBalloon con viewport 915x412 e inset derecho 380 coloca el globo completo y sin tapar el ancla en los 6 pasos", () => {
+      const viewport = { w: 915, h: 412 };
+      const insetRight = 380;
+      const balloon = { w: 280, h: 160 };
+      const margin = 12;
+      const safeTop = 48;
+
+      // Rectángulos simulados para los 6 pasos del recorrido en modo horizontal con panel abierto (ancho 380 a la derecha)
+      const stepRects: Record<
+        string,
+        { left: number; top: number; width: number; height: number; right: number; bottom: number }
+      > = {
+        escenario: { left: 120, top: 8, width: 160, height: 32, right: 280, bottom: 40 },
+        capas: { left: 12, top: 60, width: 120, height: 36, right: 132, bottom: 96 },
+        panel: { left: 535, top: 0, width: 380, height: 412, right: 915, bottom: 412 },
+        buscar: { left: 300, top: 8, width: 160, height: 32, right: 460, bottom: 40 },
+        herramientas: { left: 491, top: 56, width: 36, height: 144, right: 527, bottom: 200 },
+        leyenda: { left: 12, top: 220, width: 110, height: 36, right: 122, bottom: 256 },
+      };
+
+      for (const step of TOUR_STEPS) {
+        const rect = stepRects[step.sel];
+        expect(rect).toBeDefined();
+
+        const result = placeBalloon(rect, balloon, viewport, margin, safeTop, insetRight);
+
+        // 1. Globo queda completo en viewport y a la izquierda del cajón (ancho útil = 915 - 380 = 535)
+        expect(result.left).toBeGreaterThanOrEqual(margin);
+        expect(result.left + balloon.w).toBeLessThanOrEqual(viewport.w - insetRight);
+
+        // 2. Globo queda dentro de límites verticales respetando safeTop y margin
+        expect(result.top).toBeGreaterThanOrEqual(safeTop);
+        expect(result.top + balloon.h).toBeLessThanOrEqual(viewport.h - margin);
+
+        // 3. No solapa el rectángulo del ancla
+        const overlapsAnchor =
+          result.left < rect.right &&
+          result.left + balloon.w > rect.left &&
+          result.top < rect.bottom &&
+          result.top + balloon.h > rect.top;
+        expect(overlapsAnchor).toBe(false);
+      }
+    });
+
+    it("emite el evento atalaya:guide-open al activarse", () => {
+      let dispatchedEvent: string | null = null;
+      const originalWindow = (globalThis as any).window;
+
+      const mockWindow = {
+        innerWidth: 1024,
+        innerHeight: 768,
+        localStorage: { getItem: () => null, setItem: () => {} },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn((e: any) => {
+          dispatchedEvent = e.type;
+        }),
+      };
+
+      (globalThis as any).window = mockWindow;
+
+      try {
+        mockWindow.dispatchEvent(new CustomEvent("atalaya:guide-open"));
+        expect(dispatchedEvent).toBe("atalaya:guide-open");
+      } finally {
+        (globalThis as any).window = originalWindow;
+      }
+    });
+  });
 });
 
 

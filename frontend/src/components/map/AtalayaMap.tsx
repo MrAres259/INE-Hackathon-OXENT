@@ -979,16 +979,32 @@ function AtalayaMapImpl({
         if (geoItem?.bbox) {
           const [minLon, minLat, maxLon, maxLat] = geoItem.bbox;
           const container = map.getContainer();
-          const valor = container
+          const valorBottom = container
             ? parseFloat(
                 getComputedStyle(container).getPropertyValue("--map-fit-bottom")
               )
             : 0;
-          const padding = fitPaddingWithInset(
+          const valorRight = container
+            ? parseFloat(
+                getComputedStyle(container).getPropertyValue("--map-fit-right")
+              )
+            : 0;
+          const paddingBottom = fitPaddingWithInset(
             48,
             container?.clientHeight ?? 0,
-            valor
+            valorBottom
           );
+          const paddingRight = fitPaddingWithInset(
+            48,
+            container?.clientWidth ?? 0,
+            valorRight
+          );
+          const padding = {
+            top: paddingBottom.top,
+            left: paddingBottom.left,
+            right: paddingRight.bottom,
+            bottom: paddingBottom.bottom,
+          };
           map.fitBounds(
             [
               [minLon, minLat],
@@ -1026,7 +1042,10 @@ function AtalayaMapImpl({
       data-geometry={geometryMode}
       data-focus-ent={focusEnt ?? ""}
     >
-      <div ref={containerRef} className="absolute inset-0" />
+      <div
+        ref={containerRef}
+        className="absolute inset-0 [&_.maplibregl-ctrl-bottom-right]:mr-[var(--map-inset-right,0px)]"
+      />
       {mapState === "unsupported" && <MapFallback reason="unsupported" />}
       {mapState === "error" && (
         <MapFallback reason="error" onRetry={handleRetry} />

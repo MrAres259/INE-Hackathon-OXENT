@@ -44,13 +44,45 @@ export function MapTooltip({
     : "Entidad Federativa";
 
   // Position and flipping near edges (with +16px anchor offset)
-  const tooltipWidth = 280;
-  const tooltipHeight = 260;
-  const flipX = hover.x + tooltipWidth > containerWidth - 16;
-  const flipY = hover.y + tooltipHeight > containerHeight - 16;
+  const isLandscape =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(orientation: landscape) and (max-height: 540px)").matches;
 
-  const left = flipX ? hover.x - 16 : hover.x + 16;
-  const top = flipY ? hover.y - 16 : hover.y + 16;
+  let insetRight = 0;
+  let insetBottom = 0;
+  if (typeof window !== "undefined" && typeof getComputedStyle === "function") {
+    try {
+      const root = document.documentElement;
+      const ir = parseFloat(getComputedStyle(root).getPropertyValue("--map-inset-right"));
+      const ib = parseFloat(getComputedStyle(root).getPropertyValue("--map-inset-bottom"));
+      if (!Number.isNaN(ir) && ir > 0) insetRight = ir;
+      if (!Number.isNaN(ib) && ib > 0) insetBottom = ib;
+    } catch {}
+  }
+
+  const tooltipWidth = isLandscape ? 240 : 280;
+  const tooltipHeight = isLandscape ? Math.min(220, containerHeight - 24) : 260;
+
+  const usableWidth = Math.max(tooltipWidth + 32, containerWidth - insetRight);
+  const usableHeight = Math.max(tooltipHeight + 32, containerHeight - insetBottom);
+
+  const flipX = hover.x + tooltipWidth > usableWidth - 16;
+  const flipY = hover.y + tooltipHeight > usableHeight - 16;
+
+  let left = flipX ? hover.x - 16 : hover.x + 16;
+  let top = flipY ? hover.y - 16 : hover.y + 16;
+
+  if (!flipX && left + tooltipWidth > usableWidth - 8) {
+    left = Math.max(16, usableWidth - tooltipWidth - 8);
+  }
+  if (flipX && left < 16) {
+    left = 16;
+  }
+  if (top < 16) {
+    top = 16;
+  }
+
   const transform = `${flipX ? "translateX(-100%)" : ""} ${flipY ? "translateY(-100%)" : ""}`.trim();
 
   // Category
@@ -100,14 +132,14 @@ export function MapTooltip({
       data-map-tooltip=""
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="absolute pointer-events-auto z-50 transition-opacity duration-75 [@media(hover:none)]:hidden"
+      className="absolute pointer-events-auto z-50 transition-opacity duration-75 [@media(hover:none)]:hidden max-h-[calc(100vh-24px)]"
       style={{
         left,
         top,
         transform: transform || undefined,
       }}
     >
-      <div className="w-68 float-panel p-3 text-xs space-y-2 shadow-float text-foreground">
+      <div className="w-68 max-w-[280px] [@media(orientation:landscape)_and_(max-height:540px)]:w-[240px] [@media(orientation:landscape)_and_(max-height:540px)]:max-w-[240px] [@media(orientation:landscape)_and_(max-height:540px)]:p-2 [@media(orientation:landscape)_and_(max-height:540px)]:text-[11px] float-panel p-3 text-xs space-y-2 shadow-float text-foreground">
         {/* Header: Name, state, category chip */}
         <div className="flex items-start justify-between gap-2 border-b border-border pb-2">
           <div className="min-w-0">
