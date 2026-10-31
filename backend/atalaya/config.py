@@ -51,7 +51,11 @@ class Settings:
     chat_rate_per_day: int = 200
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
-    gemini_fallback_models: list[str] = field(default_factory=lambda: ["gemini-3.5-flash", "gemini-3.1-flash-lite"])
+    gemini_fallback_models: list[str] = field(default_factory=lambda: ["gemini-3.6-flash", "gemini-3.5-flash"])
+    gemini_research_models: list[str] = field(default_factory=lambda: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash"])
+    gemini_model_timeouts: dict[str, float] = field(default_factory=lambda: {"gemini-3.8-flash": 180.0, "gemini-3.7-flash": 180.0, "*": 60.0})
+    gemini_repair_model: str = "gemini-3.1-flash-lite"
+    gemini_research_deadline_s: float = 420.0
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_thinking_level: str = "medium"
     gemini_timeout_s: float = 45.0
@@ -81,6 +85,10 @@ class Settings:
             f"chat_rate_per_day={self.chat_rate_per_day!r}, "
             f"gemini_api_key={masked_gemini_key!r}, gemini_model={self.gemini_model!r}, "
             f"gemini_fallback_models={self.gemini_fallback_models!r}, "
+            f"gemini_research_models={self.gemini_research_models!r}, "
+            f"gemini_model_timeouts={self.gemini_model_timeouts!r}, "
+            f"gemini_repair_model={self.gemini_repair_model!r}, "
+            f"gemini_research_deadline_s={self.gemini_research_deadline_s!r}, "
             f"gemini_base_url={self.gemini_base_url!r}, gemini_thinking_level={self.gemini_thinking_level!r}, "
             f"gemini_timeout_s={self.gemini_timeout_s!r}, "
             f"gemini_grounding_cooldown_min={self.gemini_grounding_cooldown_min!r}, "
@@ -168,9 +176,50 @@ def get_settings() -> Settings:
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
     raw_fallbacks = os.getenv("GEMINI_FALLBACK_MODELS")
     if raw_fallbacks is not None and raw_fallbacks.strip():
-        gemini_fallback_models = [m.strip() for m in raw_fallbacks.split(",") if m.strip()]
+        cand_fallbacks = [m.strip() for m in raw_fallbacks.split(",") if m.strip()]
     else:
-        gemini_fallback_models = ["gemini-3.5-flash", "gemini-3.1-flash-lite"]
+        cand_fallbacks = ["gemini-3.6-flash", "gemini-3.5-flash"]
+    gemini_fallback_models = []
+    for m in cand_fallbacks:
+        if "lite" in m.lower():
+            logger.warning("Filtro modelo lite '%s' de GEMINI_FALLBACK_MODELS", m)
+        else:
+            gemini_fallback_models.append(m)
+
+    raw_research = os.getenv("GEMINI_RESEARCH_MODELS")
+    if raw_research is not None and raw_research.strip():
+        cand_research = [m.strip() for m in raw_research.split(",") if m.strip()]
+    else:
+        cand_research = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
+    gemini_research_models = []
+    for m in cand_research:
+        if "lite" in m.lower():
+            logger.warning("Filtro modelo lite '%s' de GEMINI_RESEARCH_MODELS", m)
+        else:
+            gemini_research_models.append(m)
+
+    raw_timeouts = os.getenv("GEMINI_MODEL_TIMEOUTS", "gemini-3.8-flash=180,gemini-3.7-flash=180,*=60")
+    gemini_model_timeouts: dict[str, float] = {}
+    if raw_timeouts:
+        for part in raw_timeouts.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if "=" in part:
+                k, v = part.split("=", 1)
+                try:
+                    gemini_model_timeouts[k.strip()] = float(v.strip())
+                except ValueError:
+                    pass
+    if not gemini_model_timeouts:
+        gemini_model_timeouts = {"gemini-3.8-flash": 180.0, "gemini-3.7-flash": 180.0, "*": 60.0}
+
+    gemini_repair_model = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
+
+    try:
+        gemini_research_deadline_s = float(os.getenv("GEMINI_RESEARCH_DEADLINE_S", "420"))
+    except ValueError:
+        gemini_research_deadline_s = 420.0
 
     gemini_base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").strip().rstrip("/")
     gemini_thinking_level = os.getenv("GEMINI_THINKING_LEVEL", "medium").strip().lower() or "medium"
@@ -246,6 +295,10 @@ def get_settings() -> Settings:
         gemini_api_key=gemini_api_key,
         gemini_model=gemini_model,
         gemini_fallback_models=gemini_fallback_models,
+        gemini_research_models=gemini_research_models,
+        gemini_model_timeouts=gemini_model_timeouts,
+        gemini_repair_model=gemini_repair_model,
+        gemini_research_deadline_s=gemini_research_deadline_s,
         gemini_base_url=gemini_base_url,
         gemini_thinking_level=gemini_thinking_level,
         gemini_timeout_s=gemini_timeout_s,

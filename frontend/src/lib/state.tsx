@@ -21,6 +21,7 @@ import type {
   HealthResponse,
   MapMode,
 } from "./types";
+import type { LayoutMode, SheetSnap } from "./useMediaQuery";
 import {
   getHealth,
   getMeta,
@@ -112,6 +113,45 @@ export function serializeMapUrlState(
   return sp.toString();
 }
 
+export interface ExplainRequest {
+  unitId: string;
+  name: string;
+  level: "state" | "mun";
+  nonce: number;
+}
+
+// CONTRACT-NOTE: Next.js App Router forbids non-page exports from app/**/page.tsx
+// (enforced by pageExports.test.ts and Next.js build). resolveExplainOpen is defined here
+// so it is accessible as a pure exported function for testing in explainRequest.test.ts.
+export interface ExplainOpenResolution {
+  tab: "chat";
+  snap?: SheetSnap;
+  openDrawer?: boolean;
+  openPanel?: boolean;
+}
+
+export function resolveExplainOpen(
+  layoutMode: LayoutMode,
+  sheetSnap: SheetSnap,
+  panelCollapsed: boolean
+): ExplainOpenResolution {
+  const resolution: ExplainOpenResolution = {
+    tab: "chat",
+  };
+
+  if (layoutMode === "compact-portrait") {
+    resolution.snap = sheetSnap === "half" || sheetSnap === "full" ? "full" : "half";
+  } else if (layoutMode === "compact-landscape") {
+    resolution.openDrawer = true;
+  } else if (layoutMode === "desktop") {
+    if (panelCollapsed) {
+      resolution.openPanel = true;
+    }
+  }
+
+  return resolution;
+}
+
 export interface AtalayaContextValue {
   scenario: ScenarioId;
   setScenario: (s: ScenarioId) => void;
@@ -157,6 +197,9 @@ export interface AtalayaContextValue {
   selectRegion: (id: string | null) => void;
   resetToNational: () => void;
   runSimulation: (customParams?: Record<string, any>) => Promise<void>;
+  explainRequest?: ExplainRequest | null;
+  requestExplain?: (req: { unitId: string; name: string; level: "state" | "mun" }) => void;
+  clearExplainRequest?: () => void;
 }
 
 export const AtalayaContext = createContext<AtalayaContextValue | null>(null);
@@ -202,6 +245,8 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
   const [view3d, setView3d] = useState<View3d>("inclinada");
   const [comparePos, setComparePos] = useState<number>(50);
   const [isUrlInitialized, setIsUrlInitialized] = useState<boolean>(false);
+  const [explainRequest, setExplainRequest] = useState<ExplainRequest | null>(null);
+  const explainNonceRef = useRef<number>(0);
 
   const simReqIdRef = useRef<number>(0);
   const baseReqIdRef = useRef<number>(0);
@@ -695,6 +740,26 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
     [paramsByScenario, meta]
   );
 
+  const requestExplain = useCallback(
+    (req: { unitId: string; name: string; level: "state" | "mun" }) => {
+      if (req.level === "mun") {
+        selectRegion(req.unitId);
+      } else {
+        selectState(req.unitId);
+      }
+      explainNonceRef.current += 1;
+      setExplainRequest({
+        ...req,
+        nonce: Date.now() + explainNonceRef.current,
+      });
+    },
+    [selectRegion, selectState]
+  );
+
+  const clearExplainRequest = useCallback(() => {
+    setExplainRequest(null);
+  }, []);
+
   return (
     <AtalayaContext.Provider
       value={{
@@ -735,6 +800,9 @@ export function AtalayaProvider({ children }: { children: React.ReactNode }) {
         selectRegion,
         resetToNational,
         runSimulation,
+        explainRequest,
+        requestExplain,
+        clearExplainRequest,
       }}
     >
       {children}

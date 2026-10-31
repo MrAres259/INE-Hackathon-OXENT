@@ -27,10 +27,12 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 from atalaya.api import deps
+from atalaya.config import get_settings
 from atalaya.intel.prompts_campaign import (
     build_campaign_fallback_queries,
     build_planner_prompt,
     build_research_prompt,
+    build_research_prompt_inline,
 )
 from atalaya.intel.schemas import (
     CampaignPlan,
@@ -335,49 +337,472 @@ def research_unit(
         )
 
     system_prompt, user_prompt = build_research_prompt(snapshot, focus)
-    cache_key = f"campaign:{snapshot.unit_id}:{focus or ''}"
+    cache_key = f"campaign:v2:{snapshot.unit_id}:{focus or ''}"
     cache_ttl_s = 0 if refresh else 72 * 3600
     fallback_queries = build_campaign_fallback_queries(snapshot, focus)
 
-    try:
+    clean_name = re.sub(r"^municipio de\s+", "", snapshot.name, flags=re.IGNORECASE).strip()
+    zone_names = [clean_name]
+    if snapshot.level == "mun" and snapshot.ent_name:
+        clean_ent = re.sub(r"^estado de\s+", "", snapshot.ent_name, flags=re.IGNORECASE).strip()
+        if clean_ent and clean_ent.lower() not in [z.lower() for z in zone_names]:
+            zone_names.append(clean_ent)
+
+    from atalaya.explain.verify import CorpusDoc, fetch_corpus, verify_finding
+    from atalaya import websearch
+
+    verifiable_tiers = getattr(sources, "VERIFIABLE_TIERS", DEFAULT_VERIFIABLE_TIERS)
+    grounding_available = True
+    if hasattr(gemini, "_is_grounding_available"):
         try:
-            parsed_json, grounded_res = gemini.grounded_json(
-                user_prompt,
-                system=system_prompt,
-                cache_key=cache_key,
-                cache_ttl_s=cache_ttl_s,
-                fallback_queries=fallback_queries,
-                fallback_days=1460,
-            )
-        except TypeError as type_err:
-            if "fallback_queries" in str(type_err):
+            grounding_available, _ = gemini._is_grounding_available()
+        except Exception:
+            grounding_available = True
+
+    try:
+        if grounding_available:
+            # ---------------------------------------------------- Ruta A: Grounding disponible
+            try:
                 parsed_json, grounded_res = gemini.grounded_json(
                     user_prompt,
                     system=system_prompt,
                     cache_key=cache_key,
                     cache_ttl_s=cache_ttl_s,
-                )
-            else:
-                raise
-
-        # If 1460 days yielded no findings in RSS mode, try 365 days
-        raw_f_check = parsed_json.get("findings", []) if isinstance(parsed_json, dict) else []
-        if not raw_f_check and getattr(grounded_res, "mode", "grounding") == "rss_url_context":
-            try:
-                p_365, g_365 = gemini.grounded_json(
-                    user_prompt,
-                    system=system_prompt,
-                    cache_key=f"{cache_key}:365",
-                    cache_ttl_s=cache_ttl_s,
                     fallback_queries=fallback_queries,
-                    fallback_days=365,
+                    fallback_days=1460,
                 )
-                if isinstance(p_365, dict) and p_365.get("findings"):
-                    parsed_json, grounded_res = p_365, g_365
-            except Exception:
-                pass
+            except TypeError as type_err:
+                if "fallback_queries" in str(type_err):
+                    parsed_json, grounded_res = gemini.grounded_json(
+                        user_prompt,
+                        system=system_prompt,
+                        cache_key=cache_key,
+                        cache_ttl_s=cache_ttl_s,
+                    )
+                else:
+                    raise
+
+            raw_f_check = parsed_json.get("findings", []) if isinstance(parsed_json, dict) else []
+            if not raw_f_check and getattr(grounded_res, "mode", "grounding") == "rss_url_context":
+                try:
+                    p_365, g_365 = gemini.grounded_json(
+                        user_prompt,
+                        system=system_prompt,
+                        cache_key=f"{cache_key}:365",
+                        cache_ttl_s=cache_ttl_s,
+                        fallback_queries=fallback_queries,
+                        fallback_days=365,
+                    )
+                    if isinstance(p_365, dict) and p_365.get("findings"):
+                        parsed_json, grounded_res = p_365, g_365
+                except Exception:
+                    pass
+
+            grounded_urls: set[str] = set()
+            grounded_domains: set[str] = set()
+            for gs in getattr(grounded_res, "sources", []):
+                u = getattr(gs, "url", "")
+                if u:
+                    grounded_urls.add(u)
+                d = getattr(gs, "domain", "") or _safe_domain(u)
+                if d:
+                    grounded_domains.add(d)
+
+            raw_findings = parsed_json.get("findings", []) if isinstance(parsed_json, dict) else []
+            if not isinstance(raw_findings, list):
+                raw_findings = []
+
+            discarded_sources_count = 0
+            retained_sources_map: dict[str, dict[str, Any]] = {}
+            retained_findings_temp: list[dict[str, Any]] = []
+
+            def _match_cand(raw_src_dict: dict[str, Any], cand_list: list[Any]) -> Any | None:
+                raw_u = str(raw_src_dict.get("url") or "").strip()
+                raw_t = unicodedata.normalize("NFKD", str(raw_src_dict.get("title") or "")).lower()
+                raw_t = re.sub(r"[^\w\s]", " ", "".join(c for c in raw_t if not unicodedata.combining(c))).strip()
+                for cand in cand_list:
+                    cu = getattr(cand, "url", "")
+                    ct = unicodedata.normalize("NFKD", str(getattr(cand, "title", ""))).lower()
+                    ct = re.sub(r"[^\w\s]", " ", "".join(c for c in ct if not unicodedata.combining(c))).strip()
+                    if raw_u and cu:
+                        if raw_u == cu or raw_u.rstrip("/") == cu.rstrip("/"):
+                            return cand
+                        if len(raw_u) > 25 and (raw_u in cu or cu in raw_u):
+                            return cand
+                    if raw_t and ct:
+                        if raw_t == ct or (len(raw_t) >= 20 and (raw_t in ct or ct in raw_t)):
+                            return cand
+                        tokens_r = set(raw_t.split())
+                        tokens_c = set(ct.split())
+                        if tokens_r and tokens_c and (len(tokens_r & tokens_c) / len(tokens_r | tokens_c) >= 0.5):
+                            return cand
+                return None
+
+            candidate_sources = list(getattr(grounded_res, "sources", []))
+
+            for raw_f in raw_findings:
+                if not isinstance(raw_f, dict):
+                    continue
+
+                raw_srcs = raw_f.get("sources", [])
+                if not isinstance(raw_srcs, list):
+                    raw_srcs = []
+
+                valid_src_urls: list[str] = []
+                for s in raw_srcs:
+                    if not isinstance(s, dict):
+                        discarded_sources_count += 1
+                        continue
+                    raw_url = str(s.get("url", "")).strip()
+                    if not raw_url.startswith("http://") and not raw_url.startswith("https://"):
+                        discarded_sources_count += 1
+                        continue
+
+                    matched_cand = _match_cand(s, candidate_sources)
+                    resolved_url = raw_url
+                    if hasattr(gemini, "resolve_source_url"):
+                        try:
+                            resolved_url = gemini.resolve_source_url(raw_url)
+                        except Exception:
+                            resolved_url = raw_url
+
+                    domain = getattr(gemini, "domain_of", _safe_domain)(resolved_url)
+                    cand_domain = getattr(matched_cand, "domain", "") if matched_cand else ""
+                    if cand_domain and hasattr(sources, "_is_aggregator") and sources._is_aggregator(domain):
+                        domain = cand_domain
+                    elif cand_domain and ("news.google.com" in domain or "bing.com" in domain):
+                        domain = cand_domain
+
+                    tier: SourceTier = sources.classify_domain(domain) if hasattr(sources, "classify_domain") else _fallback_classify_domain(domain)
+
+                    is_in_chunks = (raw_url in grounded_urls) or (resolved_url in grounded_urls) or (domain in grounded_domains)
+                    is_in_seed = (tier != "no_reconocido")
+                    is_matched_cand = (matched_cand is not None)
+
+                    if not is_in_chunks and not is_in_seed and not is_matched_cand:
+                        discarded_sources_count += 1
+                        continue
+
+                    if tier not in verifiable_tiers:
+                        discarded_sources_count += 1
+                        continue
+
+                    outlet = getattr(matched_cand, "outlet", None) or (sources.outlet_name(domain) if hasattr(sources, "outlet_name") else None)
+                    title = str(s.get("title", "")).strip() or getattr(matched_cand, "title", domain)
+                    published = str(s.get("published", "")).strip() or getattr(matched_cand, "published", None)
+
+                    retained_sources_map[resolved_url] = {
+                        "url": resolved_url,
+                        "title": title,
+                        "domain": domain,
+                        "outlet": outlet,
+                        "tier": tier,
+                        "published": published,
+                    }
+                    valid_src_urls.append(resolved_url)
+
+                if not valid_src_urls:
+                    continue
+
+                retained_findings_temp.append({
+                    "raw": raw_f,
+                    "urls": valid_src_urls,
+                })
+
+            url_to_source_ref: dict[str, SourceRef] = {}
+            source_refs_list: list[SourceRef] = []
+            for idx, (url, sdict) in enumerate(retained_sources_map.items(), start=1):
+                s_id = f"s{idx}"
+                s_ref = SourceRef(
+                    id=s_id,
+                    url=sdict["url"],
+                    title=sdict["title"],
+                    domain=sdict["domain"],
+                    outlet=sdict["outlet"],
+                    tier=sdict["tier"],
+                    published=sdict["published"],
+                )
+                url_to_source_ref[url] = s_ref
+                source_refs_list.append(s_ref)
+
+            # Build CorpusDoc mapping for verify_finding
+            docs_map_ruta_a: dict[str, CorpusDoc] = {
+                s_ref.id: CorpusDoc(
+                    id=s_ref.id,
+                    url=s_ref.url,
+                    title=s_ref.title,
+                    domain=s_ref.domain,
+                    outlet=s_ref.outlet,
+                    published=s_ref.published,
+                    tier=s_ref.tier,
+                    text=f"{s_ref.title}. {s_ref.domain}",
+                    from_page=False,
+                )
+                for s_ref in source_refs_list
+            }
+
+            local_findings_temp: list[dict[str, Any]] = []
+            national_findings_temp: list[dict[str, Any]] = []
+            unit_name_norm = snapshot.name.lower()
+            ent_name_norm = (snapshot.ent_name or "").lower()
+
+            for f_item in retained_findings_temp:
+                raw_f = f_item["raw"]
+                raw_scope = str(raw_f.get("scope") or "estado").lower()
+                title_summary = (str(raw_f.get("title") or "") + " " + str(raw_f.get("summary") or "")).lower()
+
+                if raw_scope == "nacional" and (unit_name_norm in title_summary or (ent_name_norm and ent_name_norm in title_summary)):
+                    raw_scope = "municipio" if snapshot.level == "mun" and unit_name_norm in title_summary else "estado"
+                    raw_f["scope"] = raw_scope
+
+                if raw_scope in ("municipio", "estado"):
+                    local_findings_temp.append(f_item)
+                else:
+                    national_findings_temp.append(f_item)
+
+            selected_findings_temp: list[dict[str, Any]] = []
+            selected_findings_temp.extend(local_findings_temp[:5])
+            if national_findings_temp and len(selected_findings_temp) < 6:
+                selected_findings_temp.append(national_findings_temp[0])
+            if len(selected_findings_temp) < 6 and len(local_findings_temp) > 5:
+                selected_findings_temp.append(local_findings_temp[5])
+            if not selected_findings_temp and national_findings_temp:
+                selected_findings_temp.append(national_findings_temp[0])
+
+            final_findings: list[Finding] = []
+            for idx, f_item in enumerate(selected_findings_temp[:6], start=1):
+                raw_f = f_item["raw"]
+                f_id = f"f{idx}"
+                f_title = str(raw_f.get("title", f"Hallazgo {idx}")).strip()
+                f_summary = str(raw_f.get("summary", "")).strip()
+                words = f_summary.split()
+                if len(words) > 60:
+                    f_summary = " ".join(words[:60]) + "..."
+
+                raw_cat = raw_f.get("category")
+                category: FindingCategory = raw_cat if raw_cat in VALID_FINDING_CATEGORIES else "otra"
+                raw_scope = raw_f.get("scope")
+                scope: Any = raw_scope if raw_scope in ["municipio", "estado", "nacional"] else "estado"
+                raw_conf = raw_f.get("confidence")
+                confidence: Confidence = raw_conf if raw_conf in ["alta", "media", "baja"] else "media"
+                evidence_ids = [url_to_source_ref[u].id for u in f_item["urls"] if u in url_to_source_ref]
+
+                # Verification check
+                verif = "fuente_verificada"
+                quote_val = raw_f.get("quote")
+                if quote_val:
+                    raw_v = dict(raw_f)
+                    raw_v["evidence"] = evidence_ids
+                    verif_status, verified_q = verify_finding(raw_v, docs_map_ruta_a, zone_names)
+                    if verif_status == "sin_verificar":
+                        discarded_sources_count += len(evidence_ids)
+                        continue
+                    verif = verif_status
+                    quote_val = verified_q
+
+                final_findings.append(Finding(
+                    id=f_id,
+                    title=f_title,
+                    summary=f_summary,
+                    category=category,
+                    evidence=evidence_ids,
+                    scope=scope,
+                    confidence=confidence,
+                    quote=quote_val,
+                    verification=verif,
+                ))
+
+            queries = getattr(grounded_res, "queries", [])
+            model_name = getattr(grounded_res, "model", "gemini-3.8-flash")
+            from_cache = getattr(grounded_res, "from_cache", False)
+            res_mode = getattr(grounded_res, "mode", "grounding")
+            search_mode = "respaldo" if res_mode == "rss_url_context" else ("grounding" if res_mode == "grounding" else "sin_internet")
+
+            note: str | None = None
+            if not final_findings:
+                note = f"No encontramos noticias recientes con citas comprobables sobre {snapshot.name}."
+            elif res_mode == "rss_url_context":
+                note = "Búsqueda de respaldo: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa."
+
+            return ResearchBundle(
+                unit_id=snapshot.unit_id,
+                unit_name=snapshot.name,
+                level=snapshot.level,
+                findings=final_findings,
+                sources=source_refs_list,
+                discarded_sources=discarded_sources_count,
+                queries=queries,
+                generated_at=now_iso,
+                model=model_name,
+                from_cache=from_cache,
+                search_mode=search_mode,
+                degraded=False,
+                note=note,
+            )
+
+        else:
+            # ---------------------------------------------------- Ruta B: Respaldo RSS + Corpus descargado + Gemini generate_json
+            candidates = websearch.search_news(fallback_queries, days=1460, max_items=40)
+            verifiable_cands = [c for c in candidates if sources.classify_domain(c.domain) in verifiable_tiers]
+            if len(verifiable_cands) < 3:
+                candidates = websearch.search_news(fallback_queries, days=365, max_items=40)
+
+            docs = fetch_corpus(candidates, zone_names=zone_names, max_pages=8)
+            if not docs:
+                return ResearchBundle(
+                    unit_id=snapshot.unit_id,
+                    unit_name=snapshot.name,
+                    level=snapshot.level,
+                    findings=[],
+                    sources=[],
+                    discarded_sources=0,
+                    queries=fallback_queries,
+                    generated_at=now_iso,
+                    model="",
+                    from_cache=False,
+                    search_mode="respaldo",
+                    degraded=False,
+                    note=f"No encontramos noticias recientes con citas comprobables sobre {snapshot.name}.",
+                )
+
+            docs_map = {d.id: d for d in docs}
+            sys_prompt, user_prompt_inline = build_research_prompt_inline(snapshot, focus, docs)
+            settings = get_settings()
+            deadline_s = getattr(settings, "gemini_research_deadline_s", 420.0)
+            research_models = getattr(settings, "gemini_research_models", None)
+
+            parsed_json, meta = gemini.generate_json(
+                user_prompt_inline,
+                system=sys_prompt,
+                models=research_models,
+                cache_key=cache_key,
+                cache_ttl_s=cache_ttl_s,
+                deadline_s=deadline_s,
+            )
+
+            raw_findings = parsed_json.get("findings", []) if isinstance(parsed_json, dict) else []
+            if not isinstance(raw_findings, list):
+                raw_findings = []
+
+            discarded_sources_count = 0
+            verified_findings_temp: list[dict[str, Any]] = []
+
+            for raw_f in raw_findings:
+                if not isinstance(raw_f, dict):
+                    continue
+                verif, verif_quote = verify_finding(raw_f, docs_map, zone_names)
+                if verif == "sin_verificar":
+                    discarded_sources_count += len(raw_f.get("evidence", []))
+                    continue
+
+                ev_ids = [eid for eid in raw_f.get("evidence", []) if eid in docs_map]
+                if not ev_ids:
+                    discarded_sources_count += 1
+                    continue
+
+                verified_findings_temp.append({
+                    "raw": raw_f,
+                    "evidence": ev_ids,
+                    "verification": verif,
+                    "quote": verif_quote,
+                })
+
+            # Filter/prioritize local over national
+            local_list: list[dict[str, Any]] = []
+            national_list: list[dict[str, Any]] = []
+            unit_name_norm = snapshot.name.lower()
+            ent_name_norm = (snapshot.ent_name or "").lower()
+
+            for vf in verified_findings_temp:
+                raw_scope = str(vf["raw"].get("scope") or "estado").lower()
+                title_summary = (str(vf["raw"].get("title") or "") + " " + str(vf["raw"].get("summary") or "")).lower()
+                if raw_scope == "nacional" and (unit_name_norm in title_summary or (ent_name_norm and ent_name_norm in title_summary)):
+                    raw_scope = "municipio" if snapshot.level == "mun" and unit_name_norm in title_summary else "estado"
+                    vf["raw"]["scope"] = raw_scope
+
+                if raw_scope in ("municipio", "estado"):
+                    local_list.append(vf)
+                else:
+                    national_list.append(vf)
+
+            selected_list: list[dict[str, Any]] = []
+            selected_list.extend(local_list[:5])
+            if national_list and len(selected_list) < 6:
+                selected_list.append(national_list[0])
+            if len(selected_list) < 6 and len(local_list) > 5:
+                selected_list.append(local_list[5])
+            if not selected_list and national_list:
+                selected_list.append(national_list[0])
+
+            final_findings = []
+            used_doc_ids: set[str] = set()
+
+            for idx, vf in enumerate(selected_list[:6], start=1):
+                raw_f = vf["raw"]
+                f_id = f"f{idx}"
+                f_title = str(raw_f.get("title", f"Hallazgo {idx}")).strip()
+                f_summary = str(raw_f.get("summary", "")).strip()
+                words = f_summary.split()
+                if len(words) > 60:
+                    f_summary = " ".join(words[:60]) + "..."
+                raw_cat = raw_f.get("category")
+                category: FindingCategory = raw_cat if raw_cat in VALID_FINDING_CATEGORIES else "otra"
+                raw_scope = raw_f.get("scope")
+                scope: Any = raw_scope if raw_scope in ["municipio", "estado", "nacional"] else "estado"
+                raw_conf = raw_f.get("confidence")
+                confidence: Confidence = raw_conf if raw_conf in ["alta", "media", "baja"] else "media"
+
+                used_doc_ids.update(vf["evidence"])
+
+                final_findings.append(Finding(
+                    id=f_id,
+                    title=f_title,
+                    summary=f_summary,
+                    category=category,
+                    evidence=vf["evidence"],
+                    scope=scope,
+                    confidence=confidence,
+                    quote=vf["quote"],
+                    verification=vf["verification"],
+                ))
+
+            # Build source refs for used docs
+            source_refs_list = [
+                SourceRef(
+                    id=d.id,
+                    url=d.url,
+                    title=d.title,
+                    domain=d.domain,
+                    outlet=d.outlet,
+                    tier=d.tier if d.tier in verifiable_tiers else "medio_reconocido",
+                    published=d.published,
+                )
+                for d in docs
+                if d.id in used_doc_ids
+            ]
+
+            note: str | None = None
+            if not final_findings:
+                note = f"No encontramos noticias recientes con citas comprobables sobre {snapshot.name}."
+
+            return ResearchBundle(
+                unit_id=snapshot.unit_id,
+                unit_name=snapshot.name,
+                level=snapshot.level,
+                findings=final_findings,
+                sources=source_refs_list,
+                discarded_sources=discarded_sources_count,
+                queries=fallback_queries,
+                generated_at=now_iso,
+                model=meta.model,
+                from_cache=meta.from_cache,
+                search_mode="respaldo",
+                degraded=False,
+                note=note,
+            )
+
     except Exception as exc:
-        logger.warning("Gemini grounded_json failed for unit %s: %s", snapshot.unit_id, exc)
+        logger.warning("research_unit failed for unit %s: %s", snapshot.unit_id, exc)
         return ResearchBundle(
             unit_id=snapshot.unit_id,
             unit_name=snapshot.name,
@@ -385,7 +810,7 @@ def research_unit(
             findings=[],
             sources=[],
             discarded_sources=0,
-            queries=[],
+            queries=fallback_queries,
             generated_at=now_iso,
             model="",
             from_cache=False,
@@ -393,244 +818,6 @@ def research_unit(
             degraded=True,
             note=f"No se pudo investigar en internet ({exc}). El plan usa solo los datos de Atalaya Electoral.",
         )
-
-    # Grounded sources from Gemini response
-    grounded_urls: set[str] = set()
-    grounded_domains: set[str] = set()
-    for gs in getattr(grounded_res, "sources", []):
-        u = getattr(gs, "url", "")
-        if u:
-            grounded_urls.add(u)
-        d = getattr(gs, "domain", "") or _safe_domain(u)
-        if d:
-            grounded_domains.add(d)
-
-    verifiable_tiers = getattr(sources, "VERIFIABLE_TIERS", DEFAULT_VERIFIABLE_TIERS)
-
-    raw_findings = parsed_json.get("findings", []) if isinstance(parsed_json, dict) else []
-    if not isinstance(raw_findings, list):
-        raw_findings = []
-
-    discarded_sources_count = 0
-    retained_sources_map: dict[str, dict[str, Any]] = {}  # final_url -> dict
-    retained_findings_temp: list[dict[str, Any]] = []
-
-    def _match_campaign_candidate(raw_src_dict: dict[str, Any], cand_list: list[Any]) -> Any | None:
-        raw_u = str(raw_src_dict.get("url") or "").strip()
-        raw_t = unicodedata.normalize("NFKD", str(raw_src_dict.get("title") or "")).lower()
-        raw_t = re.sub(r"[^\w\s]", " ", "".join(c for c in raw_t if not unicodedata.combining(c))).strip()
-
-        for cand in cand_list:
-            cu = getattr(cand, "url", "")
-            ct = unicodedata.normalize("NFKD", str(getattr(cand, "title", ""))).lower()
-            ct = re.sub(r"[^\w\s]", " ", "".join(c for c in ct if not unicodedata.combining(c))).strip()
-
-            if raw_u and cu:
-                if raw_u == cu or raw_u.rstrip("/") == cu.rstrip("/"):
-                    return cand
-                if len(raw_u) > 25 and (raw_u in cu or cu in raw_u):
-                    return cand
-
-            if raw_t and ct:
-                if raw_t == ct or (len(raw_t) >= 20 and (raw_t in ct or ct in raw_t)):
-                    return cand
-                tokens_r = set(raw_t.split())
-                tokens_c = set(ct.split())
-                if tokens_r and tokens_c and (len(tokens_r & tokens_c) / len(tokens_r | tokens_c) >= 0.5):
-                    return cand
-        return None
-
-    candidate_sources = list(getattr(grounded_res, "sources", []))
-
-    for raw_f in raw_findings:
-        if not isinstance(raw_f, dict):
-            continue
-
-        raw_srcs = raw_f.get("sources", [])
-        if not isinstance(raw_srcs, list):
-            raw_srcs = []
-
-        valid_src_urls_for_finding: list[str] = []
-
-        for s in raw_srcs:
-            if not isinstance(s, dict):
-                discarded_sources_count += 1
-                continue
-
-            raw_url = str(s.get("url", "")).strip()
-            if not raw_url.startswith("http://") and not raw_url.startswith("https://"):
-                discarded_sources_count += 1
-                continue
-
-            matched_cand = _match_campaign_candidate(s, candidate_sources)
-
-            # Resolve redirect if resolver available
-            resolved_url = raw_url
-            if hasattr(gemini, "resolve_source_url"):
-                try:
-                    resolved_url = gemini.resolve_source_url(raw_url)
-                except Exception:
-                    resolved_url = raw_url
-
-            domain = getattr(gemini, "domain_of", _safe_domain)(resolved_url)
-
-            # Override aggregator domain with candidate's real domain
-            cand_domain = getattr(matched_cand, "domain", "") if matched_cand else ""
-            if cand_domain and hasattr(sources, "_is_aggregator") and sources._is_aggregator(domain):
-                domain = cand_domain
-            elif cand_domain and ("news.google.com" in domain or "bing.com" in domain):
-                domain = cand_domain
-
-            # Classify domain
-            if hasattr(sources, "classify_domain"):
-                tier: SourceTier = sources.classify_domain(domain)
-            else:
-                tier = _fallback_classify_domain(domain)
-
-            # Anti-hallucination check:
-            # Must appear in groundingChunks OR resolve to a recognized/seed domain OR match candidate
-            is_in_chunks = (raw_url in grounded_urls) or (resolved_url in grounded_urls) or (domain in grounded_domains)
-            is_in_seed = (tier != "no_reconocido")
-            is_matched_cand = (matched_cand is not None)
-
-            if not is_in_chunks and not is_in_seed and not is_matched_cand:
-                discarded_sources_count += 1
-                continue
-
-            # Tier check
-            if tier not in verifiable_tiers:
-                discarded_sources_count += 1
-                continue
-
-            outlet = getattr(matched_cand, "outlet", None) or (sources.outlet_name(domain) if hasattr(sources, "outlet_name") else None)
-            title = str(s.get("title", "")).strip() or getattr(matched_cand, "title", domain)
-            published = str(s.get("published", "")).strip() or getattr(matched_cand, "published", None)
-
-            retained_sources_map[resolved_url] = {
-                "url": resolved_url,
-                "title": title,
-                "domain": domain,
-                "outlet": outlet,
-                "tier": tier,
-                "published": published,
-            }
-            valid_src_urls_for_finding.append(resolved_url)
-
-        # Discard finding if no retained sources
-        if not valid_src_urls_for_finding:
-            continue
-
-        retained_findings_temp.append({
-            "raw": raw_f,
-            "urls": valid_src_urls_for_finding,
-        })
-
-    # Build unique SourceRefs s1..sN
-    url_to_source_ref: dict[str, SourceRef] = {}
-    source_refs_list: list[SourceRef] = []
-    for idx, (url, sdict) in enumerate(retained_sources_map.items(), start=1):
-        s_id = f"s{idx}"
-        s_ref = SourceRef(
-            id=s_id,
-            url=sdict["url"],
-            title=sdict["title"],
-            domain=sdict["domain"],
-            outlet=sdict["outlet"],
-            tier=sdict["tier"],
-            published=sdict["published"],
-        )
-        url_to_source_ref[url] = s_ref
-        source_refs_list.append(s_ref)
-
-    # Filter and prioritize findings: favor municipal and state; admit at most 1 national
-    local_findings_temp: list[dict[str, Any]] = []
-    national_findings_temp: list[dict[str, Any]] = []
-
-    unit_name_norm = snapshot.name.lower()
-    ent_name_norm = (snapshot.ent_name or "").lower()
-
-    for f_item in retained_findings_temp:
-        raw_f = f_item["raw"]
-        raw_scope = str(raw_f.get("scope") or "estado").lower()
-        title_summary = (str(raw_f.get("title") or "") + " " + str(raw_f.get("summary") or "")).lower()
-
-        # If mentions unit or entity, promote scope if marked national
-        if raw_scope == "nacional" and (unit_name_norm in title_summary or (ent_name_norm and ent_name_norm in title_summary)):
-            raw_scope = "municipio" if snapshot.level == "mun" and unit_name_norm in title_summary else "estado"
-            raw_f["scope"] = raw_scope
-
-        if raw_scope in ("municipio", "estado"):
-            local_findings_temp.append(f_item)
-        else:
-            national_findings_temp.append(f_item)
-
-    selected_findings_temp: list[dict[str, Any]] = []
-    selected_findings_temp.extend(local_findings_temp[:5])
-    if national_findings_temp and len(selected_findings_temp) < 6:
-        selected_findings_temp.append(national_findings_temp[0])
-    if len(selected_findings_temp) < 6 and len(local_findings_temp) > 5:
-        selected_findings_temp.append(local_findings_temp[5])
-    if not selected_findings_temp and national_findings_temp:
-        selected_findings_temp.append(national_findings_temp[0])
-
-    # Build final Findings f1..fM (max 6)
-    final_findings: list[Finding] = []
-    for idx, f_item in enumerate(selected_findings_temp[:6], start=1):
-        raw_f = f_item["raw"]
-        f_id = f"f{idx}"
-        f_title = str(raw_f.get("title", f"Hallazgo {idx}")).strip()
-        f_summary = str(raw_f.get("summary", "")).strip()
-        # Enforce summary length <= 60 words
-        words = f_summary.split()
-        if len(words) > 60:
-            f_summary = " ".join(words[:60]) + "..."
-
-        raw_cat = raw_f.get("category")
-        category: FindingCategory = raw_cat if raw_cat in VALID_FINDING_CATEGORIES else "otra"
-
-        raw_scope = raw_f.get("scope")
-        scope: Any = raw_scope if raw_scope in ["municipio", "estado", "nacional"] else "estado"
-
-        raw_conf = raw_f.get("confidence")
-        confidence: Confidence = raw_conf if raw_conf in ["alta", "media", "baja"] else "media"
-
-        evidence_ids = [url_to_source_ref[u].id for u in f_item["urls"] if u in url_to_source_ref]
-
-        final_findings.append(Finding(
-            id=f_id,
-            title=f_title,
-            summary=f_summary,
-            category=category,
-            evidence=evidence_ids,
-            scope=scope,
-            confidence=confidence,
-        ))
-
-    queries = getattr(grounded_res, "queries", [])
-    model_name = getattr(grounded_res, "model", "gemini-3.8-flash")
-    from_cache = getattr(grounded_res, "from_cache", False)
-    res_mode = getattr(grounded_res, "mode", "grounding")
-    search_mode = "respaldo" if res_mode == "rss_url_context" else ("grounding" if res_mode == "grounding" else "sin_internet")
-
-    note: str | None = None
-    if res_mode == "rss_url_context":
-        note = "Búsqueda de respaldo: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa."
-
-    return ResearchBundle(
-        unit_id=snapshot.unit_id,
-        unit_name=snapshot.name,
-        level=snapshot.level,
-        findings=final_findings,
-        sources=source_refs_list,
-        discarded_sources=discarded_sources_count,
-        queries=queries,
-        generated_at=now_iso,
-        model=model_name,
-        from_cache=from_cache,
-        search_mode=search_mode,
-        degraded=False,
-        note=note,
-    )
 
 
 # ---------------------------------------------------------------- 3. plan_campaign models & draft schema

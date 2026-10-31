@@ -27,6 +27,7 @@ REGLAS INSTITUCIONALES OBLIGATORIAS:
 5. Fuentes permitidas: exclusivamente fuentes verificables (INE, OPLEs locales, INEGI, universidades y centros académicos, centros de investigación, medios de comunicación reconocidos nacionales o regionales, y verificadores oficiales).
 6. Fuentes prohibidas: no cites redes sociales (X, Facebook, TikTok, Instagram, etc.), blogs anónimos, comunicados partidistas ni foros.
 7. Si no existe información a nivel municipal sobre un factor, puedes usar evidencia a nivel estatal o regional especificando el ámbito ('scope').
+8. RELEVANCIA ELECTORAL ESTRICTA: Solo hallazgos sobre por qué la gente vota o deja de votar (participación electoral, abstención, acceso a casillas, credencial, confianza en las elecciones, violencia alrededor de las elecciones, migración que afecta la lista nominal). Descarta temas legislativos, de partidos o de gobierno que no hablen de participación electoral.
 
 CATEGORÍAS DE HALLAZGOS PERMITIDAS:
 - desconfianza_institucional
@@ -102,11 +103,97 @@ Indicios y contexto de datos de Atalaya Electoral (utilízalos como hipótesis a
 
 Instrucciones:
 1. Realiza búsquedas de reportes, diagnósticos del INE/OPLE, notas periodísticas de medios reconocidos, estudios académicos (INEGI, COLMEX, UNAM, CIDE, UAM, etc.).
-2. Identifica entre 2 y 6 hallazgos concretos con sus respectivas fuentes de enlace directo.
-3. Si existe un enfoque temático solicitado, prioriza hallazgos relacionados a dicho enfoque sin omitir otros factores críticos si la evidencia los respalda.
-4. Devuelve únicamente el objeto JSON solicitado sin texto adicional.
+2. Solo hallazgos sobre por qué la gente de {snapshot.name} vota o deja de votar (participación electoral, abstención, acceso a casillas, credencial, confianza en las elecciones, violencia alrededor de las elecciones, migración que afecta la lista nominal). Descarta temas legislativos, de partidos o de gobierno que no hablen de participación electoral.
+3. Identifica entre 2 y 6 hallazgos concretos con sus respectivas fuentes de enlace directo.
+4. Si existe un enfoque temático solicitado, prioriza hallazgos relacionados a dicho enfoque sin omitir otros factores críticos si la evidencia los respalda.
+5. Devuelve únicamente el objeto JSON solicitado sin texto adicional.
 """
     return CAMPAIGN_RESEARCH_SYSTEM_PROMPT, user_prompt
+
+
+INLINE_RESEARCH_SYSTEM_PROMPT = """Eres un analista electoral neutral para el Instituto Nacional Electoral (INE) de México.
+Tu objetivo es analizar exclusivamente los textos proporcionados de fuentes públicas y extraer hallazgos comprobables sobre las causas de abstención o baja participación en la demarcación territorial indicada.
+
+REGLAS ESTRICTAS DE EXTRACCIÓN Y VERIFICACIÓN (ANTI-ALUCINACIÓN):
+1. Usa ÚNICAMENTE los textos de los materiales provistos. Queda prohibido usar conocimiento previo o inventar datos.
+2. Cada hallazgo DEBE incluir una cita textual ('quote') que sea COPIA EXACTA de una frase del documento citado (entre 8 y 40 palabras, sin cambiar ni una sola letra o puntuación).
+3. Si un factor o problemática no cuenta con una cita textual directa en los textos provistos que lo respalde, NO incluyas el hallazgo.
+4. Si ninguno de los textos contiene evidencia verificable sobre la zona, responde con cero hallazgos: {"findings": []}. 0 hallazgos es una respuesta totalmente válida y preferible antes que inventar.
+5. Neutralidad institucional (INE): no menciones partidos políticos, candidaturas, nombres de personas, servidores públicos ni opiniones partidistas.
+6. 'summary': máximo 60 palabras, en español formal. No incluyas cifras o números que no aparezcan expresamente en la cita textual ('quote').
+7. 'evidence': lista con los identificadores exactos de los documentos utilizados (ej. ["s1"]).
+8. 'category': una de las siguientes categorías permitidas:
+   - desconfianza_institucional
+   - inseguridad_violencia
+   - acceso_casillas_distancia
+   - desinformacion
+   - apatia_desafeccion
+   - barreras_documentales_credencial
+   - migracion_movilidad
+   - exclusion_linguistica_cultural
+   - condiciones_socioeconomicas
+   - otra
+9. 'scope': "municipio", "estado" o "nacional".
+10. 'confidence': "alta", "media" o "baja".
+11. RELEVANCIA ELECTORAL ESTRICTA: Solo hallazgos sobre por qué la gente de la demarcación vota o deja de votar (participación electoral, abstención, acceso a casillas, credencial, confianza en las elecciones, violencia alrededor de las elecciones, migración que afecta la lista nominal). Descarta temas legislativos, de partidos o de gobierno que no hablen de participación electoral.
+
+FORMATO DE SALIDA:
+Devuelve ÚNICAMENTE un objeto JSON válido con la siguiente estructura:
+{
+  "findings": [
+    {
+      "title": "Título conciso del hallazgo (máx 15 palabras)",
+      "summary": "Resumen conciso (máx 60 palabras, sin cifras que no estén en la cita).",
+      "category": "categoria_permitida",
+      "scope": "municipio" | "estado" | "nacional",
+      "confidence": "alta" | "media" | "baja",
+      "evidence": ["s1"],
+      "quote": "Copia textual idéntica de 8 a 40 palabras tomada del documento citado."
+    }
+  ]
+}
+No incluyas explicaciones ni texto fuera del bloque JSON.
+"""
+
+
+def build_research_prompt_inline(
+    snapshot: DataSnapshot,
+    focus: str | None,
+    docs: list[Any],
+) -> tuple[str, str]:
+    """Build (system_prompt, user_prompt) embedding downloaded corpus docs for tool-free generation."""
+    if snapshot.level == "mun":
+        geo_desc = f"Municipio: {snapshot.name}, Estado: {snapshot.ent_name} (clave geográfica: {snapshot.unit_id})"
+    else:
+        geo_desc = f"Estado: {snapshot.name} (clave geográfica: {snapshot.unit_id})"
+
+    focus_desc = f"\nEnfoque prioritario solicitado: {focus}" if focus else ""
+
+    doc_blocks = []
+    for d in docs:
+        d_id = getattr(d, "id", "")
+        outlet = getattr(d, "outlet", None) or getattr(d, "domain", "Fuente")
+        published = getattr(d, "published", None) or "Fecha desconocida"
+        title = getattr(d, "title", "")
+        text = getattr(d, "text", "")[:3000].strip()
+        doc_blocks.append(f"[{d_id}] {outlet} · {published} · {title}\n{text}")
+
+    docs_text = "\n\n---\n\n".join(doc_blocks) if doc_blocks else "No hay documentos disponibles."
+
+    user_prompt = f"""Analiza los siguientes textos de noticias y reportes públicos para la demarcación indicada:
+
+Demarcación: {geo_desc}{focus_desc}
+
+TEXTOS DE FUENTES DISPONIBLES:
+{docs_text}
+
+Instrucciones:
+1. Extrae entre 0 y 6 hallazgos fundamentados con cita textual exacta de los textos anteriores.
+2. Solo hallazgos sobre por qué la gente de {snapshot.name} vota o deja de votar (participación electoral, abstención, acceso a casillas, credencial, confianza en las elecciones, violencia alrededor de las elecciones, migración que afecta la lista nominal). Descarta temas legislativos, de partidos o de gobierno que no hablen de participación electoral.
+3. Si no hay evidencia con cita textual para esta demarcación, devuelve {{"findings": []}}.
+4. Devuelve únicamente el JSON requerido sin comentarios adicionales.
+"""
+    return INLINE_RESEARCH_SYSTEM_PROMPT, user_prompt
 
 
 CAMPAIGN_PLANNER_SYSTEM_PROMPT = """Eres un especialista en diseño de estrategias de participación ciudadana y educación cívica para el Instituto Nacional Electoral (INE) de México.
@@ -199,25 +286,27 @@ def build_campaign_fallback_queries(snapshot: DataSnapshot, focus: str | None = 
     queries: list[str] = []
     if snapshot.level == "mun":
         queries.extend([
-            f"{lugar} {estado} abstención electoral",
-            f"{lugar} {estado} participación electoral 2024",
-            f"{estado} participación electoral 2024",
-            f"{estado} abstención jóvenes",
-            f"{estado} elección judicial participación",
-            f"{lugar} {estado} casillas INE",
+            f'"{lugar}" abstención',
+            f'"{lugar}" participación electoral',
+            f'"{lugar}" casillas',
+            f'"{lugar}" votar',
+            f'"{lugar}" "{estado}" abstención electoral',
+            f'"{lugar}" "{estado}" participación electoral 2024',
+            f'"{lugar}" casillas INE',
         ])
     else:
         queries.extend([
-            f"{estado} participación electoral 2024",
-            f"{estado} abstención jóvenes",
-            f"{estado} elección judicial participación",
-            f"{estado} abstención electoral causas municipios",
-            f"{estado} INE casillas instalación",
-            f"{estado} participación ciudadana elecciones",
+            f'"{estado}" participación electoral',
+            f'"{estado}" abstención',
+            f'"{estado}" casillas',
+            f'"{estado}" votar',
+            f'"{estado}" participación electoral 2024',
+            f'"{estado}" abstención jóvenes',
+            f'"{estado}" casillas instalación INE',
         ])
 
     if focus and focus.strip():
-        queries.insert(0, f"{lugar} {focus.strip()} participación")
+        queries.insert(0, f'"{lugar}" {focus.strip()} participación electoral')
 
     # Deduplicate while preserving order
     seen: set[str] = set()

@@ -76,7 +76,7 @@ export function shouldFallbackToMock(err: unknown): boolean {
   return true;
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
     credentials: "same-origin",
@@ -96,7 +96,15 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       errorData = await res.text().catch(() => null);
     }
-    throw new ApiError(`Request failed with status ${res.status}: ${res.statusText}`, res.status, errorData);
+    let detailMsg = "";
+    if (errorData && typeof errorData === "object" && "detail" in errorData) {
+      const d = (errorData as Record<string, unknown>).detail;
+      detailMsg = typeof d === "string" ? d : JSON.stringify(d);
+    } else if (typeof errorData === "string" && errorData) {
+      detailMsg = errorData;
+    }
+    const message = detailMsg || `Request failed with status ${res.status}: ${res.statusText}`;
+    throw new ApiError(message, res.status, errorData);
   }
 
   return (await res.json()) as T;
@@ -341,6 +349,17 @@ export async function streamChat(
   }
 
   try {
+    const body: Record<string, unknown> = {
+      message: req.message,
+      history: req.history,
+    };
+    if (req.region_id !== undefined) {
+      body.region_id = req.region_id;
+    }
+    if (req.mode !== undefined) {
+      body.mode = req.mode;
+    }
+
     const res = await fetch("/api/chat", {
       method: "POST",
       credentials: "same-origin",
@@ -348,7 +367,7 @@ export async function streamChat(
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       },
-      body: JSON.stringify(req),
+      body: JSON.stringify(body),
       signal,
     });
 

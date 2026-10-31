@@ -6,6 +6,19 @@ import remarkGfm from "remark-gfm";
 import { useAtalaya } from "@/lib/state";
 import { streamChat } from "@/lib/api";
 import type { ChatPlan, ChatData, ChatDone } from "@/lib/types";
+import type {
+  Explanation,
+  ContextResult,
+  SuggestedQuestion,
+  ChatAction,
+} from "@/lib/explain/types";
+import { requestContext } from "@/lib/explain/api";
+import { pollJob } from "@/lib/intel/api";
+import type { Job } from "@/lib/intel/types";
+import { ExplainCard } from "@/components/explain/ExplainCard";
+import { ContextCard } from "@/components/explain/ContextCard";
+import { SuggestedQuestions } from "@/components/explain/SuggestedQuestions";
+import { JobProgress } from "@/components/intel/JobProgress";
 import { InfoTip } from "@/components/ui/InfoTip";
 
 interface Message {
@@ -21,6 +34,10 @@ interface Message {
     ref: string;
   } | null;
   error?: string;
+  explanation?: Explanation | null;
+  context?: ContextResult | null;
+  suggestions?: SuggestedQuestion[];
+  action?: ChatAction | null;
 }
 
 const SUGGESTIONS = [
@@ -40,8 +57,57 @@ function getGuardrailTitle(category?: string | null): string {
   return "Solicitud bloqueada";
 }
 
+export const INTENT_LABELS: Record<string, string> = {
+  explain_unit: "Explicación de la zona",
+  context_news: "Noticias y contexto",
+  profile: "Quién vota por edad y sexo",
+  trend: "Evolución histórica",
+  compare: "Comparación",
+  ranking: "Ranking",
+  lookup: "Consulta de datos",
+  correlation: "Relación entre variables",
+  scenario: "Simulación de escenarios",
+  catalog: "Catálogo de variables",
+  help: "Ayuda",
+};
+
+export function getIntentLabel(intent?: string | null): string {
+  if (!intent) return "Consulta";
+  return INTENT_LABELS[intent] || "Consulta";
+}
+
+export const assistantMarkdownComponents = {
+  ul: ({ node, ...props }: any) => (
+    <ul className="list-disc pl-5 my-2 space-y-1 text-inherit" {...props} />
+  ),
+  ol: ({ node, ...props }: any) => (
+    <ol className="list-decimal pl-5 my-2 space-y-1 text-inherit" {...props} />
+  ),
+  li: ({ node, ...props }: any) => (
+    <li className="my-0.5 leading-relaxed pl-0.5" {...props} />
+  ),
+  p: ({ node, children, ...props }: any) => {
+    const firstChild = React.Children.toArray(children)[0];
+    const isFirstStrong =
+      React.isValidElement(firstChild) &&
+      (firstChild.type === "strong" || (firstChild.props as any)?.node?.tagName === "strong");
+    return (
+      <p className={`my-2 leading-relaxed ${isFirstStrong ? "mt-3" : ""}`} {...props}>
+        {children}
+      </p>
+    );
+  },
+  strong: ({ node, ...props }: any) => (
+    <strong className="font-semibold text-foreground" {...props} />
+  ),
+};
+
 export function ChatPanel() {
-  const { selectedRegionId, selectedDetail } = useAtalaya();
+  const atalaya = useAtalaya();
+  const { selectedRegionId, selectedDetail } = atalaya;
+  const explainRequest = (atalaya as { explainRequest?: { unitId: string; name: string; level: "state" | "mun"; nonce: number } | null }).explainRequest;
+  const clearExplainRequest = (atalaya as { clearExplainRequest?: () => void }).clearExplainRequest;
+
   const [activeChatRegionId, setActiveChatRegionId] = useState<string | null>(selectedRegionId);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -53,9 +119,17 @@ export function ChatPanel() {
   ]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activeResearch, setActiveResearch] = useState<{
+    messageId: string;
+    unitId: string;
+    job?: Job<ContextResult>;
+  } | null>(null);
+
   const abortControllerRef = useRef<AbortController | null>(null);
+  const researchAbortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastHandledNonceRef = useRef<number | null>(null);
 
   // Sync selectedRegionId when user selects a new region in the map
   useEffect(() => {
@@ -66,7 +140,45 @@ export function ChatPanel() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isStreaming]);
+  }, [messages, isStreaming, activeResearch]);
+
+  // Handle explainRequest from state (triggered by map tooltip or panel)
+  useEffect(() => {
+    if (explainRequest && explainRequest.nonce !== lastHandledNonceRef.current) {
+      lastHandledNonceRef.current = explainRequest.nonce;
+      const { unitId, name } = explainRequest;
+
+      // Abort ongoing stream or research if any
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (researchAbortRef.current) {
+        researchAbortRef.current.abort();
+        setActiveResearch(null);
+      }
+      setIsStreaming(false);
+
+      setActiveChatRegionId(unitId);
+      clearExplainRequest?.();
+
+      handleSend(
+        `¿Por qué ${name} tiene este nivel de riesgo? Explícamelo en palabras sencillas.`,
+        { mode: "explain", regionId: unitId }
+      );
+    }
+  }, [explainRequest, clearExplainRequest]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (researchAbortRef.current) {
+        researchAbortRef.current.abort();
+      }
+    };
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
@@ -76,13 +188,27 @@ export function ChatPanel() {
     }
   };
 
-  const handleSend = async (textToSend?: string) => {
+  const handleSend = async (
+    textToSend?: string,
+    options?: { mode?: "explain"; regionId?: string }
+  ) => {
     const queryText = (textToSend ?? input).trim();
-    if (!queryText || isStreaming) return;
+    if (!queryText) return;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
 
     setInput("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
+    }
+
+    const targetRegionId = options?.regionId !== undefined ? options.regionId : activeChatRegionId;
+    const targetMode = options?.mode;
+
+    if (options?.regionId) {
+      setActiveChatRegionId(options.regionId);
     }
 
     const userMsgId = `user-${Date.now()}`;
@@ -101,7 +227,8 @@ export function ChatPanel() {
     ]);
 
     setIsStreaming(true);
-    abortControllerRef.current = new AbortController();
+    const ac = new AbortController();
+    abortControllerRef.current = ac;
 
     try {
       const history = newMessages.map((m) => ({
@@ -113,7 +240,8 @@ export function ChatPanel() {
         {
           message: queryText,
           history,
-          region_id: activeChatRegionId,
+          region_id: targetRegionId,
+          ...(targetMode ? { mode: targetMode } : {}),
         },
         {
           onPlan: (plan) => {
@@ -123,7 +251,16 @@ export function ChatPanel() {
           },
           onData: (data) => {
             setMessages((prev) =>
-              prev.map((m) => (m.id === assistantMsgId ? { ...m, data } : m))
+              prev.map((m) =>
+                m.id === assistantMsgId
+                  ? {
+                      ...m,
+                      data,
+                      explanation: data.explanation ?? m.explanation,
+                      context: data.context ?? m.context,
+                    }
+                  : m
+              )
             );
           },
           onToken: (token) => {
@@ -139,7 +276,13 @@ export function ChatPanel() {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantMsgId
-                  ? { ...m, degraded: done.degraded, guardrail: done.guardrail }
+                  ? {
+                      ...m,
+                      degraded: done.degraded,
+                      guardrail: done.guardrail,
+                      suggestions: done.suggestions ?? m.suggestions,
+                      action: done.action ?? m.action,
+                    }
                   : m
               )
             );
@@ -159,7 +302,7 @@ export function ChatPanel() {
             setIsStreaming(false);
           },
         },
-        abortControllerRef.current.signal
+        ac.signal
       );
     } catch {
       setIsStreaming(false);
@@ -173,8 +316,112 @@ export function ChatPanel() {
     setIsStreaming(false);
   };
 
+  const handleStartResearch = async (msgId: string, unitId: string, regionName: string) => {
+    if (researchAbortRef.current) {
+      researchAbortRef.current.abort();
+    }
+    const ac = new AbortController();
+    researchAbortRef.current = ac;
+    setActiveResearch({ messageId: msgId, unitId });
+
+    try {
+      const res = await requestContext(unitId);
+      if (ac.signal.aborted) return;
+
+      if (res.kind === "done") {
+        setActiveResearch(null);
+        const ctxMsgId = `context-${Date.now()}`;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: ctxMsgId,
+            role: "assistant",
+            content: "",
+            context: res.context,
+          },
+        ]);
+
+        const finalName = res.context.name || regionName;
+        setTimeout(() => {
+          handleSend(`Resume las noticias encontradas sobre ${finalName}`, {
+            regionId: unitId,
+          });
+        }, 50);
+        return;
+      }
+
+      if (res.kind === "job") {
+        setActiveResearch({ messageId: msgId, unitId, job: res.job });
+        const completedJob = await pollJob<ContextResult>(res.job.id, {
+          signal: ac.signal,
+          onUpdate: (updatedJob) => {
+            setActiveResearch((prev) =>
+              prev && prev.messageId === msgId ? { ...prev, job: updatedJob } : prev
+            );
+          },
+        });
+
+        if (ac.signal.aborted) return;
+
+        if (completedJob.status === "done" && completedJob.result) {
+          setActiveResearch(null);
+          const ctxMsgId = `context-${Date.now()}`;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: ctxMsgId,
+              role: "assistant",
+              content: "",
+              context: completedJob.result,
+            },
+          ]);
+
+          const finalName = completedJob.result.name || regionName;
+          setTimeout(() => {
+            handleSend(`Resume las noticias encontradas sobre ${finalName}`, {
+              regionId: unitId,
+            });
+          }, 50);
+        } else if (completedJob.status === "error") {
+          setActiveResearch(null);
+          const errorMsg = completedJob.error || "Error al investigar contexto reciente de noticias.";
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `error-${Date.now()}`,
+              role: "assistant",
+              content: "",
+              error: errorMsg,
+            },
+          ]);
+        }
+      }
+    } catch (err: unknown) {
+      if (ac.signal.aborted) return;
+      setActiveResearch(null);
+      const errText = err instanceof Error ? err.message : "Ocurrió un error al buscar noticias recientes.";
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: "",
+          error: errText,
+        },
+      ]);
+    }
+  };
+
+  const handleCancelResearch = () => {
+    if (researchAbortRef.current) {
+      researchAbortRef.current.abort();
+    }
+    setActiveResearch(null);
+  };
+
   const handleClear = () => {
     handleStop();
+    handleCancelResearch();
     setMessages([
       {
         id: "welcome",
@@ -223,6 +470,28 @@ export function ChatPanel() {
             <p className="mx-auto mt-1 max-w-72 text-xs text-muted-foreground">
               Consulta datos del INE (2009–2024), INEGI y CONAPO y los pronósticos 2027. Nunca inventa cifras.
             </p>
+
+            {selectedDetail && (
+              <div className="mt-3 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveChatRegionId(selectedDetail.id);
+                    handleSend(
+                      `¿Por qué ${selectedDetail.name} tiene este nivel de riesgo? Explícamelo en palabras sencillas.`,
+                      { mode: "explain", regionId: selectedDetail.id }
+                    );
+                  }}
+                  disabled={isStreaming}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary-soft px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>¿Por qué {selectedDetail.name} tiene este riesgo?</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -291,7 +560,7 @@ export function ChatPanel() {
 
                   {msg.content && (
                     <div className="prose prose-xs max-w-none leading-relaxed text-foreground prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-a:text-primary">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                         {msg.content.replace(/\n*Referencia:\s*gr-[0-9a-fA-F]+/i, "").trim()}
                       </ReactMarkdown>
                     </div>
@@ -328,9 +597,19 @@ export function ChatPanel() {
                   className={`space-y-2.5 ${
                     msg.role === "user"
                       ? "max-w-[88%] rounded-2xl rounded-br-sm bg-primary text-primary-foreground px-3.5 py-2.5 text-xs leading-relaxed"
-                      : "max-w-[92%] rounded-2xl rounded-bl-sm border border-border bg-card text-card-foreground p-3.5 shadow-sm"
+                      : "max-w-[92%] rounded-2xl rounded-bl-sm border border-border bg-card text-card-foreground p-3.5 shadow-sm space-y-3"
                   }`}
                 >
+                  {/* ExplainCard: shown at the top when explanation is present */}
+                  {msg.explanation && (
+                    <ExplainCard
+                      explanation={msg.explanation}
+                      variant="chat"
+                      hideSuggestions={true}
+                      className="border-0 shadow-none p-0 bg-transparent"
+                    />
+                  )}
+
                   {/* Plan: "Cómo lo calculé" */}
                   {msg.plan && (
                     <details className="bg-muted/50 border border-border rounded-lg p-2 text-[11px] group">
@@ -351,11 +630,9 @@ export function ChatPanel() {
                           </svg>
                           <span>
                             Cómo lo calculé
-                            {intentVal ? (
-                              <span className="font-mono text-primary font-normal ml-1">
-                                ({intentVal})
-                              </span>
-                            ) : null}
+                            <span className="text-primary font-normal ml-1">
+                              ({getIntentLabel(intentVal)})
+                            </span>
                           </span>
                         </span>
                         <span className="text-muted-foreground group-open:rotate-180 transition-transform">
@@ -364,9 +641,9 @@ export function ChatPanel() {
                       </summary>
                       <div className="mt-2 pt-2 border-t border-border text-foreground space-y-1">
                         <div>
-                          <span className="text-muted-foreground">Intención:</span>{" "}
-                          <span className="font-mono text-primary">
-                            {intentVal}
+                          <span className="text-muted-foreground">Tipo de consulta:</span>{" "}
+                          <span className="text-primary font-medium">
+                            {getIntentLabel(intentVal)}
                           </span>
                         </div>
                         <pre className="bg-muted p-2 rounded text-[10px] text-foreground overflow-x-auto font-mono">
@@ -378,8 +655,8 @@ export function ChatPanel() {
                     </details>
                   )}
 
-                  {/* Data table (assistant) with source */}
-                  {msg.data && msg.data.columns && (
+                  {/* Data table: hidden if explanation is present */}
+                  {!msg.explanation && msg.data && msg.data.columns && (
                     <div className="bg-background border border-border rounded-lg p-2 text-[11px] overflow-hidden">
                       <div className="overflow-x-auto">
                         <table className="w-full text-left">
@@ -425,11 +702,90 @@ export function ChatPanel() {
                           : "prose prose-xs max-w-none text-card-foreground prose-headings:text-foreground prose-p:text-card-foreground prose-strong:text-foreground prose-a:text-primary"
                       }`}
                     >
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.explanation && (
+                        <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide mb-1 not-prose">
+                          En palabras sencillas
+                        </h4>
+                      )}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={msg.role === "assistant" ? assistantMarkdownComponents : undefined}
+                      >
                         {msg.content}
                       </ReactMarkdown>
                     </div>
                   )}
+
+                  {/* ContextCard: shown if context is present */}
+                  {msg.context && (
+                    <ContextCard
+                      result={msg.context}
+                      className="border-0 shadow-none p-0 bg-transparent"
+                    />
+                  )}
+
+                  {/* Context research action */}
+                  {msg.action && msg.action.type === "context_research" && (
+                    <div className="pt-1 border-t border-border/60">
+                      {activeResearch && activeResearch.messageId === msg.id ? (
+                        <div className="space-y-2">
+                          <JobProgress
+                            job={activeResearch.job}
+                            stage={activeResearch.job?.stage || "Iniciando investigación de fuentes..."}
+                            progress={activeResearch.job?.progress || 10}
+                          />
+                          <button
+                            type="button"
+                            onClick={handleCancelResearch}
+                            className="text-xs text-muted-foreground hover:text-foreground px-2.5 py-1 rounded border border-border bg-card cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleStartResearch(
+                              msg.id,
+                              msg.action!.unit_id,
+                              msg.explanation?.name || selectedDetail?.name || msg.action!.unit_id
+                            )
+                          }
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-soft hover:bg-primary/20 text-primary border border-primary/30 text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                            />
+                          </svg>
+                          <span>{msg.action.label || "Buscar noticias y hechos recientes (≈ 1–3 min)"}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Suggested questions at the end */}
+                  {(() => {
+                    const questionsToDisplay =
+                      msg.suggestions && msg.suggestions.length > 0
+                        ? msg.suggestions
+                        : msg.explanation?.suggested_questions;
+
+                    if (questionsToDisplay && questionsToDisplay.length > 0) {
+                      return (
+                        <SuggestedQuestions
+                          questions={questionsToDisplay}
+                          onAsk={(q) => handleSend(q.text)}
+                          disabled={isStreaming}
+                        />
+                      );
+                    }
+                    return null;
+                  })()}
 
                   {/* Guardrail stage salida note */}
                   {msg.guardrail?.stage === "salida" && (
@@ -514,6 +870,22 @@ export function ChatPanel() {
       <div className="border-t border-border p-3 bg-card shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
         {messages.length < 2 && (
           <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1 shrink-0">
+            {selectedDetail && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveChatRegionId(selectedDetail.id);
+                  handleSend(
+                    `¿Por qué ${selectedDetail.name} tiene este nivel de riesgo? Explícamelo en palabras sencillas.`,
+                    { mode: "explain", regionId: selectedDetail.id }
+                  );
+                }}
+                disabled={isStreaming}
+                className="shrink-0 rounded-full border border-primary/30 bg-primary-soft px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                ¿Por qué {selectedDetail.name} tiene este riesgo?
+              </button>
+            )}
             {SUGGESTIONS.map((s, idx) => (
               <button
                 key={idx}
@@ -548,7 +920,7 @@ export function ChatPanel() {
                   handleSend();
                 }
               }}
-              placeholder="Pregunta sobre participación o escenarios…"
+              placeholder="Escribe tu pregunta…"
               disabled={isStreaming}
               className="max-h-36 min-h-[36px] flex-1 resize-none bg-transparent px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none [@media(pointer:coarse)]:text-base leading-normal disabled:opacity-50"
             />
@@ -578,20 +950,20 @@ export function ChatPanel() {
             )}
           </div>
 
-          <div className="flex items-center justify-between px-1">
+          <div className="flex items-center justify-between gap-2 px-1 text-[10px] min-w-0">
             {messages.length > 2 ? (
               <button
                 type="button"
                 onClick={handleClear}
-                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
               >
                 Limpiar chat
               </button>
             ) : (
-              <span />
+              <span className="shrink-0" />
             )}
             <span
-              className={`text-[10px] font-mono ${
+              className={`text-[10px] font-mono shrink-0 ${
                 input.length >= 900 ? "text-destructive font-semibold" : "text-muted-foreground"
               }`}
             >

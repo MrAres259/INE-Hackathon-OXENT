@@ -62,6 +62,14 @@ class GroundedSource:
 
 
 @dataclass
+class GenerationMeta:
+    model: str
+    from_cache: bool
+    elapsed_s: float
+    attempts: list[tuple[str, str]]
+
+
+@dataclass
 class GroundedResult:
     text: str
     sources: list[GroundedSource]
@@ -71,6 +79,7 @@ class GroundedResult:
     supports: list[dict] = field(default_factory=list)
     from_cache: bool = False
     mode: Literal["grounding", "rss_url_context", "none"] = "grounding"
+    attempts: list[tuple[str, str]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------- Internal state & hooks
@@ -78,6 +87,7 @@ class GroundedResult:
 _client_factory: Any = None
 _budget_lock = threading.Lock()
 _backoff_steps: list[float] = [2.0, 5.0]
+_sleep = time.sleep
 
 
 def _create_httpx_client(timeout: float, **kwargs) -> httpx.Client:
@@ -287,13 +297,19 @@ def resolve_source_url(url: str, *, timeout_s: float = 5.0) -> str:
 resolve_source_url.cache_clear = _memo_resolve_url.cache_clear  # type: ignore[attr-defined]
 
 
-def extract_json(text: str) -> Any:
+def extract_json(text: str, *, repair: bool = False) -> Any:
     """Extract and parse first balanced JSON object {...} or array [...] from text.
 
     Tolerates markdown code fences, leading/trailing explanations, and quotes.
+    If repair=True and parsing fails, executes repair with gemini_repair_model.
     Raises ValueError if no valid balanced JSON structure is found.
     """
     if not text or not text.strip():
+        if repair:
+            try:
+                return _repair_json(text)
+            except Exception as exc:
+                raise ValueError(f"Fallo en la reparación de JSON: {exc}") from exc
         raise ValueError("Texto vacío; no se encontró JSON.")
 
     cleaned = text.strip()
@@ -348,7 +364,18 @@ def extract_json(text: str) -> Any:
                     try:
                         return json.loads(candidate)
                     except json.JSONDecodeError as err:
+                        if repair:
+                            try:
+                                return _repair_json(text)
+                            except Exception as exc:
+                                raise ValueError(f"Fallo en la reparación de JSON: {exc}") from exc
                         raise ValueError(f"Estructura JSON inválida: {err}") from err
+
+    if repair:
+        try:
+            return _repair_json(text)
+        except Exception as exc:
+            raise ValueError(f"Fallo en la reparación de JSON: {exc}") from exc
 
     raise ValueError("No se encontró ningún objeto o arreglo JSON balanceado en el texto.")
 
@@ -477,6 +504,8 @@ def _call_gemini_raw(
     max_output_tokens: int = 8192,
     timeout_s: float | None = None,
     mode: Literal["grounding", "rss_url_context", "none"] = "none",
+    models: list[str] | None = None,
+    deadline: float | None = None,
 ) -> GroundedResult:
     """Execute raw POST request to Gemini generateContent with fallback models and retries."""
     if not is_enabled():
@@ -486,13 +515,26 @@ def _call_gemini_raw(
 
     settings = get_settings()
     base_url = settings.gemini_base_url.rstrip("/")
-    per_call_timeout = timeout_s if timeout_s is not None else settings.gemini_timeout_s
-    if per_call_timeout <= 0:
-        per_call_timeout = 45.0
 
-    primary_model = settings.gemini_model
-    fallback_models = [m for m in settings.gemini_fallback_models if m and m != primary_model]
-    models_chain = [primary_model] + fallback_models
+    if models is not None:
+        raw_chain = list(models)
+    else:
+        primary_model = settings.gemini_model
+        fallback_models = [m for m in settings.gemini_fallback_models if m and m != primary_model]
+        raw_chain = [primary_model] + fallback_models
+
+    models_chain: list[str] = []
+    for m in raw_chain:
+        if "lite" in m.lower():
+            if mode == "repair" and m == settings.gemini_repair_model:
+                models_chain.append(m)
+            else:
+                logger.warning("Filtro modelo lite '%s' de la cadena de llamada a Gemini", m)
+        else:
+            models_chain.append(m)
+
+    if not models_chain:
+        raise GeminiError("No hay modelos válidos disponibles en la cadena de llamada a Gemini.")
 
     is_grounding = bool(tools and any("google_search" in t for t in tools))
 
@@ -527,77 +569,127 @@ def _call_gemini_raw(
     start_time = time.perf_counter()
     all_429 = True
     last_err: Exception | None = None
+    attempts_record: list[tuple[str, str]] = []
 
-    for model in models_chain:
-        url = f"{base_url}/models/{model}:generateContent"
-        try:
-            client = _create_httpx_client(timeout=per_call_timeout)
-            with client:
-                resp = client.post(url, json=body, headers=headers)
-                latency_ms = int((time.perf_counter() - start_time) * 1000)
+    def _get_timeout(m: str) -> float:
+        if m in settings.gemini_model_timeouts:
+            return float(settings.gemini_model_timeouts[m])
+        if "*" in settings.gemini_model_timeouts:
+            return float(settings.gemini_model_timeouts["*"])
+        if timeout_s is not None and timeout_s > 0:
+            return float(timeout_s)
+        return float(settings.gemini_timeout_s)
 
-                # Retry 400 if it mentions thinking
-                if resp.status_code == 400 and "thinkingConfig" in body.get("generationConfig", {}):
-                    err_text = resp.text.lower()
-                    if "thinking" in err_text:
-                        logger.warning("Gemini model %s HTTP 400 with thinkingConfig. Retrying once without thinkingConfig...", model)
-                        saved_thinking = body["generationConfig"].pop("thinkingConfig", None)
-                        resp = client.post(url, json=body, headers=headers)
-                        latency_ms = int((time.perf_counter() - start_time) * 1000)
-                        if resp.status_code != 200 and saved_thinking:
-                            body["generationConfig"]["thinkingConfig"] = saved_thinking
+    for idx, model in enumerate(models_chain):
+        is_primary = (idx == 0)
+        per_call_timeout = _get_timeout(model)
 
-                # 429 quota exhaustion: trip circuit if grounding, advance to next model
-                if resp.status_code == 429:
-                    if is_grounding:
-                        _trip_grounding_circuit()
-                    logger.warning("Gemini model %s HTTP 429 quota exhausted. Trying next model...", model)
-                    last_err = GeminiQuotaError("Cuota de Gemini agotada temporalmente (HTTP 429).")
-                    continue
-
-                # Not a 429
-                all_429 = False
-
-                # 5xx server errors: advance to next model
-                if resp.status_code in (500, 502, 503, 504):
-                    logger.warning("Gemini model %s HTTP %d. Trying next model...", model, resp.status_code)
-                    last_err = GeminiError(f"Error del servidor Gemini (HTTP {resp.status_code}) en {model}.")
-                    continue
-
-                # 400 tool / syntax error: raise GeminiError
-                if resp.status_code == 400:
-                    err_msg = resp.text[:200]
-                    raise GeminiError(f"Error 400 de Gemini en modelo {model}: {err_msg}")
-
-                resp.raise_for_status()
-                data = resp.json()
-                result = _parse_candidate_response(data, model, latency_ms, mode=mode)
-                _save_last_model(model)
-                if mode in ("grounding", "rss_url_context", "respaldo"):
-                    _save_last_mode(mode)
-
-                logger.info(
-                    "Gemini request completed: model=%s latency_ms=%d mode=%s sources=%d queries=%d",
+        if deadline is not None:
+            time_left = deadline - time.monotonic()
+            if time_left < per_call_timeout:
+                logger.warning(
+                    "El modelo %s requiere timeout %.1fs pero solo quedan %.1fs antes del deadline; omitiendo.",
                     model,
-                    latency_ms,
-                    mode,
-                    len(result.sources),
-                    len(result.queries),
+                    per_call_timeout,
+                    time_left,
                 )
-                return result
+                attempts_record.append((model, "timeout"))
+                continue
 
-        except (httpx.TimeoutException, httpx.NetworkError) as err:
-            all_429 = False
-            last_err = err
-            logger.warning("Gemini model %s %s. Trying next model...", model, err.__class__.__name__)
-            continue
-        except GeminiError:
-            raise
-        except Exception as err:
-            all_429 = False
-            logger.error("Error inesperado en llamada a Gemini (%s): %s", model, err)
-            last_err = err
-            continue
+        url = f"{base_url}/models/{model}:generateContent"
+        max_tries = 1 if is_primary else 3
+        retry_waits = [5.0, 15.0]
+
+        for try_idx in range(max_tries):
+            if try_idx > 0:
+                wait_sec = retry_waits[try_idx - 1]
+                if deadline is not None and (time.monotonic() + wait_sec + per_call_timeout > deadline):
+                    logger.warning("Reintento %d para %s excedería el deadline; abortando modelo.", try_idx, model)
+                    break
+                logger.info("Esperando %.1fs antes del reintento %d en modelo %s...", wait_sec, try_idx, model)
+                _sleep(wait_sec)
+
+            try:
+                client = _create_httpx_client(timeout=per_call_timeout)
+                with client:
+                    resp = client.post(url, json=body, headers=headers)
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+                    # Retry 400 if it mentions thinking
+                    if resp.status_code == 400 and "thinkingConfig" in body.get("generationConfig", {}):
+                        err_text = resp.text.lower()
+                        if "thinking" in err_text:
+                            logger.warning("Gemini model %s HTTP 400 with thinkingConfig. Retrying once without thinkingConfig...", model)
+                            saved_thinking = body["generationConfig"].pop("thinkingConfig", None)
+                            resp = client.post(url, json=body, headers=headers)
+                            latency_ms = int((time.perf_counter() - start_time) * 1000)
+                            if resp.status_code != 200 and saved_thinking:
+                                body["generationConfig"]["thinkingConfig"] = saved_thinking
+
+                    # 429 quota exhaustion: trip circuit if grounding, advance to next model
+                    if resp.status_code == 429:
+                        if is_grounding:
+                            _trip_grounding_circuit()
+                        logger.warning("Gemini model %s HTTP 429 quota exhausted. Trying next model...", model)
+                        attempts_record.append((model, "429"))
+                        last_err = GeminiQuotaError("Cuota de Gemini agotada temporalmente (HTTP 429).")
+                        break
+
+                    # Not a 429
+                    all_429 = False
+
+                    # 5xx server errors
+                    if resp.status_code in (500, 502, 503, 504):
+                        logger.warning("Gemini model %s HTTP %d (intento %d/%d).", model, resp.status_code, try_idx + 1, max_tries)
+                        attempts_record.append((model, str(resp.status_code)))
+                        last_err = GeminiError(f"Error del servidor Gemini (HTTP {resp.status_code}) en {model}.")
+                        if not is_primary and try_idx < max_tries - 1:
+                            continue
+                        break
+
+                    # 400 tool / syntax error: raise GeminiError
+                    if resp.status_code == 400:
+                        err_msg = resp.text[:200]
+                        attempts_record.append((model, "400"))
+                        raise GeminiError(f"Error 400 de Gemini en modelo {model}: {err_msg}")
+
+                    resp.raise_for_status()
+                    data = resp.json()
+                    attempts_record.append((model, "ok"))
+                    result = _parse_candidate_response(data, model, latency_ms, mode=mode)
+                    result.attempts = attempts_record
+                    _save_last_model(model)
+                    if mode in ("grounding", "rss_url_context", "respaldo"):
+                        _save_last_mode(mode)
+
+                    logger.info(
+                        "Gemini request completed: model=%s latency_ms=%d mode=%s sources=%d queries=%d",
+                        model,
+                        latency_ms,
+                        mode,
+                        len(result.sources),
+                        len(result.queries),
+                    )
+                    return result
+
+            except (httpx.TimeoutException, httpx.NetworkError) as err:
+                all_429 = False
+                last_err = err
+                is_timeout = isinstance(err, httpx.TimeoutException)
+                err_tag = "timeout" if is_timeout else "network_error"
+                attempts_record.append((model, err_tag))
+                logger.warning("Gemini model %s %s (intento %d/%d).", model, err.__class__.__name__, try_idx + 1, max_tries)
+                if not is_primary and isinstance(err, httpx.ReadTimeout) and try_idx < max_tries - 1:
+                    continue
+                break
+            except GeminiError:
+                raise
+            except Exception as err:
+                all_429 = False
+                logger.error("Error inesperado en llamada a Gemini (%s): %s", model, err)
+                attempts_record.append((model, "error"))
+                last_err = err
+                break
 
     if all_429 and last_err is not None:
         raise GeminiQuotaError("Cuota de Gemini agotada temporalmente en todos los modelos (HTTP 429).")
@@ -678,6 +770,26 @@ def grounded_search(
     return result
 
 
+def _repair_json(text: str, *, timeout_s: float | None = None, deadline: float | None = None) -> Any:
+    """Use gemini_repair_model to repair malformed JSON without tools."""
+    settings = get_settings()
+    repair_prompt = (
+        f"El siguiente texto debía contener un JSON válido pero falló al parsearse:\n\n"
+        f"{text}\n\n"
+        f"Devuelve únicamente el JSON válido, sin comentarios, explicaciones ni formato markdown."
+    )
+    repair_res = _call_gemini_raw(
+        prompt=repair_prompt,
+        system="Eres un formateador de datos. Devuelve únicamente el JSON válido requerido.",
+        tools=None,
+        models=[settings.gemini_repair_model],
+        timeout_s=timeout_s,
+        deadline=deadline,
+        mode="repair",
+    )
+    return extract_json(repair_res.text, repair=False)
+
+
 def _rss_fallback_json(
     prompt: str,
     *,
@@ -744,33 +856,22 @@ def _rss_fallback_json(
     res.mode = "rss_url_context"
 
     try:
-        parsed = extract_json(res.text)
+        parsed = extract_json(res.text, repair=False)
         return parsed, res
     except ValueError:
         logger.warning("grounded_json (RSS mode): Falló el parseo inicial de JSON. Ejecutando llamada de reparación...")
-        repair_prompt = (
-            f"El siguiente texto debía contener un JSON válido pero falló al parsearse:\n\n"
-            f"{res.text}\n\n"
-            f"Devuelve únicamente el JSON válido, sin comentarios, explicaciones ni formato markdown."
-        )
-        repair_res = _call_gemini_raw(
-            prompt=repair_prompt,
-            system="Eres un formateador de datos. Devuelve únicamente el JSON válido requerido.",
-            tools=None,
-            max_output_tokens=kw.get("max_output_tokens", 8192),
-            timeout_s=kw.get("timeout_s"),
-            mode="none",
-        )
-        parsed_repair = extract_json(repair_res.text)
+        parsed_repair = _repair_json(res.text, timeout_s=kw.get("timeout_s"))
+        settings = get_settings()
         final_res = GroundedResult(
-            text=repair_res.text,
+            text=res.text,
             sources=sources,
             queries=queries,
-            model=repair_res.model,
-            latency_ms=res.latency_ms + repair_res.latency_ms,
+            model=settings.gemini_repair_model,
+            latency_ms=res.latency_ms,
             supports=res.supports,
             from_cache=False,
             mode="rss_url_context",
+            attempts=getattr(res, "attempts", []),
         )
         return parsed_repair, final_res
 
@@ -819,34 +920,93 @@ def grounded_json(
         raise
 
     try:
-        parsed = extract_json(res.text)
+        parsed = extract_json(res.text, repair=False)
         return parsed, res
     except ValueError:
         logger.warning("grounded_json: Falló el parseo inicial de JSON. Ejecutando llamada de reparación...")
-        repair_prompt = (
-            f"El siguiente texto debía contener un JSON válido pero falló al parsearse:\n\n"
-            f"{res.text}\n\n"
-            f"Devuelve únicamente el JSON válido, sin comentarios, explicaciones ni formato markdown."
-        )
-        repair_res = _call_gemini_raw(
-            prompt=repair_prompt,
-            system="Eres un formateador de datos. Devuelve únicamente el JSON válido requerido.",
-            tools=None,
-            max_output_tokens=kw.get("max_output_tokens", 8192),
-            timeout_s=kw.get("timeout_s"),
-            mode="none",
-        )
-        parsed_repair = extract_json(repair_res.text)
-
-        # Retain sources and queries from original grounded search
+        parsed_repair = _repair_json(res.text, timeout_s=kw.get("timeout_s"))
+        settings = get_settings()
         final_res = GroundedResult(
-            text=repair_res.text,
+            text=res.text,
             sources=res.sources,
             queries=res.queries,
-            model=repair_res.model,
-            latency_ms=res.latency_ms + repair_res.latency_ms,
+            model=settings.gemini_repair_model,
+            latency_ms=res.latency_ms,
             supports=res.supports,
             from_cache=False,
             mode=res.mode,
+            attempts=getattr(res, "attempts", []),
         )
         return parsed_repair, final_res
+
+
+def generate_json(
+    prompt: str,
+    *,
+    system: str | None = None,
+    models: list[str] | None = None,
+    cache_key: str | None = None,
+    cache_ttl_s: int = 0,
+    thinking_level: str | None = None,
+    deadline_s: float | None = None,
+) -> tuple[Any, GenerationMeta]:
+    """Execute tool-free generation with specified model chain and parse result as JSON."""
+    settings = get_settings()
+    cache_file: Path | None = None
+    if cache_key and cache_ttl_s > 0:
+        hashed_key = hashlib.sha1(cache_key.encode("utf-8")).hexdigest()
+        cache_file = _get_intel_dir() / "gemini" / f"{hashed_key}.json"
+        if cache_file.is_file():
+            try:
+                age_s = time.time() - cache_file.stat().st_mtime
+                if age_s < cache_ttl_s:
+                    data = json.loads(cache_file.read_text(encoding="utf-8"))
+                    return data.get("parsed"), GenerationMeta(
+                        model=data.get("model", ""),
+                        from_cache=True,
+                        elapsed_s=0.0,
+                        attempts=[],
+                    )
+            except Exception as exc:
+                logger.warning("Fallo al leer caché de Gemini (%s): %s", cache_file, exc)
+
+    chosen_models = list(models) if models is not None else list(settings.gemini_research_models)
+    deadline = (time.monotonic() + deadline_s) if deadline_s is not None else None
+
+    start_time = time.perf_counter()
+    res = _call_gemini_raw(
+        prompt=prompt,
+        system=system,
+        tools=None,
+        thinking_level=thinking_level,
+        models=chosen_models,
+        deadline=deadline,
+        mode="none",
+    )
+    elapsed_s = time.perf_counter() - start_time
+
+    try:
+        parsed = extract_json(res.text, repair=False)
+    except ValueError:
+        logger.warning("generate_json: Falló el parseo inicial de JSON en %s. Ejecutando reparación...", res.model)
+        parsed = _repair_json(res.text, deadline=deadline)
+
+    if cache_file is not None:
+        try:
+            cache_data = {
+                "text": res.text,
+                "parsed": parsed,
+                "model": res.model,
+                "elapsed_s": elapsed_s,
+            }
+            _atomic_write_json(cache_file, cache_data)
+        except Exception as exc:
+            logger.warning("Fallo al guardar caché de Gemini (%s): %s", cache_file, exc)
+
+    meta = GenerationMeta(
+        model=res.model,
+        from_cache=False,
+        elapsed_s=elapsed_s,
+        attempts=getattr(res, "attempts", []),
+    )
+    return parsed, meta

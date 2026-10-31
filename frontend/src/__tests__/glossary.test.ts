@@ -293,6 +293,53 @@ describe("Glossary (Single Source of Truth)", () => {
     }
   });
 
+  it("contains all 11 new Explain keys from CONTEXT.md §7.4 without forbidden jargon (§0.9)", () => {
+    const EXPLAIN_KEYS = [
+      "explicacion_zona",
+      "evidencia_dato_medido",
+      "evidencia_calculo_modelo",
+      "evidencia_asociacion",
+      "evidencia_contexto",
+      "fuerza_evidencia",
+      "puntos_indice",
+      "confianza_explicacion",
+      "contexto_publico",
+      "cita_verificada",
+      "preguntas_sugeridas",
+    ];
+
+    const FORBIDDEN_WORDS = [
+      /\bpp\b/i,
+      /\brho\b/i,
+      /\bspearman\b/i,
+      /\bridge\b/i,
+      /\bpercentil\b/i,
+      /\bpercentiles\b/i,
+      /\bdesviaci[oó]n\b/i,
+      /\bdesviaciones\b/i,
+    ];
+
+    for (const key of EXPLAIN_KEYS) {
+      expect(key in GLOSSARY, `Missing Explain key ${key}`).toBe(true);
+      const entry = glossaryFor(key);
+      expect(entry, `glossaryFor('${key}') was undefined`).toBeDefined();
+      expect(entry?.title.trim().length, `Empty title for ${key}`).toBeGreaterThan(0);
+      expect(entry?.body.trim().length, `Empty body for ${key}`).toBeGreaterThan(0);
+      expect(
+        entry?.body.length,
+        `Body for ${key} exceeds 420 chars (was ${entry?.body.length})`
+      ).toBeLessThanOrEqual(420);
+
+      const fullContent = `${entry?.title} ${entry?.body} ${entry?.relation ?? ""} ${entry?.example ?? ""}`;
+      for (const pattern of FORBIDDEN_WORDS) {
+        expect(
+          pattern.test(fullContent),
+          `Key '${key}' contains forbidden jargon matching ${pattern}: "${fullContent}"`
+        ).toBe(false);
+      }
+    }
+  });
+
   it("ensures all glossary titles are unique across all keys", () => {
     const titleToKey = new Map<string, string>();
     for (const [key, entry] of Object.entries(GLOSSARY)) {

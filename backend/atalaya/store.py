@@ -70,6 +70,69 @@ SPANISH_STOPWORDS = {
 PARTICIPATION_METRICS = {"participacion", "abstencion", "lista_nominal", "votos_totales"}
 
 
+def _turnout(
+    sv: pd.Series | np.ndarray | float | int,
+    nv: pd.Series | np.ndarray | float | int | None,
+    ln: pd.Series | np.ndarray | float | int,
+) -> Any:
+    """Compute turnout according to official INE CCPC definition: SV / (SV + NV).
+
+    If NV is unavailable or missing, falls back to SV / LN with documented rationale.
+    Turnout is clipped to [0.0, 1.0].
+    """
+    is_series = isinstance(sv, pd.Series) or isinstance(ln, pd.Series) or isinstance(nv, pd.Series)
+    if is_series or isinstance(sv, np.ndarray) or isinstance(ln, np.ndarray) or isinstance(nv, np.ndarray):
+        s_sv = pd.to_numeric(pd.Series(sv) if not isinstance(sv, pd.Series) else sv, errors="coerce")
+        s_ln = pd.to_numeric(pd.Series(ln) if not isinstance(ln, pd.Series) else ln, errors="coerce")
+
+        if nv is not None:
+            s_nv = pd.to_numeric(pd.Series(nv) if not isinstance(nv, pd.Series) else nv, errors="coerce")
+            denom = s_sv + s_nv
+            cond_denom = (denom > 0) & denom.notna()
+            cond_ln = (s_ln > 0) & s_ln.notna()
+            with np.errstate(divide="ignore", invalid="ignore"):
+                # Turnout = SV / (SV + NV) per official INE CCPC definition
+                res = np.where(
+                    cond_denom,
+                    np.clip(s_sv / denom, 0.0, 1.0),
+                    np.where(
+                        cond_ln,
+                        # Fallback to SV / LN if NV is unavailable for these rows
+                        np.clip(s_sv / s_ln, 0.0, 1.0),
+                        np.nan,
+                    ),
+                )
+        else:
+            # Fallback to SV / LN when NV column is missing
+            cond_ln = (s_ln > 0) & s_ln.notna()
+            with np.errstate(divide="ignore", invalid="ignore"):
+                res = np.where(cond_ln, np.clip(s_sv / s_ln, 0.0, 1.0), np.nan)
+
+        if isinstance(sv, pd.Series):
+            return pd.Series(res, index=sv.index)
+        elif isinstance(ln, pd.Series):
+            return pd.Series(res, index=ln.index)
+        elif isinstance(nv, pd.Series):
+            return pd.Series(res, index=nv.index)
+        return res
+    else:
+        # Scalar handling
+        try:
+            v_sv = float(sv)
+            v_ln = float(ln)
+            if nv is not None and not pd.isna(nv):
+                v_nv = float(nv)
+                denom = v_sv + v_nv
+                if denom > 0:
+                    return float(np.clip(v_sv / denom, 0.0, 1.0))
+            # Fallback to SV / LN if NV is missing or denom <= 0
+            if v_ln > 0:
+                return float(np.clip(v_sv / v_ln, 0.0, 1.0))
+            return np.nan
+        except (ValueError, TypeError):
+            return np.nan
+
+
 class StoreError(Exception):
     """Exception raised for errors during Store operations."""
 
@@ -427,13 +490,10 @@ class PandasStore:
             grouped["unit_id"] = grouped["cve_ent"]
             grouped["cvegeo"] = grouped["cve_ent"]
             grouped["level"] = "state"
+            nv_series = grouped["nv"] if "nv" in grouped.columns else None
+            grouped["participacion"] = _turnout(grouped["votos_totales"], nv_series, grouped["lista_nominal"])
+            grouped["abstencion"] = 1.0 - grouped["participacion"]
             cond_ln = (grouped["lista_nominal"] > 0).fillna(False).to_numpy(dtype=bool)
-            with np.errstate(divide="ignore", invalid="ignore"):
-                grouped["participacion"] = np.where(
-                    cond_ln,
-                    np.clip(grouped["votos_totales"] / grouped["lista_nominal"], 0.0, 1.0),
-                    np.nan,
-                )
             if "ns" in grouped.columns:
                 with np.errstate(divide="ignore", invalid="ignore"):
                     grouped["ns_rate"] = np.where(cond_ln, grouped["ns"] / grouped["lista_nominal"], np.nan)
@@ -456,7 +516,7 @@ class PandasStore:
             else:
                 df["low_confidence"] = False
 
-        if "abstencion" not in df.columns:
+        if "abstencion" not in df.columns or df["abstencion"].isna().any():
             df["abstencion"] = 1.0 - df["participacion"]
 
         return df
@@ -978,11 +1038,10 @@ class PandasStore:
             sum_cols = [c for c in ["ln", "sv", "nv", "ns"] if c in sub.columns]
             grouped = sub.groupby(["year", "age_group", "sexo"], as_index=False)[sum_cols].sum()
             grouped["level"] = "state"
-            sv_col = pd.to_numeric(grouped["sv"], errors="coerce").fillna(0) if "sv" in grouped.columns else 0
-            nv_col = pd.to_numeric(grouped["nv"], errors="coerce").fillna(0) if "nv" in grouped.columns else 0
-            denom = sv_col + nv_col
-            with np.errstate(divide="ignore", invalid="ignore"):
-                grouped["participacion"] = np.where(denom > 0, np.clip(sv_col / denom, 0.0, 1.0), np.nan)
+            sv_col = pd.to_numeric(grouped["sv"], errors="coerce").fillna(0) if "sv" in grouped.columns else pd.Series(0, index=grouped.index)
+            nv_col = pd.to_numeric(grouped["nv"], errors="coerce").fillna(0) if "nv" in grouped.columns else None
+            ln_col = pd.to_numeric(grouped["ln"], errors="coerce").fillna(0) if "ln" in grouped.columns else pd.Series(0, index=grouped.index)
+            grouped["participacion"] = _turnout(sv_col, nv_col, ln_col)
 
             grouped = suppress_small_cells(grouped, base_col="ln")
             grouped = grouped.sort_values(by=["year", "age_group", "sexo"], ascending=True)
@@ -1021,15 +1080,13 @@ class PandasStore:
                 return []
 
             sv_col = pd.to_numeric(sub["sv"], errors="coerce").fillna(0) if "sv" in sub.columns else pd.Series(0, index=sub.index)
-            nv_col = pd.to_numeric(sub["nv"], errors="coerce").fillna(0) if "nv" in sub.columns else pd.Series(0, index=sub.index)
-            denom = sv_col + nv_col
+            nv_col = pd.to_numeric(sub["nv"], errors="coerce").fillna(0) if "nv" in sub.columns else None
+            ln_col = pd.to_numeric(sub["ln"], errors="coerce").fillna(0) if "ln" in sub.columns else pd.Series(0, index=sub.index)
             if "participacion" not in sub.columns:
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    sub["participacion"] = np.where(denom > 0, np.clip(sv_col / denom, 0.0, 1.0), np.nan)
+                sub["participacion"] = _turnout(sv_col, nv_col, ln_col)
             else:
-                cond = (denom > 0).to_numpy(dtype=bool)
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    sub["participacion"] = np.where(cond, np.clip(sv_col / denom, 0.0, 1.0), sub["participacion"])
+                calc_p = _turnout(sv_col, nv_col, ln_col)
+                sub["participacion"] = np.where(calc_p.notna(), calc_p, sub["participacion"])
 
             sub = suppress_small_cells(sub, base_col="ln")
             sub = sub.sort_values(by=["year", "age_group", "sexo"], ascending=True)

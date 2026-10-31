@@ -18,6 +18,7 @@ import {
 } from "@/lib/format";
 import { Sparkline } from "@/components/viz/Sparkline";
 import { InfoTip } from "@/components/ui/InfoTip";
+import { WhyThisColor } from "@/components/panel/WhyThisColor";
 import {
   computeNationalStats,
   getCategoryDistribution,
@@ -444,6 +445,21 @@ export function RegionDetailPanel() {
         </div>
       </div>
 
+      {/* Sección: ¿Por qué este color? */}
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+            <span>¿Por qué este color?</span>
+            <InfoTip term="explicacion_zona" size="xs" />
+          </div>
+        </div>
+        <WhyThisColor
+          unitId={selectedDetail.id}
+          name={selectedDetail.name}
+          level={selectedDetail.level}
+        />
+      </section>
+
       {/* SECTIONS IN SPECIFIED ORDER */}
 
       {/* 1. Participación histórica (Sparkline) */}
@@ -823,56 +839,7 @@ export function RegionDetailPanel() {
         </div>
       </section>
 
-      {/* 5. Factores explicativos (barras bg-bad / bg-good según signo) */}
-      <section className="rounded-lg border border-border bg-card p-3 space-y-2.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-xs font-bold text-foreground">
-            <span>Factores explicativos</span>
-            <InfoTip term="factores" size="xs" />
-          </div>
-          <span className="text-[10px] text-muted-foreground">Impacto en abstención</span>
-        </div>
-
-        {!selectedDetail.drivers || selectedDetail.drivers.length === 0 ? (
-          <div className="text-xs text-muted-foreground py-3 text-center flex items-center justify-center gap-1.5">
-            <span>Sin información suficiente</span>
-            <InfoTip term="sin_dato" size="xs" />
-          </div>
-        ) : !hasProminentDrivers(selectedDetail.drivers) ? (
-          <div className="text-xs text-muted-foreground py-3 text-center">
-            Sin factores sociodemográficos destacados
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {selectedDetail.drivers.map((d) => {
-              const isUp = d.direction === "sube_abstencion";
-
-              return (
-                <div key={d.key} className="text-xs">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-muted-foreground text-[11px] truncate max-w-[200px]" title={d.label}>
-                      {d.label}
-                    </span>
-                    <span
-                      className={`font-mono font-bold text-[11px] tnum ${isUp ? "text-bad" : "text-good"}`}
-                    >
-                      {isUp ? `+${d.contribution_pp.toFixed(1)} pp` : `-${Math.abs(d.contribution_pp).toFixed(1)} pp`}
-                    </span>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden flex">
-                    <div
-                      className={`h-1.5 rounded-full ${isUp ? "bg-bad" : "bg-good"}`}
-                      style={{
-                        width: `${Math.min(100, Math.abs(d.contribution_pp) * 20)}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      {/* moved to ExplainCard */}
 
       {/* 6. Recomendaciones preventivas (tarjeta border-primary/20 bg-primary-soft) */}
       <section className="rounded-lg border border-primary/20 bg-primary-soft p-3 space-y-2">
@@ -1138,6 +1105,66 @@ export function RegionDetailPanel() {
           </div>
         </section>
       )}
+
+      {/* Detalle técnico: factores del modelo estructural */}
+      <details
+        className="group rounded-lg border border-border bg-card p-3 text-xs"
+        data-testid="technical-drivers-details"
+      >
+        <summary className="cursor-pointer font-bold text-foreground flex items-center justify-between list-none">
+          <span className="flex items-center gap-1.5">
+            <span>Detalle técnico: factores del modelo estructural</span>
+            <InfoTip term="factores" size="xs" />
+          </span>
+          <span className="text-[10px] text-muted-foreground group-open:rotate-180 transition-transform">
+            ▼
+          </span>
+        </summary>
+        <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+          Estos factores salen de un modelo que compara características de todas las zonas a la vez; varias se parecen entre sí, por eso algunas aparecen con signos que parecen contradictorios. Úsalos como referencia técnica; la explicación de arriba es la lectura recomendada.
+        </p>
+        <div className="mt-3 pt-2 border-t border-border">
+          {!selectedDetail.drivers || selectedDetail.drivers.length === 0 ? (
+            <div className="text-xs text-muted-foreground py-2 text-center flex items-center justify-center gap-1.5">
+              <span>Sin información suficiente</span>
+              <InfoTip term="sin_dato" size="xs" />
+            </div>
+          ) : !hasProminentDrivers(selectedDetail.drivers) ? (
+            <div className="text-xs text-muted-foreground py-2 text-center">
+              Sin factores sociodemográficos destacados
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {selectedDetail.drivers.map((d) => {
+                const isUp = d.direction === "sube_abstencion";
+
+                return (
+                  <div key={d.key} className="text-xs">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-muted-foreground text-[11px] truncate max-w-[200px]" title={d.label}>
+                        {d.label}
+                      </span>
+                      <span
+                        className={`font-mono font-bold text-[11px] tnum ${isUp ? "text-bad" : "text-good"}`}
+                      >
+                        {isUp ? `+${d.contribution_pp.toFixed(1)} pp` : `-${Math.abs(d.contribution_pp).toFixed(1)} pp`}
+                      </span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden flex">
+                      <div
+                        className={`h-1.5 rounded-full ${isUp ? "bg-bad" : "bg-good"}`}
+                        style={{
+                          width: `${Math.min(100, Math.abs(d.contribution_pp) * 20)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

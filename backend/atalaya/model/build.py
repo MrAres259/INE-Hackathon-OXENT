@@ -756,6 +756,8 @@ def build_model(
     part_dip["year"] = pd.to_numeric(part_dip["year"], errors="coerce")
     part_dip["votos_totales"] = pd.to_numeric(part_dip["votos_totales"], errors="coerce")
     part_dip["lista_nominal"] = pd.to_numeric(part_dip["lista_nominal"], errors="coerce")
+    if "nv" in part.columns:
+        part_dip["nv"] = pd.to_numeric(part_dip["nv"], errors="coerce")
 
     for ent in sorted(mun_df["cve_ent"].unique()):
         muns_ent = mun_df[mun_df["cve_ent"] == ent]
@@ -821,13 +823,29 @@ def build_model(
             st_dict["trend_pp"] = float((muns_ent.loc[valid_trends, "trend_pp"] * w_ln[valid_trends]).sum() / sum_w_tr)
             st_dict["volatility_pp"] = float((muns_ent.loc[valid_trends, "volatility_pp"] * w_ln[valid_trends]).sum() / sum_w_tr)
 
-        # State turnout in latest reliable year
+        # State turnout in latest reliable year (SV / (SV + NV) per official CCPC definition)
         ent_part = part_dip[part_dip["cve_ent"] == ent].dropna(subset=["year", "votos_totales", "lista_nominal"])
         if not ent_part.empty:
-            grp = ent_part.groupby("year")[["votos_totales", "lista_nominal"]].sum()
+            cols_to_sum = ["votos_totales", "lista_nominal"]
+            has_nv = "nv" in ent_part.columns
+            if has_nv:
+                cols_to_sum.append("nv")
+            grp = ent_part.groupby("year")[cols_to_sum].sum()
             grp = grp[grp["lista_nominal"] > 0]
             if not grp.empty:
-                st_turnout = grp["votos_totales"] / grp["lista_nominal"]
+                if has_nv:
+                    denom = grp["votos_totales"] + grp["nv"]
+                    cond_d = denom > 0
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        st_turnout = np.where(
+                            cond_d,
+                            np.clip(grp["votos_totales"] / denom, 0.0, 1.0),
+                            grp["votos_totales"] / grp["lista_nominal"],
+                        )
+                    st_turnout = pd.Series(st_turnout, index=grp.index)
+                else:
+                    # Fallback to votos_totales / lista_nominal if nv is missing
+                    st_turnout = grp["votos_totales"] / grp["lista_nominal"]
                 ly = int(st_turnout.index.max())
                 st_dict["last_year"] = ly
                 st_dict["last_reliable_year"] = ly

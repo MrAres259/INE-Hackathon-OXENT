@@ -70,6 +70,8 @@ class Finding(BaseModel):
     evidence: list[str] = []                 # SourceRef ids (only retained/verified sources)
     scope: Literal["municipio", "estado", "nacional"] = "estado"
     confidence: Confidence = "media"
+    quote: str | None = None
+    verification: Literal["cita_verificada", "fuente_verificada", "sin_verificar"] = "sin_verificar"
 
 
 class ResearchBundle(BaseModel):
@@ -400,7 +402,7 @@ class MonitorSnapshot(BaseModel):
 
 class Job(BaseModel):
     id: str
-    kind: Literal["campaign", "monitor"]
+    kind: Literal["campaign", "monitor", "explain_context"]
     key: str                                 # campaign: unit_id|focus ; monitor: "w14"
     status: JobStatus = "queued"
     stage: str = ""                          # Spanish, shown to the user ("Investigando con Gemini…")

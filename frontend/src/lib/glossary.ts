@@ -454,6 +454,73 @@ export const GLOSSARY = {
     relation: "Permite inspeccionar con precisión el territorio bajo análisis sin saturación visual.",
     example: "Fragmento de Chiapas, Oaxaca y Guerrero coloreado según el incremento de abstención.",
   },
+  // Explicación determinista territorial (Ola 1 · W1-H)
+  explicacion_zona: {
+    title: "¿Por qué? Explicación de la Zona",
+    body: "Diagnóstico transparente que explica por qué una zona tiene su nivel de riesgo de abstención. Se construye exclusivamente con datos oficiales del INE e INEGI, ordenando las razones de la más sólida a la más descriptiva. El asistente de lenguaje solo relata estos hechos en palabras sencillas sin calcular ni inventar cifras.",
+    relation: "Traduce los resultados cuantitativos a razones claras para orientar el trabajo en territorio.",
+    example: "Explicación integral para Quintana Roo o Tijuana con hechos comprobables.",
+  },
+  evidencia_dato_medido: {
+    title: "Dato Medido (Conteos Oficiales)",
+    body: "Información observada directamente en las casillas y registrada en los Conteos Censales de Participación Ciudadana del INE. Muestra quién votó y quién no por grupo de edad, sexo y tipo de sección (urbana o rural). Es el tipo de evidencia más sólido porque mide hechos reales sin intermediación de modelos.",
+    relation: "Representa el sustento con mayor certeza estadística sobre el perfil de votación.",
+    example: "Menor participación observada en jóvenes de 18 a 24 años en casillas urbanas.",
+  },
+  evidencia_calculo_modelo: {
+    title: "Cálculo del Modelo",
+    body: "Resultado cuantitativo obtenido del modelo predictivo y del semáforo de Atalaya Electoral. Resume la inercia histórica de la zona, los cambios de participación entre elecciones y la estabilidad en el tiempo, con un margen de error típico de ±6 puntos porcentuales comprobado en elecciones previas.",
+    relation: "Aporta la proyección estadística hacia la elección intermedia de 2027.",
+    example: "Abstención estimada a partir de la persistencia histórica respecto a la media nacional.",
+  },
+  evidencia_asociacion: {
+    title: "Relación (No Prueba Causa)",
+    body: "Comparación que muestra cómo ciertas condiciones del entorno se relacionan con la abstención a nivel nacional. Que dos indicadores coincidan en muchas zonas no demuestra que uno sea la causa del otro: son patrones de referencia estadística para entender el contexto, no explicaciones causales directas.",
+    relation: "Identifica factores del entorno que coinciden con menor afluencia a las urnas.",
+    example: "Zonas con menor cobertura de internet suelen registrar menor participación en promedio.",
+  },
+  evidencia_contexto: {
+    title: "Dato de Contexto Descriptivo",
+    body: "Información adicional del Censo de Población y Vivienda 2020 de INEGI, como los flujos migratorios recientes o el porcentaje de residentes nacidos en otra entidad federativa. Aporta contexto demográfico de la zona pero no forma parte del índice de riesgo ni altera el semáforo electoral.",
+    relation: "Ayuda a comprender la dinámica de movilidad residencial sin modificar el cálculo.",
+    example: "En Quintana Roo, más del 50 % de la población nació en otra entidad federativa.",
+  },
+  fuerza_evidencia: {
+    title: "Fuerza de la Evidencia",
+    body: "Grado de solidez de cada motivo explicado, catalogado como fuerte, moderada o débil. Se evalúa según la cantidad de elecciones federales consecutivas que confirman el patrón histórico, el volumen de población registrado en los conteos o la intensidad de la relación observada en todo el país.",
+    relation: "Ordena las razones para dar mayor peso a los hechos comprobados frente a relaciones del entorno.",
+    example: "Una trayectoria observada en 5 elecciones consecutivas se clasifica con fuerza fuerte.",
+  },
+  puntos_indice: {
+    title: "Puntos del Índice de Riesgo",
+    body: "Distribución exacta de los 100 puntos del índice de riesgo: 50 % por abstención pronosticada, 20 % por vulnerabilidad poblacional, 15 % por tendencia a la baja y 15 % por volatilidad electoral. Cada componente refleja la posición relativa de la zona respecto a sus pares en el país.",
+    relation: "Suma exacta de aportaciones que determina el color en el semáforo territorial.",
+    example: "Para Quintana Roo: 39.0 + 10.6 + 7.05 + 2.85 = 59.5 puntos en el índice.",
+  },
+  confianza_explicacion: {
+    title: "Nivel de Confianza de la Explicación",
+    body: "Calificación integral (alta, media o baja) sobre la robustez de los datos que respaldan la explicación. Toma en cuenta la cantidad de procesos electorales con registros completos, la proporción de actas válidas en los conteos censales y la ausencia de datos censales aproximados o imputados.",
+    relation: "Advierte si la zona cuenta con serie histórica suficiente o presenta lagunas de información.",
+    example: "Confianza alta cuando se dispone de registros continuos y confiables desde 2009.",
+  },
+  contexto_publico: {
+    title: "Contexto Público y Acontecimientos Recientes",
+    body: "Acontecimientos y notas de prensa local rastreados con inteligencia artificial en medios de comunicación reconocidos. Proporcionan antecedentes del entorno territorial no cuantificados por el modelo matemático. Ninguna nota de prensa prueba por sí misma la causa de la abstención.",
+    relation: "Complementa las cifras con hechos públicos documentados en medios informativos.",
+    example: "Reportes sobre dispersión geográfica de casillas o problemas locales de transporte.",
+  },
+  cita_verificada: {
+    title: "Cita Textual Verificada",
+    body: "Control de calidad automatizado en el que el sistema descarga la página original del medio de comunicación y corrobora que la frase citada existe de forma idéntica en el texto original y que menciona expresamente a la zona o entidad federativa correspondiente.",
+    relation: "Elimina afirmaciones inexactas y garantiza trazabilidad documental completa.",
+    example: "Comprobación de una cita literal de un informe o nota periodística local.",
+  },
+  preguntas_sugeridas: {
+    title: "Preguntas Sugeridas de Exploración",
+    body: "Opciones breves de consulta preparadas para profundizar en el diagnóstico de la zona con un solo toque en el asistente: explorar la composición por edades, revisar la tendencia histórica, contrastar con entidades vecinas o indagar sobre acontecimientos públicos recientes.",
+    relation: "Agiliza la interacción en el asistente sin necesidad de redactar consultas complejas.",
+    example: "«¿Quién suele votar menos en esta zona?» o «¿Cómo ha cambiado con los años?»",
+  },
 } as const satisfies Record<string, GlossaryEntry>;
 
 export type GlossaryKey = keyof typeof GLOSSARY;

@@ -210,3 +210,13 @@ try:
 except ImportError:
     logger.info("atalaya.api.intel is not available; intel endpoints skipped.")
 
+# Include explain router
+try:
+    from atalaya.api.explain import router as explain_router
+
+    app.include_router(explain_router)
+    logger.info("Successfully registered explain router from atalaya.api.explain.")
+except ImportError:
+    logger.info("atalaya.api.explain is not available; explain endpoints skipped.")
+
+

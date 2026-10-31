@@ -222,8 +222,19 @@ def isolate_test_environment(monkeypatch, tmp_path: Path, request):
     monkeypatch.setattr(TestClient, "__init__", _patched_init)
 
     try:
+        from atalaya.intel.jobs import reset_jobs
+        reset_jobs()
+    except Exception:
+        pass
+
+    try:
         yield
     finally:
+        try:
+            from atalaya.intel.jobs import reset_jobs
+            reset_jobs()
+        except Exception:
+            pass
         os.environ.clear()
         os.environ.update(old_env)
         get_settings.cache_clear()

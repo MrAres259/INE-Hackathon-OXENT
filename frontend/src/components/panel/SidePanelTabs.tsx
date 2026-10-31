@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAtalaya } from "@/lib/state";
 import { RegionDetailPanel } from "./RegionDetailPanel";
 import { RankingTable } from "./RankingTable";
@@ -86,10 +86,10 @@ export function useSidePanelTabs(
     prevRegionIdRef.current = selectedRegionId ?? null;
   }, [selectedRegionId]);
 
-  const selectTab = (tabId: PanelTabId) => {
+  const selectTab = useCallback((tabId: PanelTabId) => {
     setActiveTab(tabId);
     onTabChangeRef.current?.(tabId);
-  };
+  }, []);
 
   return { activeTab, selectTab, setActiveTab };
 }

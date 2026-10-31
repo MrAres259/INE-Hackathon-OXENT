@@ -88,6 +88,7 @@ class QuerySpec(BaseModel):
         "help",
         "out_of_scope",
         "profile",
+        "context_news",
     ]
     level: Literal["state", "mun"] = "mun"
     metric: str = "risk_score"
@@ -136,8 +137,14 @@ class QuerySpec(BaseModel):
 class DataResult(BaseModel):
     """Result data produced deterministically by the query executor."""
 
-    columns: list[str] = Field(default_factory=list)
+    model_config = {"arbitrary_types_allowed": True}
+
+    columns: Any = Field(default_factory=list)
     rows: list[list[Any]] = Field(default_factory=list)
     source: str = ""
     facts: list[str] = Field(default_factory=list)
     empty: bool = False
+    explanation: dict | None = None
+    context: dict | None = None
+    suggestions: list[dict] = Field(default_factory=list)
+    action: dict | None = None

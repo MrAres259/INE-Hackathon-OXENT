@@ -26,6 +26,8 @@ export interface CampaignRequest { unit_id: string; focus?: string | null; refre
 export interface Finding {
   id: string; title: string; summary: string; category: FindingCategory; evidence: string[];
   scope: "municipio" | "estado" | "nacional"; confidence: Confidence;
+  quote?: string | null;
+  verification?: "cita_verificada" | "fuente_verificada" | "sin_verificar";
 }
 
 export interface ResearchBundle {
@@ -153,7 +155,7 @@ export interface MonitorSnapshot {
 
 // ---------------------------------------------------------------- jobs / status
 export interface Job<T = unknown> {
-  id: string; kind: "campaign" | "monitor"; key: string; status: JobStatus; stage: string; progress: number;
+  id: string; kind: "campaign" | "monitor" | "explain_context"; key: string; status: JobStatus; stage: string; progress: number;
   created_at: string; finished_at?: string | null; error?: string | null; result?: T | null;
 }
 

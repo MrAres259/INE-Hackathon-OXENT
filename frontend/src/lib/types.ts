@@ -1,4 +1,11 @@
 // ATALAYA Frontend Types - Strict alignment with temp/atalaya/00-CONTEXT.md §7
+import type {
+  Explanation,
+  ContextResult,
+  SuggestedQuestion,
+  ChatAction,
+} from "./explain/types";
+export type { Explanation, ContextResult, SuggestedQuestion, ChatAction } from "./explain/types";
 
 export type Category = "verde" | "amarillo" | "naranja" | "rojo" | "sin_dato";
 export type Level = "state" | "mun";
@@ -308,6 +315,7 @@ export type ChatRequest = {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];
   region_id?: string | null;
+  mode?: "explain";
 };
 
 export type ChatPlan = {
@@ -319,12 +327,16 @@ export type ChatData = {
   columns: string[];
   rows: (string | number | null)[][];
   source: string;
+  explanation?: Explanation | null;
+  context?: ContextResult | null;
 };
 
 export type ChatDone = {
   sources: string[];
   degraded: boolean;
   guardrail?: { stage: "entrada" | "tema" | "salida"; category: string; ref: string } | null;
+  suggestions?: SuggestedQuestion[];
+  action?: ChatAction | null;
 };
 
 export type ChatStreamHandlers = {

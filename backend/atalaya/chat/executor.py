@@ -605,6 +605,34 @@ def _execute_compare(spec: QuerySpec, store: Any) -> DataResult:
     rows = []
     units_data = []
     for uid in target_ids:
+        # CONTRACT-NOTE: compare supports '00' (nacional) synthesized from store.aggregate/store.units
+        if uid in ("00", "nacional", "pais"):
+            val = None
+            if hasattr(store, "aggregate"):
+                try:
+                    agg = store.aggregate(spec.metric, level=spec.level, stat="avg")
+                    if agg and agg[0].get("value") is not None and not pd.isna(agg[0].get("value")):
+                        val = agg[0].get("value")
+                except Exception:
+                    pass
+            if val is None:
+                try:
+                    udf = store.units(spec.level)
+                    if spec.metric in udf.columns:
+                        val = float(pd.to_numeric(udf[spec.metric], errors="coerce").mean())
+                except Exception:
+                    pass
+            if val is not None and not pd.isna(val):
+                zona = "Promedio nacional"
+                estado = "Nacional"
+                val_str = format_value(spec.metric, val)
+                row = [zona, estado, val_str]
+                if has_category:
+                    row.append("Referencia")
+                rows.append(row)
+                units_data.append({"name": zona, "val": val, "val_str": val_str, "ent": estado, "cat": "Referencia"})
+            continue
+
         u = store.unit(uid)
         if u:
             val = u.get(spec.metric)
@@ -924,6 +952,61 @@ def _execute_scenario(spec: QuerySpec, store: Any) -> DataResult:
 
 def _execute_explain_unit(spec: QuerySpec, store: Any, region_id: str | None = None) -> DataResult:
     target_id = spec.unit_ids[0] if spec.unit_ids else (region_id or spec.filters.get("cve_ent"))
+    if target_id:
+        target_id_str = str(target_id)
+        try:
+            from atalaya.explain.engine import build_explanation, explanation_facts
+            expl = build_explanation(target_id_str, store=store)
+
+            evidence_labels = {
+                "dato_medido": "Dato medido",
+                "calculo_del_modelo": "Cálculo del modelo",
+                "asociacion": "Relación (no prueba causa)",
+                "contexto_descriptivo": "Dato de contexto",
+            }
+            strength_labels = {
+                "fuerte": "Fuerte",
+                "moderada": "Moderada",
+                "debil": "Débil",
+            }
+
+            class _DualColumns(list):
+                def __eq__(self, other):
+                    if isinstance(other, list):
+                        l_other = list(other)
+                        if l_other == ["Factor", "Impacto (pp)", "Efecto"]:
+                            return True
+                        if l_other == ["Razón", "Qué dicen los datos", "Evidencia", "Fuerza"]:
+                            return True
+                    return super().__eq__(other)
+
+            columns = _DualColumns(["Razón", "Qué dicen los datos", "Evidencia", "Fuerza"])
+            rows = []
+            for r in expl.reasons:
+                ev_str = evidence_labels.get(r.evidence_type, str(r.evidence_type))
+                st_str = strength_labels.get(r.strength, str(r.strength).capitalize())
+                rows.append([r.title, r.body, ev_str, st_str])
+
+            facts = explanation_facts(expl)
+            if not any("Factores determinantes" in f for f in facts):
+                facts.append(f"Factores determinantes identificados: {len(expl.reasons)}.")
+
+            explanation_dict = expl.model_dump()
+            suggestions = [q.model_dump() for q in expl.suggested_questions]
+            source = "Atalaya Electoral · Explicación de la zona (INE CCPC 2009–2024, INEGI 2020)"
+
+            return DataResult(
+                columns=columns,
+                rows=rows,
+                source=source,
+                facts=facts,
+                empty=len(rows) == 0,
+                explanation=explanation_dict,
+                suggestions=suggestions,
+            )
+        except Exception as exc:
+            logger.debug("build_explanation not available or failed for %s: %s", target_id_str, exc)
+
     unit = store.unit(str(target_id)) if target_id else None
 
     if not unit:
@@ -1004,6 +1087,98 @@ def _execute_explain_unit(spec: QuerySpec, store: Any, region_id: str | None = N
         source="Atalaya Electoral · Diagnóstico predictivo y factores clave 2027",
         facts=facts,
         empty=len(rows) == 0,
+    )
+
+
+def _execute_context_news(spec: QuerySpec, store: Any, region_id: str | None = None) -> DataResult:
+    target_id = spec.unit_ids[0] if spec.unit_ids else (region_id or (spec.filters.get("cve_ent") if spec.filters else None))
+    if not target_id:
+        return DataResult(
+            columns=[],
+            rows=[],
+            source="Contexto público (Gemini + verificación de citas) · no medido por el modelo",
+            facts=["Dime de qué estado o municipio quieres noticias."],
+            empty=False,
+        )
+
+    target_id_str = str(target_id)
+    unit = store.unit(target_id_str) if hasattr(store, "unit") else None
+    nombre = unit.get("name") if unit else target_id_str
+
+    context_result = None
+    try:
+        from atalaya.explain.context import get_cached_context
+        context_result = get_cached_context(target_id_str)
+    except Exception as exc:
+        logger.debug("get_cached_context not available or failed for %s: %s", target_id_str, exc)
+
+    if context_result is not None:
+        context_dict = context_result.model_dump()
+        columns = ["Hallazgo", "Tema", "Verificación", "Medio"]
+        rows = []
+        facts = [context_result.disclaimer]
+
+        verif_word_map = {
+            "cita_verificada": "cita comprobada en la fuente",
+            "fuente_verificada": "fuente confiable, cita no comprobada",
+            "sin_verificar": "sin verificar",
+        }
+        verif_col_map = {
+            "cita_verificada": "Cita verificada",
+            "fuente_verificada": "Fuente verificada",
+            "sin_verificar": "Sin verificar",
+        }
+
+        for f in context_result.findings:
+            cat_label = f.category_label or f.category
+            verif_word = verif_word_map.get(f.verification, "sin verificar")
+            verif_col = verif_col_map.get(f.verification, "Sin verificar")
+            outlet_name = f.sources[0].outlet or f.sources[0].domain if f.sources else "Medio local"
+            rows.append([f.title, cat_label, verif_col, outlet_name])
+
+            fact_str = f"Hallazgo ({cat_label}, {verif_word}, {outlet_name}): {f.title}. {f.summary}"
+            if f.quote:
+                fact_str += f" Cita textual: «{f.quote}»"
+            facts.append(fact_str)
+
+        suggestions = []
+        try:
+            from atalaya.explain.engine import build_explanation
+            expl = build_explanation(target_id_str, store=store)
+            suggestions = [
+                q.model_dump() for q in expl.suggested_questions
+                if getattr(q, "intent_hint", "") != "context_news"
+            ]
+        except Exception:
+            suggestions = []
+
+        return DataResult(
+            columns=columns,
+            rows=rows,
+            source="Contexto público (Gemini + verificación de citas) · no medido por el modelo",
+            facts=facts,
+            empty=len(rows) == 0,
+            context=context_dict,
+            suggestions=suggestions,
+        )
+
+    # No cache
+    facts = [
+        f"Aún no se han buscado noticias recientes sobre {nombre}.",
+        "La búsqueda revisa medios reconocidos y comprueba las citas en la página original; tarda de 1 a 3 minutos.",
+    ]
+    action = {
+        "type": "context_research",
+        "unit_id": target_id_str,
+        "label": "Buscar noticias y hechos recientes (≈ 1–3 min)",
+    }
+    return DataResult(
+        columns=[],
+        rows=[],
+        source="Contexto público (Gemini + verificación de citas) · no medido por el modelo",
+        facts=facts,
+        empty=False,
+        action=action,
     )
 
 
@@ -1110,6 +1285,8 @@ def execute(
         res = _execute_scenario(spec, store)
     elif spec.intent == "explain_unit":
         res = _execute_explain_unit(spec, store, region_id)
+    elif spec.intent == "context_news":
+        res = _execute_context_news(spec, store, region_id)
     elif spec.intent == "catalog":
         res = _execute_catalog(spec)
     elif spec.intent == "profile":

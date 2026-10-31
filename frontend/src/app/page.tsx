@@ -4,7 +4,9 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { RiskMap } from "@/components/map/RiskMap";
 import { SidePanelTabs, useSidePanelTabs } from "@/components/panel/SidePanelTabs";
 import { ScenarioControls } from "@/components/layout/ScenarioControls";
-import { useAtalaya } from "@/lib/state";
+// CONTRACT-NOTE: Next.js App Router strictly forbids non-page exports from app/**/page.tsx
+// (enforced by pageExports.test.ts and Next.js build). resolveExplainOpen is defined in @/lib/state.
+import { useAtalaya, resolveExplainOpen } from "@/lib/state";
 import {
   useLayoutMode,
   nearestSnap,
@@ -14,7 +16,7 @@ import {
 } from "@/lib/useMediaQuery";
 
 export default function DashboardPage() {
-  const { selectedRegionId, isScenarioModalOpen } = useAtalaya();
+  const { selectedRegionId, isScenarioModalOpen, explainRequest } = useAtalaya();
   const layoutMode = useLayoutMode();
   const isLandscape = layoutMode === "compact-landscape";
   const isPortrait = layoutMode === "compact-portrait";
@@ -152,13 +154,52 @@ export default function DashboardPage() {
     }
   }, [isScenarioModalOpen, isPortrait]);
 
-  // When a zone is chosen in compact-landscape: open drawer in Diagnóstico
+  // Open assistant on explainRequest nonce change (wins over region selection default tab)
+  const lastHandledExplainNonceRef = useRef<number>(0);
+  const explainHandledInThisRenderRef = useRef<boolean>(false);
+
   useEffect(() => {
-    if (isLandscape && selectedRegionId) {
-      selectTab("detail");
+    if (!explainRequest?.nonce || explainRequest.nonce === lastHandledExplainNonceRef.current) return;
+    lastHandledExplainNonceRef.current = explainRequest.nonce;
+    explainHandledInThisRenderRef.current = true;
+
+    const resolution = resolveExplainOpen(layoutMode, snap, !panelOpen);
+    selectTab(resolution.tab);
+
+    if (resolution.snap) {
+      setSnap(resolution.snap);
+    }
+    if (resolution.openDrawer) {
       setLandscapeDrawerOpen(true);
     }
-  }, [selectedRegionId, isLandscape, selectTab]);
+    if (resolution.openPanel) {
+      setPanelOpen(true);
+      try {
+        localStorage.setItem("atalaya-panel-open", "1");
+      } catch {}
+    }
+  }, [explainRequest?.nonce, layoutMode, snap, panelOpen, selectTab]);
+
+  // When a zone is chosen in compact-landscape: open drawer in Diagnóstico (only on region id change)
+  const prevLandscapeRegionIdRef = useRef<string | null>(selectedRegionId ?? null);
+
+  useEffect(() => {
+    const prev = prevLandscapeRegionIdRef.current;
+    prevLandscapeRegionIdRef.current = selectedRegionId ?? null;
+
+    const explainIsPending = Boolean(
+      explainRequest?.nonce && explainRequest.nonce !== lastHandledExplainNonceRef.current
+    );
+    const explainHandled = explainHandledInThisRenderRef.current || explainIsPending;
+    explainHandledInThisRenderRef.current = false;
+
+    if (isLandscape && selectedRegionId && selectedRegionId !== prev) {
+      if (!explainHandled) {
+        selectTab("detail");
+      }
+      setLandscapeDrawerOpen(true);
+    }
+  }, [selectedRegionId, isLandscape, selectTab, explainRequest?.nonce]);
 
   // Bottom sheet drag handlers (portrait)
   const handleStartDrag = (e: React.PointerEvent<HTMLButtonElement>) => {

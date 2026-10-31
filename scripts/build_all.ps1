@@ -92,6 +92,11 @@ try {
         python -m atalaya.ingest.inegi_iter
     }
 
+    # Step 3b: Contexto Censo 2020 (migración)
+    Run-Step -StepNumber "3b" -StepTitle "Contexto Censo 2020 (migración)" -Action {
+        python -m atalaya.ingest.context
+    }
+
     # Step 4: CONAPO Marginación Ingest
     Run-Step -StepNumber "4" -StepTitle "Ingesting CONAPO Marginación 2020" -Action {
         python -m atalaya.ingest.conapo

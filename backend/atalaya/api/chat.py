@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     message: str
     history: list[HistoryItem] = Field(default_factory=list, max_length=20)
     region_id: str | None = None
+    mode: Literal["explain"] | None = None
 
 
 def _stream_worker(
@@ -75,7 +76,13 @@ async def _chat_event_stream(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
             yield {
                 "event": "done",
                 "data": json.dumps(
-                    {"sources": [], "degraded": False, "guardrail": v.as_public()},
+                    {
+                        "sources": [],
+                        "degraded": False,
+                        "guardrail": v.as_public(),
+                        "suggestions": [],
+                        "action": None,
+                    },
                     ensure_ascii=False,
                 ),
             }
@@ -89,32 +96,47 @@ async def _chat_event_stream(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
         if region_id and not re.match(r"^\d{2}(\d{3})?$", region_id):
             region_id = None
 
-        # 3. Topic gate when message lacks domain keywords and is not greeting/help
-        if not v.domain and not v.greeting:
-            g = await run_in_threadpool(guardrails.topic_gate, req.message, history=history)
-            if not g.allowed:
-                guardrails.audit(g, message=req.message)
-                yield {
-                    "event": "token",
-                    "data": json.dumps({"text": g.refusal}, ensure_ascii=False),
-                }
-                yield {
-                    "event": "done",
-                    "data": json.dumps(
-                        {"sources": [], "degraded": False, "guardrail": g.as_public()},
-                        ensure_ascii=False,
-                    ),
-                }
-                return
-            elif g.flags:
-                guardrails.audit(g, message=req.message)
-
-        # 4. Plan structured query (greetings shortcut directly to help without LLM)
-        if v.greeting:
-            spec = QuerySpec(intent="help")
-            method = "rules"
+        # 3 & 4. Plan structured query or explain shortcut
+        if req.mode == "explain" and region_id:
+            # Skip topic gate and planner for explain mode with valid region_id
+            spec = QuerySpec(
+                intent="explain_unit",
+                level="state" if len(region_id) == 2 else "mun",
+                unit_ids=[region_id],
+            )
+            method = "explain"
         else:
-            spec, method = await run_in_threadpool(plan, req.message, history, region_id)
+            # Topic gate when message lacks domain keywords and is not greeting/help
+            if not v.domain and not v.greeting:
+                g = await run_in_threadpool(guardrails.topic_gate, req.message, history=history)
+                if not g.allowed:
+                    guardrails.audit(g, message=req.message)
+                    yield {
+                        "event": "token",
+                        "data": json.dumps({"text": g.refusal}, ensure_ascii=False),
+                    }
+                    yield {
+                        "event": "done",
+                        "data": json.dumps(
+                            {
+                                "sources": [],
+                                "degraded": False,
+                                "guardrail": g.as_public(),
+                                "suggestions": [],
+                                "action": None,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                    return
+                elif g.flags:
+                    guardrails.audit(g, message=req.message)
+
+            if v.greeting:
+                spec = QuerySpec(intent="help")
+                method = "rules"
+            else:
+                spec, method = await run_in_threadpool(plan, req.message, history, region_id)
 
         yield {
             "event": "plan",
@@ -134,7 +156,13 @@ async def _chat_event_stream(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
             yield {
                 "event": "done",
                 "data": json.dumps(
-                    {"sources": [], "degraded": False, "guardrail": ref_verdict.as_public()},
+                    {
+                        "sources": [],
+                        "degraded": False,
+                        "guardrail": ref_verdict.as_public(),
+                        "suggestions": [],
+                        "action": None,
+                    },
                     ensure_ascii=False,
                 ),
             }
@@ -143,13 +171,20 @@ async def _chat_event_stream(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
         # 5. Execute query deterministically
         data = await run_in_threadpool(execute, spec, region_id)
 
-        if not data.empty:
+        has_data = (not data.empty) or (data.explanation is not None) or (data.context is not None) or (data.action is not None)
+        if has_data:
+            data_payload: dict[str, Any] = {
+                "columns": data.columns,
+                "rows": data.rows,
+                "source": data.source,
+            }
+            if data.explanation is not None:
+                data_payload["explanation"] = data.explanation
+            if data.context is not None:
+                data_payload["context"] = data.context
             yield {
                 "event": "data",
-                "data": json.dumps(
-                    {"columns": data.columns, "rows": data.rows, "source": data.source},
-                    ensure_ascii=False,
-                ),
+                "data": json.dumps(data_payload, ensure_ascii=False),
             }
 
         # 6. Stream response tokens in background thread
@@ -184,6 +219,8 @@ async def _chat_event_stream(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
                     "sources": sources,
                     "degraded": meta.get("degraded", False),
                     "guardrail": meta.get("guardrail"),
+                    "suggestions": data.suggestions if data.suggestions is not None else [],
+                    "action": data.action if data.action is not None else None,
                 },
                 ensure_ascii=False,
             ),
@@ -200,7 +237,16 @@ async def _chat_event_stream(req: ChatRequest) -> AsyncIterator[dict[str, str]]:
         }
         yield {
             "event": "done",
-            "data": json.dumps({"sources": [], "degraded": True, "guardrail": None}, ensure_ascii=False),
+            "data": json.dumps(
+                {
+                    "sources": [],
+                    "degraded": True,
+                    "guardrail": None,
+                    "suggestions": [],
+                    "action": None,
+                },
+                ensure_ascii=False,
+            ),
         }
 
 

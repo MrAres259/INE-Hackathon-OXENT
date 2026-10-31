@@ -38,6 +38,7 @@ export default function MetodologiaPage() {
     () => [
       { href: "#como-usar", label: "Cómo usar Atalaya Electoral" },
       { href: "#glosario", label: "Glosario" },
+      { href: "#como-explicamos", label: "Cómo explicamos el porqué" },
       { href: "#inteligencia-ia", label: "Inteligencia con IA" },
       { href: "#campanas-combinadas", label: "Campañas combinadas" },
       { href: "#mapa-3d", label: "El mapa 3D" },
@@ -653,6 +654,181 @@ export default function MetodologiaPage() {
                   </div>
                 );
               })}
+            </section>
+
+            {/* Cómo explicamos el porqué (Explicación determinista territorial) */}
+            <section
+              id="como-explicamos"
+              className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-xs space-y-6 scroll-mt-20"
+            >
+              <div className="border-b border-border pb-4 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-primary shrink-0" />
+                  <h2 className="font-display text-lg font-bold text-foreground">
+                    Cómo explicamos el porqué: evidencia jerárquica y contexto territorial
+                  </h2>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Metodología determinista para traducir el semáforo de riesgo a razones en lenguaje ciudadano, ordenadas por su solidez documental de lo más comprobado a lo descriptivo.
+                </p>
+              </div>
+
+              {/* 1. Jerarquía de evidencia en 4 niveles */}
+              <div className="space-y-3">
+                <h3 className="font-display text-base font-bold text-foreground flex items-center gap-2">
+                  <span className="text-primary font-bold text-sm">1.</span>
+                  Jerarquía de evidencia documental (de mayor a menor solidez)
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Para evitar conclusiones apresuradas o factores contradictorios, cada motivo presentado en la tarjeta explicativa pertenece a uno de cuatro niveles de evidencia estricta:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  {/* Nivel 1: Dato medido */}
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                        <span className="size-2 rounded-full bg-good shrink-0" />
+                        Dato medido (conteos oficiales)
+                      </span>
+                      <span className="text-[10px] font-mono text-primary font-semibold">Certeza directa</span>
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Conteo oficial en casillas registrado en los Conteos Censales de Participación Ciudadana (CCPC) del INE. Revela con precisión quién acude a votar y quién se abstiene por grupo de edad, sexo y tipo de sección electoral (urbana, rural o mixta). Es el sustento empírico más sólido del sistema.
+                    </p>
+                    <div className="bg-card p-2 rounded-lg border border-border text-[11px] text-foreground">
+                      <strong>Ejemplo real:</strong> Participación observada en jóvenes de 18 a 24 años en Quintana Roo y su brecha frente al promedio de adultos en la entidad.
+                    </div>
+                  </div>
+
+                  {/* Nivel 2: Cálculo del modelo */}
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                        <span className="size-2 rounded-full bg-primary shrink-0" />
+                        Cálculo del modelo predictivo
+                      </span>
+                      <span className="text-[10px] font-mono text-primary font-semibold">Proyección cuantitativa</span>
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Proyección estadística a partir de la persistencia histórica de la zona respecto a la media nacional en elecciones federales intermedias y generales. Valorado con un error típico de ±6 puntos porcentuales comprobado en pruebas históricas formales.
+                    </p>
+                    <div className="bg-card p-2 rounded-lg border border-border text-[11px] text-foreground">
+                      <strong>Ejemplo real:</strong> La inercia histórica de abstención en Tijuana o Quintana Roo como la razón estadística más sólida de riesgo hacia 2027.
+                    </div>
+                  </div>
+
+                  {/* Nivel 3: Relación territorial */}
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                        <span className="size-2 rounded-full bg-risk-mod shrink-0" />
+                        Relación territorial (no prueba causa)
+                      </span>
+                      <span className="text-[10px] font-mono text-muted-foreground font-semibold">Patrón del entorno</span>
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Comparación a escala nacional que muestra cómo ciertas condiciones del entorno coinciden con niveles de abstención. Que dos indicadores vayan en la misma dirección no demuestra causalidad; por ello se presenta exclusivamente como relación estadística del entorno.
+                    </p>
+                    <div className="bg-card p-2 rounded-lg border border-border text-[11px] text-foreground">
+                      <strong>Ejemplo real:</strong> Municipios con menor cobertura de internet o menor acceso a servicios de salud suelen presentar menor afluencia electoral promedio.
+                    </div>
+                  </div>
+
+                  {/* Nivel 4: Contexto descriptivo */}
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-foreground text-sm flex items-center gap-1.5">
+                        <span className="size-2 rounded-full bg-muted-foreground shrink-0" />
+                        Contexto descriptivo (censo)
+                      </span>
+                      <span className="text-[10px] font-mono text-muted-foreground font-semibold">Antecedente demográfico</span>
+                    </div>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Datos del Censo de Población y Vivienda 2020 de INEGI (migración reciente, porcentaje de nacidos en otra entidad federativa). No forman parte del cálculo del índice de riesgo ni mueven el semáforo, pero aportan antecedentes clave para entender dinámicas territoriales extremas.
+                    </p>
+                    <div className="bg-card p-2 rounded-lg border border-border text-[11px] text-foreground">
+                      <strong>Ejemplo real:</strong> Quintana Roo es el primer lugar del país en población nacida fuera (50.9 %), seguido de Baja California Sur (39 %) y Baja California (39 %).
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Hallazgo científico: Por qué las sociodemográficas no se presentan como causas */}
+              <div className="space-y-3">
+                <h3 className="font-display text-base font-bold text-foreground flex items-center gap-2">
+                  <span className="text-primary font-bold text-sm">2.</span>
+                  Por qué las características sociodemográficas no se presentan como causas
+                </h3>
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-3 text-xs leading-relaxed">
+                  <p className="text-muted-foreground">
+                    El análisis empírico a nivel nacional demuestra que las características sociodemográficas por sí solas <strong>casi no explican la abstención municipal</strong>. Al medir la relación entre variables censales y abstención esperada en todos los municipios de México, la intensidad de la relación es menor a 0.13 en magnitud para todos los indicadores individuales: escolaridad promedio presenta −0.105, carencia de servicios de salud 0.124 y disponibilidad de internet 0.063, mientras que el resto de variables se aproxima a cero.
+                  </p>
+                  <p className="text-muted-foreground">
+                    En cambio, la brecha de participación juvenil (−0.41) y la tendencia histórica de participación (−0.50) muestran relaciones mucho más marcadas con el comportamiento electoral futuro. Presentar variables censales como causas mecánicas de la abstención resultaría engañoso; por ello, Atalaya Electoral solo las menciona cuando pasan filtros estrictos y siempre bajo la advertencia expresa de que reflejan relaciones del entorno, no causas directas.
+                  </p>
+                </div>
+              </div>
+
+              {/* 3. Umbrales científicos para mostrar explicaciones (§5.6) */}
+              <div className="space-y-3">
+                <h3 className="font-display text-base font-bold text-foreground flex items-center gap-2">
+                  <span className="text-primary font-bold text-sm">3.</span>
+                  Umbrales científicos de calibración (§5.6)
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3.5 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary block text-xs">Filtro de relación territorial</span>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Solo mostramos una relación si es al menos débil en todo el país (magnitud de al menos 0.15 en municipios o 0.35 en estados) y la zona está entre el 25 % más extremo y desfavorable. Se clasifica como fuerza moderada si la relación nacional alcanza 0.30 en municipios o 0.50 en entidades, y nunca como fuerte, con un límite de máximo dos relaciones destacadas.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary block text-xs">Filtro de patrón histórico</span>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Se clasifica con fuerza fuerte si la zona votó por debajo (o por encima) del promedio nacional en al menos 5 de 6 elecciones federales confiables (o en todas si hay 4 o 5); moderada si coincide en al menos 4 comicios; y débil si la regularidad es menor.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary block text-xs">Filtro de dato medido y contexto</span>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Los datos medidos de participación por edad y sección se consideran fuertes si abarcan al menos 1,000 personas en lista nominal. El contexto de migración residencial solo se reporta si la zona está entre el 10 % con mayor movilidad en su ámbito, y siempre con fuerza débil.
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg bg-card border border-border space-y-1.5 shadow-2xs">
+                    <span className="font-bold text-primary block text-xs">Desmentir suposiciones infundadas</span>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Cuando los datos oficiales contrastan con nociones preconcebidas, la explicación lo evidencia con claridad: por ejemplo, Chiapas registra semáforo verde con 45.9 % de abstención esperada, demostrando que en el registro histórico se vota más que el promedio nacional.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Cita académica */}
+                <div className="p-3 rounded-lg bg-muted/60 border border-border text-[11px] text-muted-foreground flex items-center justify-between">
+                  <span>
+                    <strong>Referencia académica de movilidad residencial:</strong> Squire, P., Wolfinger, R. E., & Glass, D. P. (1987). <em>Residential Mobility and Voter Turnout</em>. American Political Science Review, 81(1), 45–65.
+                  </span>
+                </div>
+              </div>
+
+              {/* 4. Contexto público verificado y salvaguarda de la IA */}
+              <div className="space-y-3">
+                <h3 className="font-display text-base font-bold text-foreground flex items-center gap-2">
+                  <span className="text-primary font-bold text-sm">4.</span>
+                  Contexto público verificado y salvaguarda: la IA nunca inventa cifras
+                </h3>
+                <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-3 text-xs leading-relaxed">
+                  <p className="text-muted-foreground">
+                    A petición de la persona usuaria, el sistema puede complementar las cifras electorales con <strong>contexto público reciente</strong> rastreado en medios de comunicación reconocidos. Para asegurar certeza institucional, el sistema descarga directamente la página del medio y corrobora que la frase citada exista de forma textual en la fuente y mencione expresamente a la zona o entidad federativa. Una noticia reciente aporta contexto del entorno, pero bajo ninguna circunstancia demuestra por sí sola la causa de la abstención.
+                  </p>
+                  <p className="text-muted-foreground">
+                    <strong>Garantía institucional:</strong> La inteligencia artificial nunca calcula ni inventa cifras. Todos los porcentajes de abstención, componentes del índice de riesgo y recuentos de votantes provienen de cálculos deterministas auditables. El modelo de lenguaje únicamente redacta estos hechos comprobados en lenguaje accesible y neutral.
+                  </p>
+                </div>
+              </div>
             </section>
 
             {/* 3. Inteligencia con IA (Plan de Campaña y Monitor INE) */}

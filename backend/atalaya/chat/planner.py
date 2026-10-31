@@ -129,6 +129,85 @@ def _init_states() -> None:
 
 _init_states()
 
+_SHARED_STATE_MUN_NAMES: set[str] = set()
+
+
+def _init_shared_state_mun_names() -> set[str]:
+    """Dynamically determine shared names between states and municipalities.
+
+    Compares states.csv (canonical names and aliases) against municipal names.
+    """
+    global _SHARED_STATE_MUN_NAMES
+    if _SHARED_STATE_MUN_NAMES:
+        return _SHARED_STATE_MUN_NAMES
+
+    _init_states()
+    mun_names: set[str] = set()
+
+    try:
+        from atalaya.store import get_store
+        store = get_store()
+        if store and hasattr(store, "units"):
+            df = store.units(level="mun")
+            if not df.empty and "name" in df.columns:
+                mun_names = set(df["name"].dropna().astype(str).map(norm_name))
+    except Exception as e:
+        logger.debug("Could not get mun units from store: %s", e)
+
+    if not mun_names:
+        try:
+            from atalaya.config import BUILD_DIR
+            p = BUILD_DIR / "units.parquet"
+            if p.is_file():
+                df = pd.read_parquet(p, columns=["level", "name"])
+                mun_names = set(df[df["level"] == "mun"]["name"].dropna().astype(str).map(norm_name))
+        except Exception as e:
+            logger.debug("Could not read units.parquet: %s", e)
+
+    st_keys = set(_STATE_MAP.keys())
+    shared: set[str] = set()
+    for m in mun_names:
+        if m in st_keys:
+            shared.add(m)
+        else:
+            base = m.replace(" DE JUAREZ", "").strip()
+            if base in st_keys:
+                shared.add(m)
+                shared.add(base)
+
+    _SHARED_STATE_MUN_NAMES = shared
+    return _SHARED_STATE_MUN_NAMES
+
+
+def _get_region_name(region_id: str | None) -> str | None:
+    """Return geographical entity name for 2-digit or 5-digit region_id."""
+    if not region_id:
+        return None
+    _init_states()
+    rid_str = str(region_id).strip()
+    if len(rid_str) == 2:
+        return _STATE_NAMES.get(zpad(rid_str, 2))
+    elif len(rid_str) == 5:
+        try:
+            from atalaya.store import get_store
+            store = get_store()
+            if store and hasattr(store, "unit"):
+                u = store.unit(rid_str)
+                if u:
+                    return u.get("name")
+        except Exception as e:
+            logger.debug("Error checking store.unit(%s): %s", rid_str, e)
+    return None
+
+
+def _has_municipality_prefix(name: str, message: str) -> bool:
+    """Return True if message explicitly designates name as a municipality / alcaldía."""
+    msg_n = norm_name(message)
+    name_n = norm_name(name)
+    pattern_prefix = r"\b(?:DEL\s+|EL\s+)?(?:MUNICIPIO|ALCALDIA)(?:\s+DE)?\s+" + re.escape(name_n) + r"\b"
+    pattern_suffix = r"\b" + re.escape(name_n) + r"\s*(?:\(?\s*MUNICIPIO\s*\)?|\(?\s*ALCALDIA\s*\)?)"
+    return bool(re.search(pattern_prefix, msg_n) or re.search(pattern_suffix, msg_n))
+
 
 def _find_states_in_text(text: str) -> list[str]:
     """Find state cve_ent identifiers mentioned in normalized text."""
@@ -175,7 +254,7 @@ def _build_llm_system_prompt() -> str:
         "3. Claves de entidad (cve_ent):\n"
         f"{states_list}\n"
         "4. Intents permitidos: ranking, lookup, compare, correlation, trend, scenario, explain_unit, "
-        "catalog, help, out_of_scope, profile.\n"
+        "catalog, help, out_of_scope, profile, context_news.\n"
         "5. Si la pregunta está fuera de los temas de participación electoral o sociodemografía de Atalaya Electoral, "
         "intent='out_of_scope'. Si la pregunta pide código, asistencia general o temas ajenos, intent='out_of_scope'.\n"
         "6. La elección por defecto es DIP_FED. Si preguntan por 2027 o el futuro, usa pred_abstention o risk_score."
@@ -232,6 +311,8 @@ def _extract_municipality_candidates(message: str) -> list[str]:
         "cuanto", "cuanta", "cuantos", "cuantas", "dame", "dime", "muestra",
         "muestrame", "compara", "simula", "quiero", "ver", "ayuda", "favor",
         "por", "para", "con", "del", "los", "las", "este", "esta", "estos", "estas",
+        "hay", "habra", "noticias", "noticia", "hechos", "hecho", "acontecimientos",
+        "acontecimiento", "eventos", "evento", "motivo", "contexto",
     }
     for i in range(len(words)):
         if words[i][0].isupper():
@@ -249,11 +330,14 @@ def _resolve_municipalities(
     message: str,
     states: list[str],
     mentions_mun: bool = False,
+    region_id: str | None = None,
 ) -> list[dict]:
     """Search and resolve municipal mentions using DataStore search_units.
     
     Accepts hit only if normalized name is in normalized message or matches candidate
     with similarity >= 0.85 (difflib). Prioritizes municipalities of mentioned states.
+    For names shared between state and municipality, state wins unless explicitly
+    designated as municipality, selected as region_id, or belonging to another mentioned state.
     Never raises an exception if store fails.
     """
     candidates = _extract_municipality_candidates(message)
@@ -271,6 +355,9 @@ def _resolve_municipalities(
         return []
 
     _init_states()
+    shared_names = _init_shared_state_mun_names()
+    reg_id_str = str(region_id).strip() if region_id else ""
+
     accepted_by_cand: dict[str, list[dict]] = {}
     seen_ids: set[str] = set()
 
@@ -278,8 +365,8 @@ def _resolve_municipalities(
         cand_norm = norm_name(cand).lower()
         cand_norm_upper = norm_name(cand)
         # If candidate matches a state name exactly and no explicit municipal context, skip as mun candidate
-        if cand_norm_upper in _STATE_MAP and not mentions_mun:
-            has_mun_prefix = bool(re.search(r"\b(?:del\s+)?municipio\s+de\s+" + re.escape(cand), message, re.IGNORECASE))
+        if cand_norm_upper in _STATE_MAP and not mentions_mun and reg_id_str != cand:
+            has_mun_prefix = _has_municipality_prefix(cand, message)
             if not has_mun_prefix:
                 continue
 
@@ -297,6 +384,7 @@ def _resolve_municipalities(
             hit_name = str(hit.get("name", "")).strip()
             hit_ent = zpad(hit.get("cve_ent", hit_id[:2]), 2)
             hit_norm = norm_name(hit_name).lower()
+            hit_norm_upper = norm_name(hit_name)
             if not hit_norm or len(hit_norm) < 3:
                 continue
 
@@ -306,6 +394,20 @@ def _resolve_municipalities(
 
             if not (in_msg or is_similar):
                 continue
+
+            # Shared state-municipality name handling (F1-C requirement)
+            if hit_norm_upper in shared_names:
+                is_selected_mun = (reg_id_str == hit_id)
+                has_explicit_mun = _has_municipality_prefix(hit_name, message) or (mentions_mun and cand_norm in msg_norm)
+                homonymous_cve = _STATE_MAP.get(hit_norm_upper)
+                is_explicit_other_state = bool(
+                    hit_ent in states
+                    and homonymous_cve is not None
+                    and hit_ent != homonymous_cve
+                )
+                if not (is_selected_mun or has_explicit_mun or is_explicit_other_state):
+                    # State wins over homonymous municipality by default
+                    continue
 
             in_state = bool(states and hit_ent in states)
             if states and not in_state and not in_msg:
@@ -366,7 +468,7 @@ def _validate_llm_spec(
     states = _find_states_in_text(message)
     mentions_mun = bool(re.search(r"\bmunicipio(?:s)?\b|\balcald[ií]a(?:s)?\b", message.lower()))
     if resolved_muns is None:
-        resolved_muns = _resolve_municipalities(message, states, mentions_mun=mentions_mun)
+        resolved_muns = _resolve_municipalities(message, states, mentions_mun=mentions_mun, region_id=region_id)
 
     msg_norm = norm_name(message).lower()
     reg_norm = norm_name(region_id).lower() if region_id else ""
@@ -390,9 +492,19 @@ def _validate_llm_spec(
             return False
         else:
             mun_name = u.get("name", "")
-            mun_norm = norm_name(mun_name).lower()
+            mun_norm_upper = norm_name(mun_name)
+            mun_norm = mun_norm_upper.lower()
             if not mun_norm:
                 return False
+            # Check homonymous shared names
+            if mun_norm_upper in _init_shared_state_mun_names():
+                is_selected = (region_id == uid)
+                has_pref = _has_municipality_prefix(mun_name, message) or mentions_mun
+                u_ent = zpad(u.get("cve_ent", uid[:2]), 2)
+                st_cve = _STATE_MAP.get(mun_norm_upper)
+                is_other_st = bool(u_ent in states and st_cve and u_ent != st_cve)
+                if not (is_selected or has_pref or is_other_st):
+                    return False
             if mun_norm in msg_norm or (reg_norm and mun_norm in reg_norm):
                 return True
             for cand in cands:
@@ -414,6 +526,8 @@ def _validate_llm_spec(
 
             if u and _is_mentioned(u, uid_str):
                 new_unit_ids.append(uid_str)
+            elif uid_str == "00":
+                new_unit_ids.append("00")
             else:
                 if replacement_queue:
                     rep = replacement_queue.pop(0)
@@ -425,7 +539,7 @@ def _validate_llm_spec(
                 else:
                     logger.info("Descartando unit_id '%s' propuesto por LLM: no existe o no está mencionado en el mensaje", uid_str)
     else:
-        if replacement_queue and spec.intent in ("lookup", "explain_unit", "trend", "profile"):
+        if replacement_queue and spec.intent in ("lookup", "explain_unit", "trend", "profile", "context_news"):
             rep = replacement_queue.pop(0)
             rep_id = rep["id"]
             logger.info("Asignando unit_id '%s' resuelto del mensaje al plan del LLM", rep_id)
@@ -521,8 +635,8 @@ def _plan_rules(
     mentions_mun = bool(re.search(r"\bmunicipio(?:s)?\b|\balcald[ií]a(?:s)?\b", text_lower))
     mentions_state = bool(re.search(r"\bestado(?:s)?\b|\bentidad(?:es)?\b", text_lower))
 
-    # Municipal resolution (W3-B)
-    resolved_muns = _resolve_municipalities(message, states, mentions_mun=mentions_mun)
+    # Municipal resolution (W3-B / F1-C)
+    resolved_muns = _resolve_municipalities(message, states, mentions_mun=mentions_mun, region_id=region_id)
 
     # 3. Intent detection
     intent: str | None = None
@@ -543,19 +657,22 @@ def _plan_rules(
         metric = "abstencion_esperada"
         explicit_intent_found = True
         explicit_metric_found = True
-    elif re.search(r"por\s+qu[eé]|factores|recomendaci[oó]n|recomendaciones|qu[eé]\s+recomiendas?", text_lower):
+    elif re.search(r"noticias?|hechos\s+recientes|qu[eé]\s+ha\s+pasado|qu[eé]\s+pas[oó]|acontecimientos?|eventos?\s+recientes?|alg[uú]n\s+motivo|contexto\s+local|qu[eé]\s+est[aá]\s+pasando", text_lower):
+        intent = "context_news"
+        explicit_intent_found = True
+    elif re.search(r"por\s+qu[eé]|factores|recomendaci[oó]n|recomendaciones|qu[eé]\s+recomiendas?|qu[eé]\s+(?:podr[ií]a|puede)\s+hacer\s+el\s+ine|qu[eé]\s+se\s+puede\s+hacer", text_lower):
         intent = "explain_unit"
         explicit_intent_found = True
-    elif re.search(r"por\s+edad|grupos?\s+de\s+edad|rangos?\s+de\s+edad|desglose\s+por\s+edad", text_lower):
+    elif re.search(r"por\s+edad|grupos?\s+de\s+edad|rangos?\s+de\s+edad|desglose\s+por\s+edad|qu[ií]enes?\s+(?:menos\s+votan|votan?\s+menos|no\s+votan?)|grupos?\s+(?:de\s+edad\s+)?votan\s+menos", text_lower):
         intent = "profile"
         explicit_intent_found = True
     elif re.search(r"relaci[oó]n|correlaci[oó]n|se\s+relaciona|influye|asociaci[oó]n|v[ií]nculo", text_lower):
         intent = "correlation"
         explicit_intent_found = True
-    elif re.search(r"compara(?:r)?|versus|\bvs\.?\b|diferencia\s+entre", text_lower):
+    elif re.search(r"compara(?:r)?|versus|\bvs\.?\b|diferencia\s+entre|c[oó]mo\s+se\s+compara", text_lower):
         intent = "compare"
         explicit_intent_found = True
-    elif re.search(r"tendencia|evoluci[oó]n|hist[oó]rico|ha\s+cambiado|a\s+lo\s+largo\s+del\s+tiempo", text_lower):
+    elif re.search(r"tendencia|evoluci[oó]n|hist[oó]rico|ha\s+cambiado|c[oó]mo\s+ha\s+cambiado|a\s+lo\s+largo\s+del\s+tiempo|a\s+trav[eé]s\s+del\s+tiempo", text_lower):
         intent = "trend"
         explicit_intent_found = True
     elif re.search(r"qu[eé]\s+variables|qu[eé]\s+datos|fuentes|variables\s+disponibles|cat[aá]logo|diccionario", text_lower):
@@ -712,12 +829,34 @@ def _plan_rules(
     unit_ids: list[str] = []
 
     if intent == "compare":
+        # CONTRACT-NOTE: compare supports '00' (nacional) synthesized from store.aggregate/store.units
+        has_national = bool(re.search(r"promedio\s+nacional|media\s+nacional|nacional|pa[ií]s", text_lower))
         if len(states) >= 2:
             level = "state"
             unit_ids = states[:2]
         elif len(resolved_muns) >= 2:
             level = "mun"
             unit_ids = [m["id"] for m in resolved_muns[:2]]
+        elif resolved_muns and states:
+            mun_id = resolved_muns[0]["id"]
+            state_id = states[0]
+            level = "mun"
+            unit_ids = [mun_id, state_id]
+        elif resolved_muns and bool(re.search(r"resto\s+del\s+estado|resto\s+de\s+su\s+estado|su\s+estado|el\s+estado", text_lower)):
+            mun_id = resolved_muns[0]["id"]
+            state_id = resolved_muns[0]["cve_ent"]
+            level = "mun"
+            unit_ids = [mun_id, state_id]
+        elif region_id and len(region_id) == 5 and (states or bool(re.search(r"resto\s+del\s+estado|resto\s+de\s+su\s+estado|su\s+estado|el\s+estado", text_lower))):
+            state_id = states[0] if states else region_id[:2]
+            level = "mun"
+            unit_ids = [region_id, state_id]
+        elif states and has_national:
+            level = "state"
+            unit_ids = [states[0], "00"]
+        elif region_id and len(region_id) == 2 and has_national:
+            level = "state"
+            unit_ids = [region_id, "00"]
         elif states:
             level = "state"
             unit_ids = [states[0]]
@@ -728,6 +867,13 @@ def _plan_rules(
             unit_ids = [resolved_muns[0]["id"]]
             if region_id and region_id != resolved_muns[0]["id"]:
                 unit_ids.append(region_id)
+        elif region_id:
+            if len(region_id) == 5:
+                level = "mun"
+                unit_ids = [region_id, region_id[:2]]
+            else:
+                level = "state"
+                unit_ids = [region_id, "00"]
     elif intent == "ranking":
         if mentions_state or (states and not mentions_mun and not resolved_muns):
             if mentions_state and not resolved_muns:
@@ -740,22 +886,24 @@ def _plan_rules(
             filters["cve_ent"] = states[0]
         else:
             level = "mun"
-    elif intent in ("explain_unit", "lookup", "trend", "profile"):
-        use_region = (
-            region_id is not None
-            and (
-                bool(re.search(r"aqu[ií]|este\s+municipio|este\s+estado|esta\s+zona|seleccionad[oa]", text_lower))
-                or not states
-            )
-            and not resolved_muns
-        )
-        if use_region and region_id:
-            if len(region_id) == 5:
+    elif intent in ("explain_unit", "lookup", "trend", "profile", "context_news"):
+        reg_name = _get_region_name(region_id)
+        reg_name_in_msg = bool(reg_name and norm_name(reg_name).lower() in norm_name(message).lower())
+
+        if reg_name_in_msg and region_id:
+            # If selected region is a state but user explicitly requested a municipality, let resolved_muns win
+            if len(region_id) == 2 and resolved_muns and (_has_municipality_prefix(reg_name, message) or mentions_mun):
+                level = "mun"
+                unit_ids = [resolved_muns[0]["id"]]
+                filters["cve_ent"] = resolved_muns[0]["cve_ent"]
+            elif len(region_id) == 5:
                 level = "mun"
                 unit_ids = [region_id]
+                filters["cve_ent"] = region_id[:2]
             else:
                 level = "state"
                 unit_ids = [region_id]
+                filters["cve_ent"] = region_id
         elif resolved_muns:
             level = "mun"
             unit_ids = [resolved_muns[0]["id"]]
@@ -768,6 +916,15 @@ def _plan_rules(
                 level = "state"
                 unit_ids = [states[0]]
                 filters["cve_ent"] = states[0]
+        elif region_id:
+            if len(region_id) == 5:
+                level = "mun"
+                unit_ids = [region_id]
+                filters["cve_ent"] = region_id[:2]
+            else:
+                level = "state"
+                unit_ids = [region_id]
+                filters["cve_ent"] = region_id
     elif intent == "correlation":
         level = "mun"
         if states:
@@ -844,7 +1001,7 @@ def _plan_rules(
         high_confidence = False
     elif intent == "correlation" and not x_metric:
         high_confidence = False
-    elif intent in ("explain_unit", "trend") and not unit_ids and not filters:
+    elif intent in ("explain_unit", "trend", "context_news") and not unit_ids and not filters:
         high_confidence = False
 
     if election == "PJF" and metric in ("participacion", "pred_participation"):

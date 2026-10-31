@@ -271,54 +271,99 @@ def test_build_snapshot_synthetic(monkeypatch):
 
 def test_research_unit_filters(monkeypatch):
     """Test source tier filtering, anti-hallucination cross-checking, and drop of findings without sources."""
-    gemini_mod = sys.modules["atalaya.gemini"]
-    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+    from atalaya import gemini, websearch
+    from atalaya.explain import verify as explain_verify
+    from atalaya.explain.verify import CorpusDoc
+
+    monkeypatch.setattr(gemini, "is_enabled", lambda: True)
+
+    docs = [
+        CorpusDoc(
+            id="s1",
+            url="https://www.ine.mx/diagnostico-participacion",
+            title="Diagnóstico electoral en Zacatecas",
+            domain="ine.mx",
+            outlet="INE",
+            published="2024-01-15",
+            tier="oficial",
+            text=(
+                "En el estado de Zacatecas la desconfianza ciudadana en las casillas electorales aumento "
+                "notablemente en diversos municipios de Zacatecas tras los comicios pasados."
+            ),
+            from_page=True,
+        ),
+        CorpusDoc(
+            id="s2",
+            url="https://www.eluniversal.com.mx/estados/traslado-casillas",
+            title="Casillas en la sierra de Zacatecas",
+            domain="eluniversal.com.mx",
+            outlet="El Universal",
+            published="2024-03-10",
+            tier="medio_reconocido",
+            text=(
+                "Reporte periodistico en Zacatecas documenta caminos intransitables hacia casillas electorales "
+                "en comunidades rurales de Zacatecas donde los votantes deben caminar horas."
+            ),
+            from_page=True,
+        ),
+    ]
+
+    monkeypatch.setattr(explain_verify, "fetch_corpus", lambda *a, **kw: list(docs))
+    monkeypatch.setattr(websearch, "search_news", lambda *a, **kw: [
+        websearch.NewsCandidate(
+            title="Diagnóstico electoral en Zacatecas",
+            url="https://www.ine.mx/diagnostico-participacion",
+            domain="ine.mx",
+            outlet="INE",
+            published="2024-01-15",
+            snippet="Snippet",
+            provider="google_news",
+        ),
+        websearch.NewsCandidate(
+            title="Casillas en Zacatecas",
+            url="https://www.eluniversal.com.mx/estados/traslado-casillas",
+            domain="eluniversal.com.mx",
+            outlet="El Universal",
+            published="2024-03-10",
+            snippet="Snippet",
+            provider="google_news",
+        ),
+    ])
 
     raw_gemini_json = {
         "findings": [
             {
-                "title": "Desconfianza en autoridades",
-                "summary": "Estudio documenta desconfianza cívica e institucional en casillas locales.",
+                "title": "Desconfianza en casillas de Zacatecas",
+                "summary": "Estudio documenta desconfianza ciudadana en casillas electorales.",
                 "category": "desconfianza_institucional",
-                "sources": [
-                    {"url": "https://www.ine.mx/diagnostico-participacion", "title": "Diagnóstico INE", "published": "2024-01-15"},
-                    {"url": "https://x.com/anonimo/status/12345", "title": "Post en X", "published": "2024-01-16"},  # red_social -> discarded
-                ],
                 "scope": "estado",
                 "confidence": "alta",
+                "evidence": ["s1"],
+                "quote": "la desconfianza ciudadana en las casillas electorales aumento notablemente",
             },
             {
                 "title": "Hallazgo alucinado sin fuente verificable",
-                "summary": "Causa sin evidencia verificable en fuentes oficiales ni groundingChunks.",
+                "summary": "Causa sin evidencia verificable en fuentes oficiales ni grounding.",
                 "category": "otra",
-                "sources": [
-                    {"url": "https://sitio-fantasma-alucinado.xyz/rumor", "title": "Blog", "published": "2024-02-01"},  # Not in chunks & no_reconocido -> discarded
-                ],
                 "scope": "municipio",
                 "confidence": "baja",
+                "evidence": ["s99"],
+                "quote": "cita inventada que no existe en ningun documento provisto",
             },
             {
-                "title": "Barreras de traslado y dispersión geográfica",
-                "summary": "Reporte periodístico documenta caminos intransitables hacia casillas distantes.",
+                "title": "Barreras de traslado y casillas",
+                "summary": "Reporte documenta caminos intransitables hacia casillas electorales en Zacatecas.",
                 "category": "acceso_casillas_distancia",
-                "sources": [
-                    {"url": "https://www.eluniversal.com.mx/estados/traslado-casillas", "title": "Nota El Universal", "published": "2024-03-10"},
-                ],
                 "scope": "municipio",
                 "confidence": "media",
+                "evidence": ["s2"],
+                "quote": "caminos intransitables hacia casillas electorales en comunidades rurales",
             },
         ]
     }
 
-    grounded_res = DummyGroundedResult(
-        sources=[
-            DummyGroundedSource(url="https://www.ine.mx/diagnostico-participacion", domain="ine.mx"),
-            DummyGroundedSource(url="https://www.eluniversal.com.mx/estados/traslado-casillas", domain="eluniversal.com.mx"),
-        ],
-        queries=["participacion zacatecas"],
-    )
-
-    monkeypatch.setattr(gemini_mod, "grounded_json", lambda *a, **kw: (raw_gemini_json, grounded_res))
+    meta = types.SimpleNamespace(model="gemini-3.6-flash", from_cache=False)
+    monkeypatch.setattr(gemini, "generate_json", lambda *a, **kw: (raw_gemini_json, meta))
 
     snap = DataSnapshot(
         unit_id="32",
@@ -341,19 +386,18 @@ def test_research_unit_filters(monkeypatch):
     bundle = research_unit(snap, focus="jóvenes")
 
     assert bundle.degraded is False
-    assert bundle.discarded_sources >= 2  # x.com + sitio-fantasma
-    # Finding 2 had only 1 source and it was discarded, so finding 2 must be eliminated
+    assert bundle.discarded_sources >= 1  # finding 2 with invalid quote/source discarded
     assert len(bundle.findings) == 2
     assert bundle.findings[0].id == "f1"
     assert bundle.findings[1].id == "f2"
     assert bundle.findings[0].category == "desconfianza_institucional"
     assert bundle.findings[1].category == "acceso_casillas_distancia"
-    # Retained sources s1, s2
     assert len(bundle.sources) == 2
     assert bundle.sources[0].id == "s1"
     assert bundle.sources[1].id == "s2"
     assert bundle.findings[0].evidence == ["s1"]
     assert bundle.findings[1].evidence == ["s2"]
+    assert bundle.findings[0].quote == "la desconfianza ciudadana en las casillas electorales aumento notablemente"
 
 
 def test_research_unit_degraded_when_gemini_unavailable(monkeypatch):
@@ -388,36 +432,84 @@ def test_research_unit_degraded_when_gemini_unavailable(monkeypatch):
 
 
 def test_research_unit_rss_fallback_mode(monkeypatch):
-    """Test fallback_queries generation, fallback_days, and ResearchBundle.note on rss_url_context mode."""
-    gemini_mod = sys.modules["atalaya.gemini"]
-    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+    """Test fallback_queries generation, fallback_days, and ResearchBundle in Ruta B respaldo mode."""
+    from atalaya import gemini, websearch
+    from atalaya.explain import verify as explain_verify
+    from atalaya.explain.verify import CorpusDoc
 
-    captured_kwargs = {}
+    monkeypatch.setattr(gemini, "is_enabled", lambda: True)
 
-    def fake_grounded_json(prompt, system=None, **kw):
-        captured_kwargs.update(kw)
-        raw_json = {
-            "findings": [
-                {
-                    "title": "Participación cívica y casillas",
-                    "summary": "Estudio documenta ubicación de casillas en zonas rurales.",
-                    "category": "acceso_casillas_distancia",
-                    "sources": [
-                        {"url": "https://www.ine.mx/casillas-rurales", "title": "Casillas INE", "published": "2024-01-10"},
-                    ],
-                    "scope": "estado",
-                    "confidence": "alta",
-                }
-            ]
-        }
-        res = DummyGroundedResult(
-            sources=[DummyGroundedSource(url="https://www.ine.mx/casillas-rurales", domain="ine.mx")],
-            queries=["participacion zacatecas"],
-            mode="rss_url_context",
+    captured_search_args = {}
+
+    def fake_search_news(queries, days=1460, max_items=40):
+        captured_search_args["queries"] = queries
+        captured_search_args["days"] = days
+        captured_search_args["max_items"] = max_items
+        return [
+            websearch.NewsCandidate(
+                title="Casillas rurales en Zacatecas",
+                url="https://www.ine.mx/casillas-rurales",
+                domain="ine.mx",
+                outlet="INE",
+                published="2024-01-10",
+                snippet="Casillas INE en zonas rurales",
+                provider="google_news",
+            ),
+            websearch.NewsCandidate(
+                title="Votación en Zacatecas",
+                url="https://eluniversal.com.mx/zacatecas-voto",
+                domain="eluniversal.com.mx",
+                outlet="El Universal",
+                published="2024-01-12",
+                snippet="Participación electoral",
+                provider="google_news",
+            ),
+            websearch.NewsCandidate(
+                title="Abstención juvenil",
+                url="https://reforma.com/zacatecas-jovenes",
+                domain="reforma.com",
+                outlet="Reforma",
+                published="2024-01-15",
+                snippet="Jóvenes en casillas",
+                provider="google_news",
+            ),
+        ]
+
+    monkeypatch.setattr(websearch, "search_news", fake_search_news)
+
+    docs = [
+        CorpusDoc(
+            id="s1",
+            url="https://www.ine.mx/casillas-rurales",
+            title="Casillas rurales en Zacatecas",
+            domain="ine.mx",
+            outlet="INE",
+            published="2024-01-10",
+            tier="oficial",
+            text=(
+                "El informe oficial en Zacatecas documenta la instalacion de casillas electorales en zonas rurales "
+                "del estado de Zacatecas donde se busca reducir el abstencionismo de votantes."
+            ),
+            from_page=True,
         )
-        return raw_json, res
+    ]
+    monkeypatch.setattr(explain_verify, "fetch_corpus", lambda *a, **kw: list(docs))
 
-    monkeypatch.setattr(gemini_mod, "grounded_json", fake_grounded_json)
+    raw_json = {
+        "findings": [
+            {
+                "title": "Participación cívica y casillas",
+                "summary": "Estudio documenta ubicación de casillas electorales en zonas rurales.",
+                "category": "acceso_casillas_distancia",
+                "scope": "estado",
+                "confidence": "alta",
+                "evidence": ["s1"],
+                "quote": "documenta la instalacion de casillas electorales en zonas rurales",
+            }
+        ]
+    }
+    meta = types.SimpleNamespace(model="gemini-3.6-flash", from_cache=False)
+    monkeypatch.setattr(gemini, "generate_json", lambda *a, **kw: (raw_json, meta))
 
     snap = DataSnapshot(
         unit_id="32",
@@ -439,19 +531,19 @@ def test_research_unit_rss_fallback_mode(monkeypatch):
 
     bundle = research_unit(snap, focus="jóvenes universitarios")
 
-    assert "fallback_queries" in captured_kwargs
-    fb_q = captured_kwargs["fallback_queries"]
+    assert "queries" in captured_search_args
+    fb_q = captured_search_args["queries"]
     assert len(fb_q) >= 5
-    assert any("Zacatecas participación electoral 2024" in q for q in fb_q)
-    assert any("Zacatecas abstención jóvenes" in q for q in fb_q)
-    assert any("Zacatecas elección judicial participación" in q for q in fb_q)
+    assert any("Zacatecas" in q and "participación electoral" in q for q in fb_q)
+    assert any("Zacatecas" in q and "abstención" in q for q in fb_q)
     assert any("jóvenes universitarios" in q for q in fb_q)
-    assert captured_kwargs.get("fallback_days") == 1460
+    assert captured_search_args.get("days") == 1460
 
     assert bundle.degraded is False
-    assert bundle.note == "Búsqueda de respaldo: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa."
+    assert bundle.search_mode == "respaldo"
     assert len(bundle.findings) == 1
     assert bundle.findings[0].category == "acceso_casillas_distancia"
+    assert bundle.findings[0].quote == "documenta la instalacion de casillas electorales en zonas rurales"
 
 
 def test_verify_operator_non_ascii_header(monkeypatch):
@@ -913,11 +1005,11 @@ def test_build_campaign_fallback_queries():
         abstencion_esperada=528000,
     )
     q_mun = build_campaign_fallback_queries(snap_mun, focus="jóvenes universitarios")
-    assert any("Juárez" in q for q in q_mun)
-    assert any("Chihuahua" in q for q in q_mun)
-    assert any("participación electoral 2024" in q for q in q_mun)
-    assert any("abstención jóvenes" in q for q in q_mun)
-    assert any("elección judicial participación" in q for q in q_mun)
+    assert any('"Juárez"' in q for q in q_mun)
+    assert any("participación electoral" in q for q in q_mun)
+    assert any("abstención" in q for q in q_mun)
+    assert any("casillas" in q for q in q_mun)
+    assert any("votar" in q for q in q_mun)
     assert any("jóvenes universitarios" in q for q in q_mun)
 
     snap_state = DataSnapshot(
@@ -938,68 +1030,132 @@ def test_build_campaign_fallback_queries():
         abstencion_esperada=576000,
     )
     q_st = build_campaign_fallback_queries(snap_state)
-    assert any("Zacatecas participación electoral 2024" in q for q in q_st)
-    assert any("Zacatecas abstención jóvenes" in q for q in q_st)
-    assert any("Zacatecas elección judicial participación" in q for q in q_st)
+    assert any('"Zacatecas"' in q for q in q_st)
+    assert any("participación electoral" in q for q in q_st)
+    assert any("abstención" in q for q in q_st)
+    assert any("casillas" in q for q in q_st)
+    assert any("votar" in q for q in q_st)
 
 
 def test_research_unit_prioritizes_local_and_caps_national(monkeypatch):
     """Test that research_unit admits at most 1 national finding and prioritizes local ones."""
-    gemini_mod = sys.modules["atalaya.gemini"]
-    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+    from atalaya import gemini, websearch
+    from atalaya.explain import verify as explain_verify
+    from atalaya.explain.verify import CorpusDoc
+
+    monkeypatch.setattr(gemini, "is_enabled", lambda: True)
+
+    docs = [
+        CorpusDoc(
+            id="s1",
+            url="https://www.ine.mx/nacional-1",
+            title="Abstención nacional en elecciones",
+            domain="ine.mx",
+            outlet="INE",
+            published="2024-01-01",
+            tier="oficial",
+            text="En Zacatecas y a nivel nacional se documento abstencion electoral generalizada en elecciones y casillas de Zacatecas.",
+            from_page=True,
+        ),
+        CorpusDoc(
+            id="s2",
+            url="https://www.ine.mx/nacional-2",
+            title="Desafección en comicios",
+            domain="ine.mx",
+            outlet="INE",
+            published="2024-01-02",
+            tier="oficial",
+            text="En Zacatecas y el pais hubo desafeccion de votantes y abstencion ciudadana en los comicios electorales de Zacatecas.",
+            from_page=True,
+        ),
+        CorpusDoc(
+            id="s3",
+            url="https://www.ine.mx/nacional-3",
+            title="Desinformación en casillas",
+            domain="ine.mx",
+            outlet="INE",
+            published="2024-01-03",
+            tier="oficial",
+            text="En Zacatecas se detecto desinformacion en elecciones y casillas electorales en el territorio de Zacatecas.",
+            from_page=True,
+        ),
+        CorpusDoc(
+            id="s4",
+            url="https://www.eluniversal.com.mx/zacatecas/casillas",
+            title="Casillas en la sierra de Zacatecas",
+            domain="eluniversal.com.mx",
+            outlet="El Universal",
+            published="2024-01-04",
+            tier="medio_reconocido",
+            text="En Zacatecas votantes acuden a casillas en Zacatecas tras largas horas de camino hacia las urnas.",
+            from_page=True,
+        ),
+        CorpusDoc(
+            id="s5",
+            url="https://www.eluniversal.com.mx/zacatecas/migracion",
+            title="Migración en Zacatecas",
+            domain="eluniversal.com.mx",
+            outlet="El Universal",
+            published="2024-01-05",
+            tier="medio_reconocido",
+            text="En Zacatecas la migracion afecta el padron y la lista nominal de votantes en comunidades de Zacatecas.",
+            from_page=True,
+        ),
+    ]
+
+    monkeypatch.setattr(explain_verify, "fetch_corpus", lambda *a, **kw: list(docs))
+    monkeypatch.setattr(websearch, "search_news", lambda *a, **kw: [
+        websearch.NewsCandidate(title=d.title, url=d.url, domain=d.domain, outlet=d.outlet, published=d.published, snippet="s", provider="google_news")
+        for d in docs
+    ])
 
     raw_gemini_json = {
         "findings": [
             {
-                "title": "Causa nacional genérica 1",
+                "title": "Causa nacional genérica A",
                 "summary": "Abstencionismo general en todo el país sin datos locales.",
                 "category": "desconfianza_institucional",
-                "sources": [{"url": "https://www.ine.mx/nacional-1", "title": "Nota 1"}],
                 "scope": "nacional",
+                "evidence": ["s1"],
+                "quote": "Abstencion electoral generalizada en elecciones y casillas",
             },
             {
-                "title": "Causa nacional genérica 2",
-                "summary": "Otro factor nacional abstracto.",
+                "title": "Causa nacional genérica B",
+                "summary": "Otro factor nacional abstracto de votantes en elecciones.",
                 "category": "apatia_desafeccion",
-                "sources": [{"url": "https://www.ine.mx/nacional-2", "title": "Nota 2"}],
                 "scope": "nacional",
+                "evidence": ["s2"],
+                "quote": "Desafeccion de votantes y abstencion ciudadana en los comicios",
             },
             {
-                "title": "Causa nacional genérica 3",
-                "summary": "Tercer factor nacional.",
+                "title": "Causa nacional genérica C",
+                "summary": "Tercer factor nacional en elecciones y casillas.",
                 "category": "desinformacion",
-                "sources": [{"url": "https://www.ine.mx/nacional-3", "title": "Nota 3"}],
                 "scope": "nacional",
+                "evidence": ["s3"],
+                "quote": "Desinformacion en elecciones y casillas electorales",
             },
             {
                 "title": "Falta de casillas en la sierra de Zacatecas",
-                "summary": "En comunidades de Zacatecas el traslado toma horas.",
+                "summary": "En comunidades de Zacatecas el traslado toma horas hacia las urnas.",
                 "category": "acceso_casillas_distancia",
-                "sources": [{"url": "https://www.eluniversal.com.mx/zacatecas/casillas", "title": "Nota Zacatecas"}],
                 "scope": "estado",
+                "evidence": ["s4"],
+                "quote": "votantes acuden a casillas en Zacatecas tras largas horas de camino",
             },
             {
                 "title": "Migración temporal en municipios zacatecanos",
                 "summary": "Alta tasa de migración de retorno afecta listas de casilla en Zacatecas.",
                 "category": "migracion_movilidad",
-                "sources": [{"url": "https://www.eluniversal.com.mx/zacatecas/migracion", "title": "Nota Migración"}],
                 "scope": "nacional",  # Will be promoted to 'estado' because mentions Zacatecas
+                "evidence": ["s5"],
+                "quote": "la migracion afecta el padron y la lista nominal de votantes",
             },
         ]
     }
 
-    grounded_res = DummyGroundedResult(
-        sources=[
-            DummyGroundedSource(url="https://www.ine.mx/nacional-1", domain="ine.mx"),
-            DummyGroundedSource(url="https://www.ine.mx/nacional-2", domain="ine.mx"),
-            DummyGroundedSource(url="https://www.ine.mx/nacional-3", domain="ine.mx"),
-            DummyGroundedSource(url="https://www.eluniversal.com.mx/zacatecas/casillas", domain="eluniversal.com.mx"),
-            DummyGroundedSource(url="https://www.eluniversal.com.mx/zacatecas/migracion", domain="eluniversal.com.mx"),
-        ],
-        queries=["participacion zacatecas"],
-    )
-
-    monkeypatch.setattr(gemini_mod, "grounded_json", lambda *a, **kw: (raw_gemini_json, grounded_res))
+    meta = types.SimpleNamespace(model="gemini-3.6-flash", from_cache=False)
+    monkeypatch.setattr(gemini, "generate_json", lambda *a, **kw: (raw_gemini_json, meta))
 
     snap = DataSnapshot(
         unit_id="32",
@@ -1028,7 +1184,7 @@ def test_research_unit_prioritizes_local_and_caps_national(monkeypatch):
     # Local findings (estado/municipio) should be >= 2
     local_count = sum(1 for f in bundle.findings if f.scope in ("estado", "municipio"))
     assert local_count >= 2
-    assert bundle.search_mode == "grounding"
+    assert bundle.search_mode == "respaldo"
 
 
 def test_research_unit_search_modes(monkeypatch):
