@@ -255,6 +255,24 @@ def fetch_corpus(
         fallback_text = f"{cand.title}. {cand.snippet}".strip()
 
         if is_agg:
+            if "news.google.com" in url or "news.google.com" in dom:
+                from atalaya.websearch import decode_google_news_url, domain_of
+                try:
+                    time_left = budget_deadline - time.monotonic()
+                    if time_left > 0.5:
+                        per_call_timeout = min(timeout_s, time_left)
+                        decoded = decode_google_news_url(url, client=http_client, timeout_s=per_call_timeout)
+                        if decoded and "news.google.com" not in decoded:
+                            url = decoded
+                            dom = domain_of(decoded) or dom
+                            tier = sources.classify_domain(dom)
+                            if tier not in sources.VERIFIABLE_TIERS:
+                                tier = "medio_reconocido"
+                            is_agg = ("news.google.com" in dom or "bing.com" in dom)
+                except Exception as exc:
+                    logger.debug("Failed decoding Google News URL in fetch_corpus: %s", exc)
+
+        if is_agg:
             return CorpusDoc(
                 id="",
                 url=url,

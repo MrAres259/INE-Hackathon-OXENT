@@ -291,3 +291,16 @@ def isolate_guardrails_audit(monkeypatch, tmp_path: Path):
         monkeypatch.setattr(gr, "AUDIT_PATH", tmp_path / "guardrails.jsonl")
     except (ImportError, AttributeError):
         pass
+
+
+@pytest.fixture(autouse=True)
+def isolate_gemini_intel_dir(monkeypatch, tmp_path: Path):
+    """Ensure gemini._get_intel_dir writes to a temporary directory in all tests."""
+    try:
+        from atalaya import gemini
+        intel_dir = tmp_path / "intel"
+        intel_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(gemini, "_get_intel_dir", lambda: intel_dir)
+    except (ImportError, AttributeError):
+        pass
+

@@ -47,6 +47,7 @@ from atalaya.explain.texts import (
     plain_trend,
     plain_volatility,
     plain_vulnerability,
+    rank_phrase,
     semaforo_title,
     zone_noun,
 )
@@ -222,6 +223,25 @@ def build_explanation(
     name = str(u.get("name", uid))
     cve_ent = str(u.get("cve_ent", uid[:2])).zfill(2)
 
+    if level == "state":
+        n_zones = 32
+    else:
+        n_zones = 0
+        if ref and hasattr(ref, "level_values") and "mun" in ref.level_values:
+            for v_list in ref.level_values["mun"].values():
+                if v_list:
+                    n_zones = len(v_list)
+                    break
+        if n_zones == 0 and hasattr(store, "units"):
+            try:
+                m_df = store.units("mun")
+                if m_df is not None and not m_df.empty:
+                    n_zones = len(m_df)
+            except Exception:
+                pass
+        if n_zones == 0:
+            n_zones = 2478
+
     # State name lookup for municipalities
     state_name: str | None = None
     if level == "mun":
@@ -322,10 +342,10 @@ def build_explanation(
         zonas_plural = zone_noun(level, plural=True)
         pred_abs_disp = fmt_pct(pred_abs)
 
-        plain_abs = plain_abstention(pts_abs, risk_score, pred_abs_disp, r_abs * 100.0, zonas_plural)
-        plain_vuln = plain_vulnerability(pts_vuln, r_vuln * 100.0, zonas_plural)
+        plain_abs = plain_abstention(pts_abs, risk_score, pred_abs_disp, r_abs * 100.0, zonas_plural, n=n_zones)
+        plain_vuln = plain_vulnerability(pts_vuln, r_vuln * 100.0, zonas_plural, n=n_zones)
         plain_trend_text = plain_trend(pts_trend, trend_pp)
-        plain_vol = plain_volatility(pts_vol, volatility_pp, r_vol * 100.0, zonas_plural)
+        plain_vol = plain_volatility(pts_vol, volatility_pp, r_vol * 100.0, zonas_plural, n=n_zones)
 
         score_breakdown = [
             ScoreComponent(
@@ -369,6 +389,17 @@ def build_explanation(
         sem_title = semaforo_title(category, risk_score, component_title_word(top1.key))
         sem_body = f"{top1.plain} {top2.plain}"
 
+        r_abs_pct = r_abs * 100.0
+        max_thresh_abs = 100.0 * (n_zones - 1) / n_zones if n_zones > 1 else 100.0
+        is_max_abs = r_abs_pct >= (max_thresh_abs - 1e-6) or round(r_abs_pct) >= 100
+        is_min_abs = r_abs_pct <= 0.0 or round(r_abs_pct) <= 0
+        phrase_abs = rank_phrase(r_abs_pct, n_zones, zonas_plural, higher_is="la más alta")
+
+        if is_max_abs or is_min_abs:
+            rank_abs_disp = phrase_abs
+        else:
+            rank_abs_disp = f"{round(r_abs * 100)} %"
+
         sem_numbers = [
             ExplainNumber(
                 key="risk_score",
@@ -387,9 +418,9 @@ def build_explanation(
             ExplainNumber(
                 key="rank_abs",
                 label="Posición relativa de abstención",
-                value=round(r_abs * 100.0, 1),
+                value=round(r_abs * 100.0, 1) if not is_max_abs else None,
                 unit="pct",
-                display=f"{round(r_abs * 100)} %",
+                display=rank_abs_disp,
             ),
         ]
 
@@ -901,11 +932,11 @@ def build_explanation(
     # -------------------------------------------------------------
     if r_vol >= 0.75:
         vol_disp = fmt_pts(volatility_pp)
-        r_vol_pct = round(r_vol * 100)
+        v_phrase = rank_phrase(r_vol * 100.0, n_zones, zonas_plural, higher_is="la más alta")
         v_title = "Es una zona difícil de anticipar"
         v_body = (
             f"Su participación cambia de una elección a otra (±{volatility_pp:.1f} puntos), "
-            f"más que en el {r_vol_pct} % de los {zonas_plural}; "
+            f"{v_phrase}; "
             f"por eso su pronóstico tiene un margen amplio ({pred_low_disp} a {pred_high_disp} de abstención)."
         )
         v_numbers = [
@@ -955,17 +986,25 @@ def build_explanation(
             pct_rank = 75.0 if stat.unfavorable_high else 25.0
 
         meta = ASSOC_META.get(var, {})
+        zonas_p = zone_noun(level, plural=True)
         if stat.unfavorable_high:
             cond_text = meta.get("condition_high", f"mayor {var}")
-            pct_num = round(pct_rank)
-            pct_disp = f"{pct_num} %"
+            rank_val = pct_rank
         else:
             cond_text = meta.get("condition_low", f"menor {var}")
-            pct_num = round(100.0 - pct_rank)
-            pct_disp = f"{pct_num} %"
+            rank_val = 100.0 - pct_rank
 
-        zonas_p = zone_noun(level, plural=True)
-        pt_title = f"Tiene {cond_text} que el {pct_disp} de los {zonas_p}"
+        pt_phrase = rank_phrase(rank_val, n_zones, zonas_p, higher_is="la más alta")
+        max_thresh_pt = 100.0 * (n_zones - 1) / n_zones if n_zones > 1 else 100.0
+        is_max_pt = rank_val >= (max_thresh_pt - 1e-6) or round(rank_val) >= 100
+
+        if is_max_pt:
+            pct_disp = pt_phrase
+            pt_title = f"Tiene {cond_text}, {pt_phrase}"
+        else:
+            pct_num = int(round(rank_val))
+            pct_disp = f"{pct_num} %"
+            pt_title = f"Tiene {cond_text} que el {pct_disp} de los {zonas_p}"
 
         val_label = meta.get("value_label", "")
         if var == "graproes":
@@ -985,7 +1024,7 @@ def build_explanation(
         )
 
         pt_numbers = [
-            ExplainNumber(key="rank_pct", label="Posición nacional", value=float(pct_num), unit="pct", display=pct_disp),
+            ExplainNumber(key="rank_pct", label="Posición nacional", value=float(round(rank_val, 1)) if not is_max_pt else None, unit="pct", display=pct_disp),
             ExplainNumber(key=var, label=f"Valor de {var}", value=val_float, unit="ratio", display=val_disp),
         ]
 
@@ -1015,12 +1054,16 @@ def build_explanation(
             if pct_rank_mig is not None and pct_rank_mig >= 90.0:
                 nac_disp = fmt_pct(pct_nac, is_ratio=False)
                 llego_disp = fmt_pct(pct_llego, is_ratio=False)
-                rank_disp = f"{round(pct_rank_mig)} %"
                 zonas_p = zone_noun(level, plural=True)
+
+                phrase_mig = rank_phrase(pct_rank_mig, n_zones, zonas_p, higher_is="la más alta")
+                max_thresh_mig = 100.0 * (n_zones - 1) / n_zones if n_zones > 1 else 100.0
+                is_max_mig = pct_rank_mig >= (max_thresh_mig - 1e-6) or round(pct_rank_mig) >= 100
+                rank_disp = phrase_mig if is_max_mig else f"{round(pct_rank_mig)} %"
 
                 ctx_title = "Mucha de su población viene de otros estados"
                 ctx_body = (
-                    f"El {nac_disp} de sus habitantes nació en otra entidad (más que en el {rank_disp} de los {zonas_p}) "
+                    f"El {nac_disp} de sus habitantes nació en otra entidad ({phrase_mig}) "
                     f"y el {llego_disp} llegó entre 2015 y 2020. Cuando mucha gente se muda, parte de la lista nominal "
                     f"ya no vive ahí o no ha actualizado su credencial; los estudios lo asocian con menor participación, "
                     f"aunque en nuestros datos municipales la relación es débil."
@@ -1028,7 +1071,7 @@ def build_explanation(
 
                 ctx_numbers = [
                     ExplainNumber(key="pct_nacido_otra_ent", label="Nacidos en otra entidad", value=float(pct_nac), unit="pct", display=nac_disp),
-                    ExplainNumber(key="mig_rank", label="Posición en migración", value=round(pct_rank_mig, 1), unit="pct", display=rank_disp),
+                    ExplainNumber(key="mig_rank", label="Posición en migración", value=round(pct_rank_mig, 1) if not is_max_mig else None, unit="pct", display=rank_disp),
                     ExplainNumber(key="pct_llego_2015_2020", label="Llegaron entre 2015 y 2020", value=float(pct_llego) if pct_llego else None, unit="pct", display=llego_disp),
                     ExplainNumber(key="census_period", label="Periodo intercensal", value=None, unit="elecciones", display="2015 y 2020"),
                 ]

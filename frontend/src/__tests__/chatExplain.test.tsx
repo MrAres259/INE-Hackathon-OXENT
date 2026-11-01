@@ -7,6 +7,7 @@ import {
   ChatPanel,
   getIntentLabel,
   assistantMarkdownComponents,
+  parseEvidenceTag,
 } from "../components/panel/ChatPanel";
 import { AtalayaContext, type AtalayaContextValue } from "../lib/state";
 import * as apiModule from "../lib/api";
@@ -523,4 +524,215 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
     expect(html).toContain("mt-3");
     expect(html).toContain("Lo que muestran los datos");
   });
+
+  describe("Evidence badges in assistant chat narrative (F2-C)", () => {
+    it("parseEvidenceTag maps all 4 evidence types, strengths, and variations", () => {
+      // 1. Dato medido
+      expect(parseEvidenceTag("Dato medido · Fuerte")).toEqual({
+        type: "dato_medido",
+        strength: "fuerte",
+      });
+      expect(parseEvidenceTag("Dato medido - Moderada")).toEqual({
+        type: "dato_medido",
+        strength: "moderada",
+      });
+
+      // 2. Cálculo del modelo
+      expect(parseEvidenceTag("Cálculo del modelo · Fuerte")).toEqual({
+        type: "calculo_del_modelo",
+        strength: "fuerte",
+      });
+      expect(parseEvidenceTag("Calculo del modelo · Moderada")).toEqual({
+        type: "calculo_del_modelo",
+        strength: "moderada",
+      });
+
+      // 3. Relación, no prueba causa / Relación (no prueba causa)
+      expect(parseEvidenceTag("Relación, no prueba causa · Débil")).toEqual({
+        type: "asociacion",
+        strength: "debil",
+      });
+      expect(parseEvidenceTag("Relación (no prueba causa) · Débil")).toEqual({
+        type: "asociacion",
+        strength: "debil",
+      });
+      expect(parseEvidenceTag("Relacion, no prueba causa · debil")).toEqual({
+        type: "asociacion",
+        strength: "debil",
+      });
+
+      // 4. Dato de contexto
+      expect(parseEvidenceTag("Dato de contexto · Débil")).toEqual({
+        type: "contexto_descriptivo",
+        strength: "debil",
+      });
+
+      // Default strength when omitted: defaults to 'moderada' per F2-C specification
+      expect(parseEvidenceTag("Dato medido")).toEqual({
+        type: "dato_medido",
+        strength: "moderada",
+      });
+      expect(parseEvidenceTag("Cálculo del modelo")).toEqual({
+        type: "calculo_del_modelo",
+        strength: "moderada",
+      });
+
+      // Unknown or partial tags return null
+      expect(parseEvidenceTag("Etiqueta desconocida · Fuerte")).toBeNull();
+      expect(parseEvidenceTag("Nota técnica")).toBeNull();
+      expect(parseEvidenceTag("Dato me")).toBeNull();
+      expect(parseEvidenceTag("")).toBeNull();
+    });
+
+    it("renders message with the 4 evidence tags as 4 badges with their text and no visible brackets", () => {
+      const markdown = `
+- [Cálculo del modelo · Fuerte] Historial persistente de baja participación en casillas urbanas
+- [Dato medido · Moderada] Participación juvenil en la elección 2024
+- [Relación, no prueba causa · Débil] Relación moderada con grado de marginación
+- [Dato de contexto · Débil] Movilidad y población nacida en otra entidad según Censo
+`;
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {markdown}
+        </ReactMarkdown>
+      );
+
+      // 1. All 4 badge type labels are present
+      expect(html).toContain("Cálculo del modelo");
+      expect(html).toContain("Dato medido");
+      expect(html).toContain("Relación (no prueba causa)");
+      expect(html).toContain("Dato de contexto");
+
+      // 2. Strength labels and dots are rendered
+      expect(html).toContain("Fuerte");
+      expect(html).toContain("Moderada");
+      expect(html).toContain("Débil");
+      expect(html).toContain("●●●");
+      expect(html).toContain("●●○");
+      expect(html).toContain("●○○");
+
+      // 3. Narrative texts are preserved
+      expect(html).toContain("Historial persistente de baja participación en casillas urbanas");
+      expect(html).toContain("Participación juvenil en la elección 2024");
+      expect(html).toContain("Relación moderada con grado de marginación");
+      expect(html).toContain("Movilidad y población nacida en otra entidad según Censo");
+
+      // 4. No bracketed tag strings or stray brackets remain visible in text
+      expect(html).not.toContain("[Cálculo del modelo · Fuerte]");
+      expect(html).not.toContain("[Dato medido · Moderada]");
+      expect(html).not.toContain("[Relación, no prueba causa · Débil]");
+      expect(html).not.toContain("[Dato de contexto · Débil]");
+
+      const textContent = html.replace(/<[^>]+>/g, "");
+      expect(textContent).not.toContain("[");
+      expect(textContent).not.toContain("]");
+    });
+
+    it("renders parentheses variation of asociacion as EvidenceBadge without brackets", () => {
+      const markdown = "- [Relación (no prueba causa) · Débil] Asociación observada a nivel municipal";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {markdown}
+        </ReactMarkdown>
+      );
+
+      expect(html).toContain("Relación (no prueba causa)");
+      expect(html).toContain("Débil");
+      expect(html).toContain("●○○");
+      expect(html).not.toContain("[Relación (no prueba causa) · Débil]");
+
+      const textContent = html.replace(/<[^>]+>/g, "");
+      expect(textContent).not.toContain("[");
+      expect(textContent).not.toContain("]");
+    });
+
+    it("leaves partial tags during streaming as plain text with brackets", () => {
+      const streamingMarkdown = "- [Dato me";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {streamingMarkdown}
+        </ReactMarkdown>
+      );
+
+      // Incomplete bracket tag must not be parsed into a badge, remains raw text
+      expect(html).toContain("[Dato me");
+      expect(html).not.toContain("EvidenceBadge");
+      expect(html).not.toContain("●");
+    });
+
+    it("leaves another streaming prefix as plain text with brackets", () => {
+      const streamingMarkdown = "- [Cálculo del mod";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {streamingMarkdown}
+        </ReactMarkdown>
+      );
+
+      expect(html).toContain("[Cálculo del mod");
+      expect(html).not.toContain("●");
+    });
+
+    it("leaves unknown tags as plain text with brackets", () => {
+      const markdown = "- [Etiqueta desconocida · Fuerte] Este texto no debe convertirse en insignia";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {markdown}
+        </ReactMarkdown>
+      );
+
+      // Unknown tags remain verbatim with brackets
+      expect(html).toContain("[Etiqueta desconocida · Fuerte]");
+      expect(html).toContain("Este texto no debe convertirse en insignia");
+      expect(html).not.toContain("●●●");
+    });
+
+    it("renders tag without explicit strength using default 'moderada' badge", () => {
+      // Documented behavior per F2-C specification:
+      // When strength is omitted in the tag, default strength is 'moderada' (●●○)
+      const markdown = "- [Dato medido] Registro de participación ciudadana oficial";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {markdown}
+        </ReactMarkdown>
+      );
+
+      expect(html).toContain("Dato medido");
+      expect(html).toContain("Moderada");
+      expect(html).toContain("●●○");
+      expect(html).toContain("Registro de participación ciudadana oficial");
+      expect(html).not.toContain("[Dato medido]");
+      const textContent = html.replace(/<[^>]+>/g, "");
+      expect(textContent).not.toContain("[");
+      expect(textContent).not.toContain("]");
+    });
+
+    it("replaces tags in paragraph text when bullets are unicode characters", () => {
+      const markdown = "• [Cálculo del modelo · Fuerte] Razón explicativa en párrafo con viñeta unicode";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {markdown}
+        </ReactMarkdown>
+      );
+
+      expect(html).toContain("Cálculo del modelo");
+      expect(html).toContain("Fuerte");
+      expect(html).toContain("●●●");
+      expect(html).not.toContain("[Cálculo del modelo · Fuerte]");
+      expect(html).toContain("Razón explicativa en párrafo con viñeta unicode");
+    });
+
+    it("does not affect user messages (tags remain raw text with brackets)", () => {
+      // In ChatPanel, components={msg.role === "assistant" ? assistantMarkdownComponents : undefined}
+      const userMessage = "¿Qué significa [Cálculo del modelo · Fuerte]?";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {userMessage}
+        </ReactMarkdown>
+      );
+
+      expect(html).toContain("[Cálculo del modelo · Fuerte]");
+      expect(html).not.toContain("●●●");
+    });
+  });
 });
+

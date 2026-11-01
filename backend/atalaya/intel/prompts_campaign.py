@@ -283,32 +283,25 @@ def build_campaign_fallback_queries(snapshot: DataSnapshot, focus: str | None = 
     lugar = snapshot.name
     estado = snapshot.ent_name or snapshot.name
 
-    queries: list[str] = []
-    if snapshot.level == "mun":
-        queries.extend([
-            f'"{lugar}" abstención',
-            f'"{lugar}" participación electoral',
-            f'"{lugar}" casillas',
-            f'"{lugar}" votar',
-            f'"{lugar}" "{estado}" abstención electoral',
-            f'"{lugar}" "{estado}" participación electoral 2024',
-            f'"{lugar}" casillas INE',
-        ])
+    if snapshot.level == "mun" and estado and estado.lower() != lugar.lower():
+        prefix = f'"{lugar}" "{estado}"'
     else:
-        queries.extend([
-            f'"{estado}" participación electoral',
-            f'"{estado}" abstención',
-            f'"{estado}" casillas',
-            f'"{estado}" votar',
-            f'"{estado}" participación electoral 2024',
-            f'"{estado}" abstención jóvenes',
-            f'"{estado}" casillas instalación INE',
-        ])
+        prefix = f'"{lugar}"'
+
+    queries: list[str] = [
+        f'{prefix} abstención',
+        f'{prefix} baja participación electoral',
+        f'{prefix} "no votó" OR "no votaron"',
+        f'{prefix} casillas inseguridad elección',
+        f'{prefix} credencial para votar jóvenes',
+        f'{prefix} participación ciudadana elección 2024',
+        f'{prefix} migración padrón electoral',
+    ]
 
     if focus and focus.strip():
-        queries.insert(0, f'"{lugar}" {focus.strip()} participación electoral')
+        queries.insert(0, f'{prefix} {focus.strip()} participación electoral')
 
-    # Deduplicate while preserving order
+    # Deduplicate while preserving order, max 7
     seen: set[str] = set()
     deduped: list[str] = []
     for q in queries:

@@ -11,6 +11,8 @@ import type {
   ContextResult,
   SuggestedQuestion,
   ChatAction,
+  EvidenceType,
+  Strength,
 } from "@/lib/explain/types";
 import { requestContext } from "@/lib/explain/api";
 import { pollJob } from "@/lib/intel/api";
@@ -18,6 +20,7 @@ import type { Job } from "@/lib/intel/types";
 import { ExplainCard } from "@/components/explain/ExplainCard";
 import { ContextCard } from "@/components/explain/ContextCard";
 import { SuggestedQuestions } from "@/components/explain/SuggestedQuestions";
+import { EvidenceBadge } from "@/components/explain/EvidenceBadge";
 import { JobProgress } from "@/components/intel/JobProgress";
 import { InfoTip } from "@/components/ui/InfoTip";
 
@@ -76,6 +79,160 @@ export function getIntentLabel(intent?: string | null): string {
   return INTENT_LABELS[intent] || "Consulta";
 }
 
+function normalizeEvidenceText(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Parses an evidence tag inside brackets, e.g. "Cálculo del modelo · Fuerte".
+ * Mappings:
+ * - "Dato medido" -> "dato_medido"
+ * - "Cálculo del modelo" / "Calculo del modelo" -> "calculo_del_modelo"
+ * - "Relación, no prueba causa" / "Relación (no prueba causa)" -> "asociacion"
+ * - "Dato de contexto" -> "contexto_descriptivo"
+ * Strengths:
+ * - "Fuerte" -> "fuerte"
+ * - "Moderada" -> "moderada"
+ * - "Débil" / "Debil" -> "debil"
+ * - If strength is omitted, defaults to "moderada" (documented per task spec)
+ * Returns null if the tag is not recognized or invalid.
+ */
+export function parseEvidenceTag(raw: string): { type: EvidenceType; strength: Strength } | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  let typePart = trimmed;
+  let strength: Strength = "moderada"; // default when omitted
+
+  // Look for strength suffix: e.g. "· Fuerte", "- Moderada", "· Débil", ": Fuerte"
+  const strengthMatch = trimmed.match(
+    /^(.*?)(?:[\s·•–—\-|:]+)(fuerte|moderada|débil|debil)$/i
+  );
+  if (strengthMatch) {
+    typePart = strengthMatch[1].trim();
+    const stNorm = normalizeEvidenceText(strengthMatch[2]);
+    if (stNorm === "fuerte" || stNorm === "moderada" || stNorm === "debil") {
+      strength = stNorm as Strength;
+    }
+  }
+
+  const normType = normalizeEvidenceText(typePart);
+
+  let type: EvidenceType | null = null;
+  if (normType === "dato medido" || normType === "dato_medido") {
+    type = "dato_medido";
+  } else if (
+    normType === "calculo del modelo" ||
+    normType === "calculo_del_modelo" ||
+    normType === "calculo de modelo" ||
+    normType === "calculo modelo"
+  ) {
+    type = "calculo_del_modelo";
+  } else if (
+    normType === "relacion, no prueba causa" ||
+    normType === "relacion (no prueba causa)" ||
+    normType === "relacion no prueba causa" ||
+    normType === "relacion, no prueba causalidad" ||
+    normType === "asociacion"
+  ) {
+    type = "asociacion";
+  } else if (
+    normType === "dato de contexto" ||
+    normType === "contexto descriptivo" ||
+    normType === "contexto_descriptivo" ||
+    normType === "contexto"
+  ) {
+    type = "contexto_descriptivo";
+  }
+
+  if (!type) {
+    return null;
+  }
+
+  return { type, strength };
+}
+
+/**
+ * Scans a plain string for evidence tags like `[Cálculo del modelo · Fuerte]`,
+ * replacing recognized tags with `<EvidenceBadge />` components.
+ * Incomplete tags during streaming (e.g. `[Dato me`) and unknown tags remain plain text.
+ */
+export function replaceEvidenceTagsInText(text: string): React.ReactNode[] {
+  const TAG_REGEX = /\[([^\]\n]+)\]/g;
+  const elements: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let matchCount = 0;
+
+  while ((match = TAG_REGEX.exec(text)) !== null) {
+    const inner = match[1];
+    const parsed = parseEvidenceTag(inner);
+
+    if (parsed) {
+      if (match.index > lastIndex) {
+        elements.push(text.slice(lastIndex, match.index));
+      }
+      elements.push(
+        <EvidenceBadge
+          key={`evidence-badge-${match.index}-${matchCount++}`}
+          type={parsed.type}
+          strength={parsed.strength}
+          className="mr-1.5 align-middle"
+        />
+      );
+      lastIndex = TAG_REGEX.lastIndex;
+      // Consume a single space immediately after the bracket so spacing is consistent
+      if (text[lastIndex] === " ") {
+        lastIndex++;
+      }
+    }
+  }
+
+  if (matchCount === 0) {
+    return [text];
+  }
+
+  if (lastIndex < text.length) {
+    elements.push(text.slice(lastIndex));
+  }
+
+  return elements;
+}
+
+/**
+ * Recursively traverses React nodes to replace evidence tags inside strings.
+ */
+export function replaceEvidenceTags(nodes: React.ReactNode): React.ReactNode {
+  if (typeof nodes === "string") {
+    const replaced = replaceEvidenceTagsInText(nodes);
+    if (replaced.length === 1 && typeof replaced[0] === "string") {
+      return replaced[0];
+    }
+    return replaced;
+  }
+  if (Array.isArray(nodes)) {
+    return React.Children.map(nodes, (child) => replaceEvidenceTags(child));
+  }
+  if (React.isValidElement(nodes)) {
+    if (nodes.type === EvidenceBadge || !nodes.props || !(nodes.props as any).children) {
+      return nodes;
+    }
+    if (typeof nodes.type === "string") {
+      return React.cloneElement(nodes, {
+        ...(nodes.props as any),
+        children: replaceEvidenceTags((nodes.props as any).children),
+      });
+    }
+    return nodes;
+  }
+  return nodes;
+}
+
 export const assistantMarkdownComponents = {
   ul: ({ node, ...props }: any) => (
     <ul className="list-disc pl-5 my-2 space-y-1 text-inherit" {...props} />
@@ -83,8 +240,10 @@ export const assistantMarkdownComponents = {
   ol: ({ node, ...props }: any) => (
     <ol className="list-decimal pl-5 my-2 space-y-1 text-inherit" {...props} />
   ),
-  li: ({ node, ...props }: any) => (
-    <li className="my-0.5 leading-relaxed pl-0.5" {...props} />
+  li: ({ node, children, ...props }: any) => (
+    <li className="my-0.5 leading-relaxed pl-0.5" {...props}>
+      {replaceEvidenceTags(children)}
+    </li>
   ),
   p: ({ node, children, ...props }: any) => {
     const firstChild = React.Children.toArray(children)[0];
@@ -93,7 +252,7 @@ export const assistantMarkdownComponents = {
       (firstChild.type === "strong" || (firstChild.props as any)?.node?.tagName === "strong");
     return (
       <p className={`my-2 leading-relaxed ${isFirstStrong ? "mt-3" : ""}`} {...props}>
-        {children}
+        {replaceEvidenceTags(children)}
       </p>
     );
   },

@@ -18,7 +18,7 @@ from atalaya.explain.engine import (
     explanation_facts,
 )
 from atalaya.explain.schemas import Explanation
-from atalaya.explain.texts import FORBIDDEN_WORDS_PATTERN
+from atalaya.explain.texts import FORBIDDEN_WORDS_PATTERN, rank_phrase
 
 
 class StubStore:
@@ -688,4 +688,122 @@ def test_cache_and_clear():
     clear_explain_cache()
     expl2 = build_explanation("23", store=store, ref=ref)
     assert expl2 is not None
+
+
+def test_rank_phrase_extremes_and_normal():
+    """rank_phrase handles maximum, minimum, and intermediate ranks properly."""
+    # Maximum for states (n=32)
+    max_phrase = rank_phrase(100.0, 32, "estados", higher_is="la más alta")
+    assert max_phrase == "la más alta de los 32 estados"
+    assert "100 %" not in max_phrase
+
+    # Threshold for max at state level (31/32 = 96.875)
+    assert rank_phrase(96.9, 32, "estados", higher_is="la más alta") == "la más alta de los 32 estados"
+
+    # Minimum for states
+    min_phrase = rank_phrase(0.0, 32, "estados", higher_is="la más alta")
+    assert "la más baja" in min_phrase
+    assert min_phrase == "la más baja de los 32 estados"
+    assert "0 %" not in min_phrase
+
+    # Intermediate >= 50
+    phrase_78 = rank_phrase(78.0, 32, "estados", higher_is="la más alta")
+    assert phrase_78 == "más que en el 78 % de los estados"
+
+    # Intermediate < 50
+    phrase_20 = rank_phrase(20.0, 32, "estados", higher_is="la más alta")
+    assert phrase_20 == "menos que en el 80 % de los estados"
+
+    # Rounded to integer, no decimals
+    phrase_dec = rank_phrase(78.4, 32, "estados", higher_is="la más alta")
+    assert "78 %" in phrase_dec
+    assert "78.4" not in phrase_dec
+
+
+def test_explanation_rank_extremes_max_and_min():
+    """Zona máxima => 'la más alta de los 32 estados' y sin '100 %'; zona mínima => 'la más baja'."""
+    mock_units_max = {
+        "02": {
+            "id": "02",
+            "name": "Baja California Mock",
+            "level": "state",
+            "category": "rojo",
+            "risk_score": 80.0,
+            "pred_abstention": 0.607,
+            "r_abs": 1.0,  # Max rank
+            "r_vuln": 0.5,
+            "r_trend": 0.5,
+            "r_vol": 0.5,
+        }
+    }
+    store_max = StubStore(units_dict=mock_units_max)
+    ref = _make_mock_reference()
+
+    expl_max = build_explanation("02", store=store_max, ref=ref)
+    abs_comp_max = next(sc for sc in expl_max.score_breakdown if sc.key == "abs")
+    assert "la más alta de los 32 estados" in abs_comp_max.plain
+    assert "100 %" not in abs_comp_max.plain
+
+    r1_max = expl_max.reasons[0]
+    assert "la más alta de los 32 estados" in r1_max.body
+    assert "100 %" not in r1_max.body
+    rank_abs_num_max = next(n for n in r1_max.numbers if n.key == "rank_abs")
+    assert "100 %" not in rank_abs_num_max.display
+    assert rank_abs_num_max.display == "la más alta de los 32 estados"
+
+    # Minimum
+    mock_units_min = {
+        "31": {
+            "id": "31",
+            "name": "Yucatán Mock",
+            "level": "state",
+            "category": "verde",
+            "risk_score": 20.0,
+            "pred_abstention": 0.35,
+            "r_abs": 0.0,  # Min rank
+            "r_vuln": 0.0,
+            "r_trend": 0.0,
+            "r_vol": 0.0,
+        }
+    }
+    store_min = StubStore(units_dict=mock_units_min)
+    expl_min = build_explanation("31", store=store_min, ref=ref)
+    abs_comp_min = next(sc for sc in expl_min.score_breakdown if sc.key == "abs")
+    assert "la más baja" in abs_comp_min.plain
+    assert "la más baja de los 32 estados" in abs_comp_min.plain
+    assert "en el 0 %" not in abs_comp_min.plain
+    assert "100 %" not in abs_comp_min.plain
+
+    r1_min = expl_min.reasons[0]
+    assert "la más baja" in r1_min.body
+    rank_abs_num_min = next(n for n in r1_min.numbers if n.key == "rank_abs")
+    assert "la más baja" in rank_abs_num_min.display
+
+
+@pytest.mark.skipif(not (BUILD_DIR / "units.parquet").is_file(), reason="data/build/units.parquet does not exist")
+def test_baja_california_real_no_100_pct():
+    """Con datos reales, Baja California no contiene '100 %' y dice 'la más alta de los 32 estados'."""
+    from atalaya.store import get_store
+
+    store = get_store()
+    expl = build_explanation("02", store=store)
+
+    # Explanation facts and dump have zero instances of '100 %'
+    facts = explanation_facts(expl)
+    for fact in facts:
+        assert "100 %" not in fact, f"Found '100 %' in fact: {fact}"
+
+    for sc in expl.score_breakdown:
+        assert "100 %" not in sc.plain, f"Found '100 %' in breakdown: {sc.plain}"
+
+    for r in expl.reasons:
+        assert "100 %" not in r.title, f"Found '100 %' in reason title: {r.title}"
+        assert "100 %" not in r.body, f"Found '100 %' in reason body: {r.body}"
+        for num in r.numbers:
+            assert "100 %" not in num.display, f"Found '100 %' in number display: {num.display}"
+
+    # Specifically check the expected superlative phrase
+    abs_comp = next(sc for sc in expl.score_breakdown if sc.key == "abs")
+    assert "la más alta de los 32 estados" in abs_comp.plain
+
 

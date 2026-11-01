@@ -157,6 +157,19 @@ def mock_storage(tmp_path, monkeypatch):
     return camp_dir
 
 
+@pytest.fixture(autouse=True)
+def isolate_campaign_grounding(monkeypatch, tmp_path: Path):
+    """Isolate campaign tests from real cache and default to Ruta B (grounding circuit open)."""
+    intel_dir = tmp_path / "intel"
+    intel_dir.mkdir(parents=True, exist_ok=True)
+    gemini_mod = sys.modules.get("atalaya.gemini")
+    if gemini_mod is not None:
+        if hasattr(gemini_mod, "_get_intel_dir"):
+            monkeypatch.setattr(gemini_mod, "_get_intel_dir", lambda: intel_dir)
+        if hasattr(gemini_mod, "_is_grounding_available"):
+            monkeypatch.setattr(gemini_mod, "_is_grounding_available", lambda: (False, None))
+
+
 # ---------------------------------------------------------------- tests: build_snapshot
 
 
@@ -1214,8 +1227,9 @@ def test_research_unit_search_modes(monkeypatch):
     assert b_disabled.search_mode == "sin_internet"
     assert b_disabled.degraded is True
 
-    # 2. respaldo when mode is rss_url_context
+    # 2. respaldo when mode is rss_url_context (Ruta A)
     monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+    monkeypatch.setattr(gemini_mod, "_is_grounding_available", lambda: (True, None))
     res_rss = DummyGroundedResult(
         sources=[DummyGroundedSource(url="https://elpais.com/noticia", title="Nota", domain="elpais.com")],
         mode="rss_url_context",
@@ -1235,6 +1249,60 @@ def test_research_unit_search_modes(monkeypatch):
     monkeypatch.setattr(gemini_mod, "grounded_json", lambda *a, **kw: (raw_json, res_rss))
     b_rss = research_unit(snap)
     assert b_rss.search_mode == "respaldo"
+
+
+def test_research_unit_circuit_states(monkeypatch):
+    """Test research_unit explicitly under both circuit open (Ruta B) and closed (Ruta A) states."""
+    from atalaya import websearch
+
+    gemini_mod = sys.modules["atalaya.gemini"]
+    monkeypatch.setattr(gemini_mod, "is_enabled", lambda: True)
+
+    snap = DataSnapshot(
+        unit_id="32",
+        name="Zacatecas",
+        level="state",
+        ent="32",
+        ent_name="Zacatecas",
+        lista_nominal=1200000,
+        pred_abstention=0.48,
+        pred_low=0.44,
+        pred_high=0.52,
+        category="amarillo",
+        risk_score=48.0,
+        last_participation=0.52,
+        last_year=2024,
+        trend_pp=-1.2,
+        abstencion_esperada=576000,
+    )
+
+    # State 1: Circuit open (grounding unavailable -> Ruta B)
+    monkeypatch.setattr(gemini_mod, "_is_grounding_available", lambda: (False, "2026-11-01T00:00:00"))
+    monkeypatch.setattr(websearch, "search_news", lambda *a, **kw: [])
+    b_open = research_unit(snap)
+    assert b_open.search_mode == "respaldo"
+
+    # State 2: Circuit closed (grounding available -> Ruta A)
+    monkeypatch.setattr(gemini_mod, "_is_grounding_available", lambda: (True, None))
+    res_grounding = DummyGroundedResult(
+        sources=[DummyGroundedSource(url="https://ine.mx/doc", title="INE", domain="ine.mx")],
+        mode="grounding",
+    )
+    raw_json = {
+        "findings": [
+            {
+                "title": "Participación Zacatecas",
+                "summary": "Estudio de participación en Zacatecas",
+                "category": "desconfianza_institucional",
+                "sources": [{"url": "https://ine.mx/doc", "title": "INE"}],
+                "scope": "estado",
+                "confidence": "alta",
+            }
+        ]
+    }
+    monkeypatch.setattr(gemini_mod, "grounded_json", lambda *a, **kw: (raw_json, res_grounding))
+    b_closed = research_unit(snap)
+    assert b_closed.search_mode == "grounding"
 
 
 def test_cached_plan_and_find_plan_legacy_search_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

@@ -351,3 +351,50 @@ def test_verify_finding_menu_single_mention_rejected():
     assert verif == "sin_verificar"
     assert q is None
 
+
+def test_fetch_corpus_google_news_decoded():
+    """fetch_corpus decodes Google News candidate URL and fetches HTML from destination domain."""
+    from atalaya import websearch
+
+    websearch.clear_decode_cache()
+
+    cand = NewsCandidate(
+        title="Elecciones en Quintana Roo",
+        url="https://news.google.com/rss/articles/CBMi_QR_TEST",
+        domain="news.google.com",
+        outlet="Google News",
+        published="2024-06-01",
+        snippet="Snippet de Quintana Roo",
+        provider="google_news",
+    )
+
+    article_html = (
+        "<html><body>"
+        "<p>En Quintana Roo los votantes acudieron masivamente a las urnas y casillas instaladas por el INE.</p>"
+        "<p>La jornada electoral en Quintana Roo transcurrió con gran entusiasmo ciudadano.</p>"
+        "</body></html>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "rss/articles/CBMi_QR_TEST" in url_str:
+            return httpx.Response(200, text='<html><div data-n-a-sg="sig_qr" data-n-a-ts="1710000000"></div></html>')
+        if "batchexecute" in url_str:
+            dest = "https://eluniversal.com.mx/estados/elecciones-quintana-roo"
+            resp = f')}}\'\n\n[["wrb.fr","Fbv4je","[\\"garturlres\\",\\"{dest}\\",1]",null,null,null,"generic"]]'
+            return httpx.Response(200, text=resp)
+        if "elecciones-quintana-roo" in url_str:
+            return httpx.Response(200, headers={"Content-Type": "text/html; charset=utf-8"}, text=article_html)
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    zone_names = ["Quintana Roo"]
+
+    docs = fetch_corpus([cand], zone_names=zone_names, client=client)
+    assert len(docs) == 1
+    doc = docs[0]
+    assert doc.from_page is True
+    assert doc.domain == "eluniversal.com.mx"
+    assert doc.url == "https://eluniversal.com.mx/estados/elecciones-quintana-roo"
+    assert "casillas instaladas" in doc.text
+

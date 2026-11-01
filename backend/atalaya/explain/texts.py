@@ -122,24 +122,94 @@ def semaforo_title(cat: str | None, risk_score: float, comp_word: str) -> str:
     return f"Está en {col} ({rsg}, {risk_score:.1f} de 100) sobre todo por {comp_word}"
 
 
-def plain_abstention(pts: float, score: float, pred_disp: str, rank_pct: float, zonas: str) -> str:
-    """Format plain text for expected abstention component."""
-    r = round(rank_pct)
-    if rank_pct >= 50.0:
-        return (
-            f"Pesa {pts:.1f} de {score:.1f} puntos: se espera que aquí no vote "
-            f"el {pred_disp}, más que en el {r} % de los {zonas}."
-        )
+def rank_phrase(
+    rank_pct: float,
+    n: int,
+    zone_noun: str,
+    *,
+    higher_is: str = "la más alta",
+) -> str:
+    """Format plain-language rank phrase avoiding 0 % and 100 % extremes.
+
+    Parameters
+    ----------
+    rank_pct : float
+        Percentage of zones strictly below value (0..100).
+    n : int
+        Total number of zones in the level (e.g. 32 for states).
+    zone_noun : str
+        Noun for the units, usually plural: 'estados', 'municipios', 'zonas'.
+    higher_is : str
+        Template or adjective for the highest unit: e.g. 'la más alta', 'el más alto',
+        'el perfil más expuesto', 'la más expuesta'.
+    """
+    n_count = int(n) if n and n > 0 else 32
+    n_str = fmt_int(n_count)
+    art = "las" if str(zone_noun).lower().strip() in ("zonas", "entidades") else "los"
+
+    max_thresh = 100.0 * (n_count - 1) / n_count if n_count > 1 else 100.0
+    is_max = rank_pct >= (max_thresh - 1e-6) or round(rank_pct) >= 100
+    is_min = rank_pct <= 0.0 or abs(rank_pct) < 1e-6 or round(rank_pct) <= 0
+
+    if is_max:
+        h = higher_is.strip()
+        if " de " in h:
+            return h
+        if h == "alta":
+            return f"la más alta de {art} {n_str} {zone_noun}"
+        if h == "alto":
+            return f"el más alto de {art} {n_str} {zone_noun}"
+        return f"{h} de {art} {n_str} {zone_noun}"
+
+    if is_min:
+        h = higher_is.strip()
+        if "perfil" in h:
+            return f"el perfil menos expuesto de {art} {n_str} {zone_noun}"
+        if "expuesta" in h:
+            return f"la menos expuesta de {art} {n_str} {zone_noun}"
+        if "expuesto" in h:
+            return f"el menos expuesto de {art} {n_str} {zone_noun}"
+        if "el más alto" in h or h == "alto":
+            return f"el más bajo de {art} {n_str} {zone_noun}"
+        return f"la más baja de {art} {n_str} {zone_noun}"
+
+    r = int(round(rank_pct))
+    if r >= 50:
+        return f"más que en el {r} % de {art} {zone_noun}"
+
     comp_rank = 100 - r
+    return f"menos que en el {comp_rank} % de {art} {zone_noun}"
+
+
+def plain_abstention(pts: float, score: float, pred_disp: str, rank_pct: float, zonas: str, n: int = 32) -> str:
+    """Format plain text for expected abstention component."""
+    phrase = rank_phrase(rank_pct, n, zonas, higher_is="la más alta")
     return (
         f"Pesa {pts:.1f} de {score:.1f} puntos: se espera que aquí no vote "
-        f"el {pred_disp}, menos que en el {comp_rank} % de los {zonas}."
+        f"el {pred_disp}, {phrase}."
     )
 
 
-def plain_vulnerability(pts: float, rank_pct: float, zonas: str) -> str:
+def plain_vulnerability(pts: float, rank_pct: float, zonas: str, n: int = 32) -> str:
     """Format plain text for vulnerability / profile component."""
     r = round(rank_pct)
+    n_count = int(n) if n and n > 0 else 32
+    max_thresh = 100.0 * (n_count - 1) / n_count if n_count > 1 else 100.0
+    is_max = rank_pct >= (max_thresh - 1e-6) or r >= 100
+    is_min = rank_pct <= 0.0 or r <= 0
+
+    if is_max:
+        phrase = rank_phrase(rank_pct, n, zonas, higher_is="la más expuesta")
+        return (
+            f"Pesa {pts:.1f}: su perfil (escolaridad, edad, servicios, internet, ruralidad) "
+            f"se parece al de las zonas que votan menos; es {phrase}."
+        )
+    if is_min:
+        phrase = rank_phrase(rank_pct, n, zonas, higher_is="la más expuesta")
+        return (
+            f"Pesa {pts:.1f}: su perfil se parece al de las zonas que votan más; "
+            f"es {phrase}."
+        )
     if rank_pct >= 50.0:
         return (
             f"Pesa {pts:.1f}: su perfil (escolaridad, edad, servicios, internet, ruralidad) "
@@ -161,18 +231,35 @@ def plain_trend(pts: float, trend_pp: float) -> str:
     return f"Pesa {pts:.1f}: su participación ha venido subiendo ({trend_pp:.1f} puntos por elección)."
 
 
-def plain_volatility(pts: float, vol_pp: float, rank_pct: float, zonas: str) -> str:
+def plain_volatility(pts: float, vol_pp: float, rank_pct: float, zonas: str, n: int = 32) -> str:
     """Format plain text for volatility component."""
     r = round(rank_pct)
+    n_count = int(n) if n and n > 0 else 32
+    max_thresh = 100.0 * (n_count - 1) / n_count if n_count > 1 else 100.0
+    is_max = rank_pct >= (max_thresh - 1e-6) or r >= 100
+    is_min = rank_pct <= 0.0 or r <= 0
+
+    if is_max:
+        phrase = rank_phrase(rank_pct, n, zonas, higher_is="la más alta")
+        return (
+            f"Pesa {pts:.1f}: su participación cambia de una elección a otra (±{vol_pp:.1f} puntos), "
+            f"{phrase}."
+        )
+    if is_min:
+        phrase = rank_phrase(rank_pct, n, zonas, higher_is="la más alta")
+        return (
+            f"Pesa {pts:.1f}: su participación es de las más estables (±{vol_pp:.1f} puntos): "
+            f"{phrase}."
+        )
+    phrase = rank_phrase(rank_pct, n, zonas, higher_is="la más alta")
     if rank_pct >= 50.0:
         return (
             f"Pesa {pts:.1f}: su participación cambia de una elección a otra (±{vol_pp:.1f} puntos), "
-            f"más que en el {r} % de los {zonas}."
+            f"{phrase}."
         )
-    comp_rank = 100 - r
     return (
         f"Pesa {pts:.1f}: su participación es de las más estables (±{vol_pp:.1f} puntos): "
-        f"cambia menos que en el {comp_rank} % de los {zonas}."
+        f"cambia {phrase}."
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import email.utils
@@ -12,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 from typing import Any
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -273,6 +275,185 @@ def _search_query_cached(
     return combined
 
 
+_DECODE_MEM_CACHE: dict[str, tuple[str, float]] = {}
+DECODE_CACHE_TTL_S = 30 * 86400.0  # 30 days
+
+
+def clear_decode_cache() -> None:
+    """Clear memory decode cache (useful for testing)."""
+    _DECODE_MEM_CACHE.clear()
+
+
+def _extract_google_news_id(url: str) -> str | None:
+    """Extract article ID from a Google News article/read URL."""
+    if not url:
+        return None
+    try:
+        clean = url.strip()
+        parsed = urllib.parse.urlparse(clean)
+        host = (parsed.hostname or "").lower()
+        if host != "news.google.com":
+            return None
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) >= 3 and parts[0] == "rss" and parts[1] == "articles":
+            return parts[2]
+        if len(parts) >= 2 and parts[0] in ("articles", "read"):
+            return parts[1]
+        return None
+    except Exception:
+        return None
+
+
+def _get_cached_decoded_url(gid: str) -> str | None:
+    """Retrieve decoded URL from memory or disk cache if not older than 30 days."""
+    now = time.time()
+    if gid in _DECODE_MEM_CACHE:
+        real_url, ts = _DECODE_MEM_CACHE[gid]
+        if now - ts < DECODE_CACHE_TTL_S:
+            return real_url
+        del _DECODE_MEM_CACHE[gid]
+
+    try:
+        cache_dir = _get_cache_dir() / "decoded"
+        h = hashlib.sha1(gid.encode("utf-8")).hexdigest()
+        cache_file = cache_dir / f"{h}.json"
+        if cache_file.is_file():
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            ts = float(data.get("timestamp") or cache_file.stat().st_mtime)
+            if now - ts < DECODE_CACHE_TTL_S:
+                real_url = data.get("url")
+                if real_url:
+                    _DECODE_MEM_CACHE[gid] = (real_url, ts)
+                    return real_url
+    except Exception as exc:
+        logger.debug("Failed reading decoded URL disk cache: %s", exc)
+    return None
+
+
+def _save_cached_decoded_url(gid: str, real_url: str) -> None:
+    """Save decoded URL to memory and disk cache (30-day TTL)."""
+    now = time.time()
+    _DECODE_MEM_CACHE[gid] = (real_url, now)
+    try:
+        cache_dir = _get_cache_dir() / "decoded"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        h = hashlib.sha1(gid.encode("utf-8")).hexdigest()
+        cache_file = cache_dir / f"{h}.json"
+        with tempfile.NamedTemporaryFile("w", dir=str(cache_dir), delete=False, encoding="utf-8") as tf:
+            json.dump({"id": gid, "url": real_url, "timestamp": now}, tf, ensure_ascii=False)
+            tmp_name = tf.name
+        os.replace(tmp_name, str(cache_file))
+    except Exception as exc:
+        logger.debug("Failed writing decoded URL disk cache: %s", exc)
+
+
+def decode_google_news_url(
+    url: str,
+    *,
+    client: httpx.Client | None = None,
+    timeout_s: float = 8.0,
+) -> str | None:
+    """Decode a Google News redirect URL to its destination publisher URL.
+
+    Only applies to news.google.com/rss/articles/<id>, /articles/<id>, or /read/<id>.
+    Returns the original url unchanged if not a matching Google News article URL.
+    Returns None on failure without raising.
+    """
+    if not url:
+        return url
+
+    gid = _extract_google_news_id(url)
+    if gid is None:
+        return url
+
+    cached = _get_cached_decoded_url(gid)
+    if cached:
+        return cached
+
+    headers = {"User-Agent": USER_AGENT}
+    own_client = client is None
+    http_client = client or _create_httpx_client(timeout=timeout_s, follow_redirects=True)
+
+    try:
+        # Step 2: Fetch article redirect page to get signature and timestamp
+        article_url = f"https://news.google.com/rss/articles/{gid}"
+        resp1 = http_client.get(article_url, headers=headers, timeout=timeout_s)
+        if resp1.status_code != 200:
+            return None
+
+        sg_match = re.search(r'data-n-a-sg="([^"]+)"', resp1.text)
+        ts_match = re.search(r'data-n-a-ts="([^"]+)"', resp1.text)
+        if not (sg_match and ts_match):
+            return None
+
+        sg = sg_match.group(1)
+        ts = int(ts_match.group(1))
+
+        # Step 3: Call batchexecute RPC
+        inner = [
+            "garturlreq",
+            [
+                ["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None, None, None, 0, 1],
+                "X",
+                "X",
+                1,
+                [1, 1, 1],
+                1,
+                1,
+                None,
+                0,
+                0,
+                None,
+                0,
+            ],
+            gid,
+            ts,
+            sg,
+        ]
+        payload = [[["Fbv4je", json.dumps(inner), None, "generic"]]]
+        post_data = {"f.req": json.dumps(payload)}
+        post_headers = {
+            **headers,
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        }
+        resp2 = http_client.post(
+            "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+            data=post_data,
+            headers=post_headers,
+            timeout=timeout_s,
+        )
+        if resp2.status_code != 200:
+            return None
+
+        # Step 4: Parse response
+        if "\n\n" not in resp2.text:
+            return None
+        body = resp2.text.split("\n\n", 1)[1]
+        arr = json.loads(body)
+        inner_val = arr[0][2]
+        inner_arr = json.loads(inner_val) if isinstance(inner_val, str) else inner_val
+        real_url = inner_arr[1]
+
+        if not isinstance(real_url, str):
+            return None
+        real_url = real_url.strip()
+        if not (real_url.startswith("http://") or real_url.startswith("https://")):
+            return None
+
+        dom = domain_of(real_url)
+        if not dom or "google.com" in dom or dom.endswith("google.com"):
+            return None
+
+        _save_cached_decoded_url(gid, real_url)
+        return real_url
+    except Exception as exc:
+        logger.debug("Failed decoding Google News URL %s: %s", url, exc)
+        return None
+    finally:
+        if own_client:
+            http_client.close()
+
+
 def search_news(
     queries: list[str],
     *,
@@ -301,34 +482,72 @@ def search_news(
                     continue
                 items = _search_query_cached(q_clean, days, cutoff, client)
                 all_candidates.extend(items)
+
+            # Deduplicate by normalized title and URL
+            seen_titles: set[str] = set()
+            seen_urls: set[str] = set()
+            unique_candidates: list[NewsCandidate] = []
+
+            for c in all_candidates:
+                norm_url = c.url.strip().rstrip("/").lower()
+                norm_title = _normalize_title(c.title)
+
+                if norm_url in seen_urls:
+                    continue
+                if norm_title and norm_title in seen_titles:
+                    continue
+
+                seen_urls.add(norm_url)
+                if norm_title:
+                    seen_titles.add(norm_title)
+                unique_candidates.append(c)
+
+            # Sort descending by published date (newest first, None at the end)
+            def _sort_key(c: NewsCandidate) -> tuple[int, str]:
+                if c.published:
+                    return (1, c.published)
+                return (0, "")
+
+            unique_candidates.sort(key=_sort_key, reverse=True)
+
+            # Decode Google News candidates (up to 12)
+            google_cands = [
+                c for c in unique_candidates
+                if _extract_google_news_id(c.url) is not None
+            ][:12]
+
+            if google_cands:
+                deadline = time.monotonic() + 20.0
+
+                def _decode_candidate(cand: NewsCandidate) -> None:
+                    try:
+                        time_left = deadline - time.monotonic()
+                        if time_left <= 0.5:
+                            return
+                        gid = _extract_google_news_id(cand.url)
+                        if gid and _get_cached_decoded_url(gid) is None:
+                            time.sleep(0.2)
+                        per_call_timeout = min(8.0, max(0.5, time_left))
+                        real_url = decode_google_news_url(cand.url, client=client, timeout_s=per_call_timeout)
+                        if real_url and real_url != cand.url:
+                            cand.url = real_url
+                            real_dom = domain_of(real_url)
+                            if real_dom:
+                                cand.domain = real_dom
+                    except Exception as exc:
+                        logger.debug("Failed candidate decoding in search_news: %s", exc)
+
+                with ThreadPoolExecutor(max_workers=min(4, len(google_cands))) as pool:
+                    futures = [pool.submit(_decode_candidate, c) for c in google_cands]
+                    for fut in futures:
+                        try:
+                            time_left = deadline - time.monotonic()
+                            fut.result(timeout=max(0.1, time_left))
+                        except Exception:
+                            pass
+
+            return unique_candidates[:max_items]
     except Exception as exc:
         logger.error("Unexpected error in search_news: %s", exc)
         return []
 
-    # Deduplicate by normalized title and URL
-    seen_titles: set[str] = set()
-    seen_urls: set[str] = set()
-    unique_candidates: list[NewsCandidate] = []
-
-    for c in all_candidates:
-        norm_url = c.url.strip().rstrip("/").lower()
-        norm_title = _normalize_title(c.title)
-
-        if norm_url in seen_urls:
-            continue
-        if norm_title and norm_title in seen_titles:
-            continue
-
-        seen_urls.add(norm_url)
-        if norm_title:
-            seen_titles.add(norm_title)
-        unique_candidates.append(c)
-
-    # Sort descending by published date (newest first, None at the end)
-    def _sort_key(c: NewsCandidate) -> tuple[int, str]:
-        if c.published:
-            return (1, c.published)
-        return (0, "")
-
-    unique_candidates.sort(key=_sort_key, reverse=True)
-    return unique_candidates[:max_items]
