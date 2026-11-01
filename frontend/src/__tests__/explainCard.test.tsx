@@ -284,6 +284,40 @@ describe("ExplainCard Component Suite (explainCard.test.tsx)", () => {
     expect(htmlDebil).toContain("●○○");
   });
 
+  it("renders EvidenceBadge compact variant with short label, one line, and full aria-label", () => {
+    const htmlCompact = renderToStaticMarkup(
+      <EvidenceBadge type="calculo_del_modelo" strength="fuerte" size="compact" />
+    );
+    expect(htmlCompact).toContain("Modelo");
+    expect(htmlCompact).not.toContain("Cálculo del modelo</span>");
+    expect(htmlCompact).not.toContain("Fuerte</span>");
+    expect(htmlCompact).toContain("●●●");
+    expect(htmlCompact).toContain("whitespace-nowrap");
+    expect(htmlCompact).toContain('aria-label="Cálculo del modelo · evidencia fuerte"');
+    expect(htmlCompact).toContain('title="Cálculo del modelo · evidencia fuerte"');
+
+    const htmlDatoMedido = renderToStaticMarkup(
+      <EvidenceBadge type="dato_medido" strength="moderada" size="compact" />
+    );
+    expect(htmlDatoMedido).toContain("Dato medido");
+    expect(htmlDatoMedido).toContain("●●○");
+    expect(htmlDatoMedido).toContain('aria-label="Dato medido · evidencia moderada"');
+
+    const htmlAsociacion = renderToStaticMarkup(
+      <EvidenceBadge type="asociacion" strength="debil" size="compact" />
+    );
+    expect(htmlAsociacion).toContain("Relación");
+    expect(htmlAsociacion).toContain("●○○");
+    expect(htmlAsociacion).toContain('aria-label="Relación (no prueba causa) · evidencia débil"');
+
+    const htmlContexto = renderToStaticMarkup(
+      <EvidenceBadge type="contexto_descriptivo" strength="debil" size="compact" />
+    );
+    expect(htmlContexto).toContain("Contexto");
+    expect(htmlContexto).toContain("●○○");
+    expect(htmlContexto).toContain('aria-label="Dato de contexto · evidencia débil"');
+  });
+
   it("variant='panel' limits to 3 reasons and displays 'Ver todas' button and 'Explícamelo en el asistente'", () => {
     const htmlPanel = renderToStaticMarkup(
       <ExplainCard

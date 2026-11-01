@@ -348,7 +348,8 @@ def research_unit(
         if clean_ent and clean_ent.lower() not in [z.lower() for z in zone_names]:
             zone_names.append(clean_ent)
 
-    from atalaya.explain.verify import CorpusDoc, fetch_corpus, verify_finding
+    from atalaya.explain import verify as explain_verify
+    from atalaya.explain.verify import CorpusDoc, fetch_corpus, rank_candidates, verify_finding
     from atalaya import websearch
 
     verifiable_tiers = getattr(sources, "VERIFIABLE_TIERS", DEFAULT_VERIFIABLE_TIERS)
@@ -642,12 +643,23 @@ def research_unit(
 
         else:
             # ---------------------------------------------------- Ruta B: Respaldo RSS + Corpus descargado + Gemini generate_json
-            candidates = websearch.search_news(fallback_queries, days=1460, max_items=40)
-            verifiable_cands = [c for c in candidates if sources.classify_domain(c.domain) in verifiable_tiers]
-            if len(verifiable_cands) < 3:
-                candidates = websearch.search_news(fallback_queries, days=365, max_items=40)
+            target_mun_name = clean_name
+            target_zones = [target_mun_name]
+            if snapshot.name not in target_zones:
+                target_zones.append(snapshot.name)
+            state_for_ranking = snapshot.ent_name if snapshot.level == "mun" else None
 
-            docs = fetch_corpus(candidates, zone_names=zone_names, max_pages=8)
+            rank_fn = getattr(explain_verify, "rank_candidates", rank_candidates)
+            fetch_fn = getattr(explain_verify, "fetch_corpus", fetch_corpus)
+
+            candidates = websearch.search_news(fallback_queries, days=1460, max_items=40)
+            ranked_cands = rank_fn(candidates, zone_names=target_zones, state_name=state_for_ranking)
+            if len(ranked_cands) < 3:
+                candidates = websearch.search_news(fallback_queries, days=365, max_items=40)
+                ranked_cands = rank_fn(candidates, zone_names=target_zones, state_name=state_for_ranking)
+            candidates = ranked_cands
+
+            docs = fetch_fn(candidates, zone_names=zone_names, max_pages=12)
             if not docs:
                 return ResearchBundle(
                     unit_id=snapshot.unit_id,
@@ -664,6 +676,14 @@ def research_unit(
                     degraded=False,
                     note=f"No encontramos noticias recientes con citas comprobables sobre {snapshot.name}.",
                 )
+
+            # pasa a Gemini los 10 mejores docs con from_page=True primero (los from_page=False solo si faltan)
+            page_docs = [d for d in docs if d.from_page]
+            snippet_docs = [d for d in docs if not d.from_page]
+            docs = (page_docs + snippet_docs)[:10]
+
+            for idx, d in enumerate(docs, start=1):
+                d.id = f"s{idx}"
 
             docs_map = {d.id: d for d in docs}
             sys_prompt, user_prompt_inline = build_research_prompt_inline(snapshot, focus, docs)

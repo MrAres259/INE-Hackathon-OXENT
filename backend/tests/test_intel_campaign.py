@@ -478,7 +478,7 @@ def test_research_unit_rss_fallback_mode(monkeypatch):
                 provider="google_news",
             ),
             websearch.NewsCandidate(
-                title="Abstención juvenil",
+                title="Abstención juvenil en Zacatecas",
                 url="https://reforma.com/zacatecas-jovenes",
                 domain="reforma.com",
                 outlet="Reforma",
@@ -1417,4 +1417,119 @@ def test_cached_plan_and_find_plan_legacy_search_mode(tmp_path: Path, monkeypatc
     plan_gro = cached_plan("32")
     assert plan_gro is not None
     assert plan_gro.research.search_mode == "grounding"
+
+
+def test_research_unit_ruta_b_ranking_and_corpus_limit(monkeypatch):
+    """Ruta B with 20 candidates downloads at most 12 and sends <= 10 docs to Gemini, ordered by score."""
+    from atalaya import gemini, websearch
+    from atalaya.explain import verify as explain_verify
+    from atalaya.explain.verify import CorpusDoc
+
+    # 20 candidates: 15 local with varying causal scores, 5 national with no zone
+    local_candidates = [
+        websearch.NewsCandidate(
+            title=f"Noticia QR {i} sobre Quintana Roo y casillas",
+            url=f"https://eluniversal.com.mx/qr-{i}",
+            domain="eluniversal.com.mx",
+            outlet="El Universal",
+            published=f"2024-06-{i+1:02d}",
+            snippet="Reporte con abstención, participación y votantes en casillas" if i == 0 else "Reporte de casillas y voto",
+            provider="google_news",
+        )
+        for i in range(15)
+    ]
+    national_candidates = [
+        websearch.NewsCandidate(
+            title=f"Nota nacional genérica {i}",
+            url=f"https://reforma.com/nac-{i}",
+            domain="reforma.com",
+            outlet="Reforma",
+            published=f"2024-05-{i+1:02d}",
+            snippet="Consejeros debaten conteo rápido y presupuesto nacional",
+            provider="google_news",
+        )
+        for i in range(5)
+    ]
+    all_20_candidates = national_candidates[:2] + local_candidates + national_candidates[2:]
+    assert len(all_20_candidates) == 20
+
+    monkeypatch.setattr(websearch, "search_news", lambda *a, **kw: list(all_20_candidates))
+
+    captured_fetch = {}
+    def fake_fetch_corpus(cands, **kw):
+        captured_fetch["cands_received"] = list(cands)
+        captured_fetch["max_pages"] = kw.get("max_pages")
+        # Simulate returning 12 docs (first 8 from_page=True, last 4 from_page=False)
+        selected = cands[:kw.get("max_pages", 12)]
+        return [
+            CorpusDoc(
+                id=f"s{idx+1}",
+                url=c.url,
+                title=c.title,
+                domain=c.domain,
+                outlet=c.outlet,
+                published=c.published,
+                tier="medio_reconocido",
+                text=f"En Quintana Roo la noticia {c.title} documenta casillas electorales en Quintana Roo.",
+                from_page=(idx < 8),
+            )
+            for idx, c in enumerate(selected)
+        ]
+
+    monkeypatch.setattr(explain_verify, "fetch_corpus", fake_fetch_corpus)
+
+    captured_gemini = {}
+    def fake_generate_json(prompt, system=None, **kw):
+        captured_gemini["prompt"] = prompt
+        return {"findings": []}, types.SimpleNamespace(model="gemini-3.6-flash", from_cache=False)
+
+    monkeypatch.setattr(gemini, "generate_json", fake_generate_json)
+
+    captured_prompt_docs = []
+    import atalaya.intel.campaign as camp_mod
+    original_build_prompt = camp_mod.build_research_prompt_inline
+    def spy_build_prompt(snapshot, focus, docs):
+        captured_prompt_docs.extend(docs)
+        return original_build_prompt(snapshot, focus, docs)
+
+    monkeypatch.setattr(camp_mod, "build_research_prompt_inline", spy_build_prompt)
+
+    snap = DataSnapshot(
+        unit_id="23",
+        name="Quintana Roo",
+        level="state",
+        ent="23",
+        ent_name="Quintana Roo",
+        lista_nominal=1400000,
+        pred_abstention=0.55,
+        pred_low=0.50,
+        pred_high=0.60,
+        category="rojo",
+        risk_score=60.0,
+        last_participation=0.45,
+        last_year=2024,
+        trend_pp=-2.0,
+        abstencion_esperada=770000,
+    )
+
+    bundle = research_unit(snap, focus=None, refresh=True)
+
+    # 1. fetch_corpus was called with max_pages=12
+    assert captured_fetch["max_pages"] == 12
+
+    # 2. Ranked candidates only contained local candidates (national with score <= 0 discarded)
+    assert all("Quintana Roo" in c.title for c in captured_fetch["cands_received"])
+    # First candidate is local_candidates[0] which had the highest causal score (10 pts)
+    assert captured_fetch["cands_received"][0].title == local_candidates[0].title
+
+    # 3. Gemini received <= 10 docs (exactly 10)
+    assert len(captured_prompt_docs) == 10
+
+    # 4. First 8 docs have from_page=True, remaining 2 have from_page=False
+    assert all(d.from_page for d in captured_prompt_docs[:8])
+    assert all(not d.from_page for d in captured_prompt_docs[8:10])
+
+    # 5. First doc in Gemini prompt is local_candidates[0] (highest score)
+    assert captured_prompt_docs[0].title == local_candidates[0].title
+
 

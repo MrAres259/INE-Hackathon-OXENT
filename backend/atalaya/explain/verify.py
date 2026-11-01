@@ -198,11 +198,180 @@ def quote_in_text(quote: str, text: str) -> bool:
     return (matches / len(quote_4grams)) >= 0.90
 
 
+CAUSAL_TERMS: tuple[str, ...] = (
+    "abstencion",
+    "participacion",
+    "no voto",
+    "no votaron",
+    "votar",
+    "casilla",
+    "inseguridad",
+    "violencia",
+    "migracion",
+    "migrantes",
+    "credencial",
+    "jovenes",
+    "desconfianza",
+    "padron",
+    "lista nominal",
+    "distancia",
+    "indigena",
+    "lengua",
+)
+
+INSTITUTIONAL_TERMS: tuple[str, ...] = (
+    "conteo rapido",
+    "contrat",
+    "presupuesto",
+    "consejer",
+    "licitacion",
+    "escandalo",
+    "gubernaturas en juego",
+    "reforma electoral",
+    "corrupcion",
+)
+
+TIER_PRIORITY: dict[str, int] = {
+    "oficial": 5,
+    "verificador": 4,
+    "academico": 3,
+    "medio_reconocido": 2,
+    "medio_regional": 1,
+}
+
+
+def rank_candidates(
+    candidates: list[NewsCandidate],
+    *,
+    zone_names: list[str],
+    state_name: str | None = None,
+) -> list[NewsCandidate]:
+    """Rank news candidates deterministically by relevance to a zone/state and electoral causes.
+
+    Scoring on folded title + snippet:
+    - +4 if mentions zone (by zone name or municipality name without prefix)
+    - +1 if it only mentions state (for municipalities)
+    - +2 per distinct causal term (capped at +6)
+    - -4 per institutional/national agenda term without causal relevance
+    - -6 if it mentions neither zone nor state
+    - Tie-breakers: better verifiable tier, then newer published date, then original order.
+    Discards candidates with score <= 0. Deduplicates by normalized title.
+    """
+    from atalaya import gemini
+    from atalaya.intel import sources
+
+    if not candidates:
+        return []
+
+    # Prepare zone names (with and without municipal prefixes)
+    clean_zones: list[str] = []
+    for z in zone_names:
+        if not z:
+            continue
+        fz = fold(z)
+        if fz and fz not in clean_zones:
+            clean_zones.append(fz)
+        unprefixed = re.sub(
+            r"^(municipio|alcaldia|ayuntamiento|delegacion)\s+(de\s+)?",
+            "",
+            z,
+            flags=re.IGNORECASE,
+        ).strip()
+        f_unprefixed = fold(unprefixed)
+        if f_unprefixed and f_unprefixed not in clean_zones:
+            clean_zones.append(f_unprefixed)
+
+    # Prepare state names (with and without prefix)
+    clean_states: list[str] = []
+    if state_name:
+        fs = fold(state_name)
+        if fs and fs not in clean_states:
+            clean_states.append(fs)
+        unprefixed_st = re.sub(
+            r"^(estado\s+de|entidad)\s+",
+            "",
+            state_name,
+            flags=re.IGNORECASE,
+        ).strip()
+        f_unprefixed_st = fold(unprefixed_st)
+        if f_unprefixed_st and f_unprefixed_st not in clean_states:
+            clean_states.append(f_unprefixed_st)
+
+    scored: list[tuple[int, int, str, int, NewsCandidate]] = []
+
+    for idx, cand in enumerate(candidates):
+        full_text = f"{cand.title or ''} {cand.snippet or ''}".strip()
+        f_text = fold(full_text)
+
+        mentions_zone = any(
+            bool(re.search(rf"\b{re.escape(z)}\b", f_text))
+            for z in clean_zones
+        ) if clean_zones else False
+
+        mentions_state = any(
+            bool(re.search(rf"\b{re.escape(s)}\b", f_text))
+            for s in clean_states
+        ) if clean_states else False
+
+        score = 0
+        if mentions_zone:
+            score += 4
+        elif mentions_state:
+            score += 1
+        else:
+            score -= 6
+
+        # Causal terms: +2 each distinct (max +6)
+        causal_count = sum(
+            1 for term in CAUSAL_TERMS
+            if re.search(rf"\b{re.escape(term)}", f_text)
+        )
+        score += min(6, causal_count * 2)
+
+        # Institutional agenda terms: -4 each
+        inst_count = sum(
+            1 for term in INSTITUTIONAL_TERMS
+            if re.search(rf"\b{re.escape(term)}", f_text)
+        )
+        score -= 4 * inst_count
+
+        if score <= 0:
+            continue
+
+        # Tier classification
+        dom = cand.domain or (gemini.domain_of(cand.url) if hasattr(gemini, "domain_of") else "")
+        tier = sources.classify_domain(dom) if hasattr(sources, "classify_domain") else "no_reconocido"
+        tier_prio = TIER_PRIORITY.get(tier, 0)
+
+        pub_str = str(cand.published or "").strip()
+
+        scored.append((score, tier_prio, pub_str, idx, cand))
+
+    # Sort descending by score, tier_priority, published date, and ascending by original index (stable)
+    scored.sort(
+        key=lambda item: (item[0], item[1], item[2], -item[3]),
+        reverse=True,
+    )
+
+    # Deduplicate by normalized title
+    seen_titles: set[str] = set()
+    result: list[NewsCandidate] = []
+    for score, tier_prio, pub_str, idx, cand in scored:
+        norm_t = fold(cand.title)
+        if norm_t:
+            if norm_t in seen_titles:
+                continue
+            seen_titles.add(norm_t)
+        result.append(cand)
+
+    return result
+
+
 def fetch_corpus(
     candidates: list[NewsCandidate],
     *,
     zone_names: list[str],
-    max_pages: int = 8,
+    max_pages: int = 12,
     timeout_s: float = 8.0,
     client: httpx.Client | None = None,
 ) -> list[CorpusDoc]:
@@ -248,7 +417,7 @@ def fetch_corpus(
         follow_redirects=True,
     )
 
-    budget_deadline = time.monotonic() + 30.0
+    budget_deadline = time.monotonic() + 40.0
 
     def _fetch_single(cand_info: tuple[NewsCandidate, str, str, str, bool]) -> CorpusDoc:
         cand, url, dom, tier, is_agg = cand_info
@@ -362,7 +531,7 @@ def fetch_corpus(
         else:
             with ThreadPoolExecutor(max_workers=min(4, len(selected))) as pool:
                 futures = [pool.submit(_fetch_single, item) for item in selected]
-                for fut in as_completed(futures):
+                for fut in futures:
                     try:
                         docs.append(fut.result())
                     except Exception as err:

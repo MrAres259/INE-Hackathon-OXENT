@@ -14,6 +14,7 @@ from atalaya.explain.verify import (
     is_electoral_relevant,
     mentions_zone,
     quote_in_text,
+    rank_candidates,
     verify_finding,
 )
 from atalaya.websearch import NewsCandidate
@@ -397,4 +398,186 @@ def test_fetch_corpus_google_news_decoded():
     assert doc.domain == "eluniversal.com.mx"
     assert doc.url == "https://eluniversal.com.mx/estados/elecciones-quintana-roo"
     assert "casillas instaladas" in doc.text
+
+
+def test_rank_candidates_local_causal_beats_national():
+    """Local causal note (e.g. Playa del Carmen for Quintana Roo) ranks above national institutional note."""
+    local_cand = NewsCandidate(
+        title="Abstención en Playa del Carmen, Quintana Roo",
+        url="https://eluniversal.com.mx/qr-abstencion",
+        domain="eluniversal.com.mx",
+        outlet="El Universal",
+        published="2024-06-05",
+        snippet="Se reportó abstención y baja participación de votantes en casillas instaladas.",
+        provider="google_news",
+    )
+    national_cand = NewsCandidate(
+        title="INE aprueba conteo rápido 2027",
+        url="https://reforma.com/ine-conteo",
+        domain="reforma.com",
+        outlet="Reforma",
+        published="2024-06-05",
+        snippet="El consejo general del INE aprobó el presupuesto y licitación de contratos.",
+        provider="google_news",
+    )
+
+    ranked = rank_candidates([national_cand, local_cand], zone_names=["Quintana Roo"], state_name=None)
+    assert len(ranked) == 1
+    assert ranked[0].title == local_cand.title
+
+
+def test_rank_candidates_no_zone_no_state_discarded():
+    """A note without zone or state mention is discarded even with causal terms."""
+    generic_cand = NewsCandidate(
+        title="Participación y abstención de jóvenes en las elecciones",
+        url="https://eluniversal.com.mx/generica",
+        domain="eluniversal.com.mx",
+        outlet="El Universal",
+        published="2024-06-05",
+        snippet="Ciudadanos acuden a votar a las casillas con su credencial.",
+        provider="google_news",
+    )
+
+    ranked = rank_candidates([generic_cand], zone_names=["Quintana Roo"], state_name=None)
+    assert ranked == []
+
+
+def test_rank_candidates_stable_order():
+    """Candidates with equal scores and tiebreakers preserve their original relative order."""
+    c1 = NewsCandidate(
+        title="Casillas y notas en Quintana Roo",
+        url="https://medio1.com/voto",
+        domain="medio1.com",
+        outlet="Medio 1",
+        published="2024-06-01",
+        snippet="Reporte electoral",
+        provider="google_news",
+    )
+    c2 = NewsCandidate(
+        title="Casillas y datos en Quintana Roo",
+        url="https://medio2.com/casillas",
+        domain="medio2.com",
+        outlet="Medio 2",
+        published="2024-06-01",
+        snippet="Reporte electoral",
+        provider="google_news",
+    )
+
+    ranked1 = rank_candidates([c1, c2], zone_names=["Quintana Roo"])
+    assert [c.title for c in ranked1] == [c1.title, c2.title]
+
+    ranked2 = rank_candidates([c2, c1], zone_names=["Quintana Roo"])
+    assert [c.title for c in ranked2] == [c2.title, c1.title]
+
+
+def test_rank_candidates_municipality_unprefixed():
+    """Municipality matches unprefixed name (+4) vs state-only mention (+1)."""
+    c_mun = NewsCandidate(
+        title="Abstención en Tijuana supera expectativas",
+        url="https://eluniversal.com.mx/tijuana",
+        domain="eluniversal.com.mx",
+        outlet="El Universal",
+        published="2024-06-01",
+        snippet="Reportan casillas vacías en la localidad.",
+        provider="google_news",
+    )
+    c_state = NewsCandidate(
+        title="Participación electoral en Baja California",
+        url="https://reforma.com/bc",
+        domain="reforma.com",
+        outlet="Reforma",
+        published="2024-06-01",
+        snippet="Reportan casillas en diversas zonas.",
+        provider="google_news",
+    )
+    c_national = NewsCandidate(
+        title="INE aprueba presupuesto nacional",
+        url="https://reforma.com/ine",
+        domain="reforma.com",
+        outlet="Reforma",
+        published="2024-06-01",
+        snippet="Consejeros debaten licitaciones.",
+        provider="google_news",
+    )
+
+    ranked = rank_candidates(
+        [c_national, c_state, c_mun],
+        zone_names=["Municipio de Tijuana"],
+        state_name="Baja California",
+    )
+    assert len(ranked) == 2
+    assert ranked[0].title == c_mun.title
+    assert ranked[1].title == c_state.title
+
+
+def test_rank_candidates_tiebreakers_tier_and_date():
+    """Tiebreakers prioritize better verifiable tier, then newer publication date."""
+    # Tier tiebreaker
+    c_oficial = NewsCandidate(
+        title="Casillas en Zacatecas boletín oficial",
+        url="https://ine.mx/casillas-zac",
+        domain="ine.mx",
+        outlet="INE",
+        published="2024-01-01",
+        snippet="Informe",
+        provider="google_news",
+    )
+    c_medio = NewsCandidate(
+        title="Casillas en Zacatecas reporte periodístico",
+        url="https://eluniversal.com.mx/casillas-zac",
+        domain="eluniversal.com.mx",
+        outlet="El Universal",
+        published="2024-01-01",
+        snippet="Informe",
+        provider="google_news",
+    )
+    ranked_tier = rank_candidates([c_medio, c_oficial], zone_names=["Zacatecas"])
+    assert ranked_tier[0].title == c_oficial.title
+
+    # Date tiebreaker (both medio_reconocido)
+    c_older = NewsCandidate(
+        title="Participación en Zacatecas nota antigua",
+        url="https://eluniversal.com.mx/antigua",
+        domain="eluniversal.com.mx",
+        outlet="El Universal",
+        published="2024-01-01",
+        snippet="Informe",
+        provider="google_news",
+    )
+    c_newer = NewsCandidate(
+        title="Participación en Zacatecas nota reciente",
+        url="https://reforma.com/reciente",
+        domain="reforma.com",
+        outlet="Reforma",
+        published="2024-06-05",
+        snippet="Informe",
+        provider="google_news",
+    )
+    ranked_date = rank_candidates([c_older, c_newer], zone_names=["Zacatecas"])
+    assert ranked_date[0].title == c_newer.title
+
+
+def test_rank_candidates_dedup_normalized_title():
+    """Normalized duplicate titles are deduplicated keeping the higher-priority item."""
+    c_lower = NewsCandidate(
+        title="Elección en Cancún, Quintana Roo",
+        url="https://reforma.com/cancun",
+        domain="reforma.com",
+        outlet="Reforma",
+        published="2024-01-01",
+        snippet="Casillas y votación",
+        provider="google_news",
+    )
+    c_higher = NewsCandidate(
+        title="«Elección en Cancún, Quintana Roo!»",
+        url="https://ine.mx/cancun",
+        domain="ine.mx",
+        outlet="INE",
+        published="2024-06-01",
+        snippet="Casillas y votación",
+        provider="google_news",
+    )
+    ranked = rank_candidates([c_lower, c_higher], zone_names=["Quintana Roo"])
+    assert len(ranked) == 1
+    assert ranked[0].domain == "ine.mx"
 

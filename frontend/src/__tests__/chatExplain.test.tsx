@@ -584,7 +584,7 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
       expect(parseEvidenceTag("")).toBeNull();
     });
 
-    it("renders message with the 4 evidence tags as 4 badges with their text and no visible brackets", () => {
+    it("renders message with the 4 evidence tags as compact badges in the narrative", () => {
       const markdown = `
 - [Cálculo del modelo · Fuerte] Historial persistente de baja participación en casillas urbanas
 - [Dato medido · Moderada] Participación juvenil en la elección 2024
@@ -597,27 +597,31 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
         </ReactMarkdown>
       );
 
-      // 1. All 4 badge type labels are present
-      expect(html).toContain("Cálculo del modelo");
+      // 1. Short badge type labels and single-line classes are present
+      expect(html).toContain("Modelo");
       expect(html).toContain("Dato medido");
-      expect(html).toContain("Relación (no prueba causa)");
-      expect(html).toContain("Dato de contexto");
+      expect(html).toContain("Relación");
+      expect(html).toContain("Contexto");
+      expect(html).toContain("whitespace-nowrap");
 
-      // 2. Strength labels and dots are rendered
-      expect(html).toContain("Fuerte");
-      expect(html).toContain("Moderada");
-      expect(html).toContain("Débil");
+      // 2. Full labels and strengths are accessible in aria-label
+      expect(html).toContain('aria-label="Cálculo del modelo · evidencia fuerte"');
+      expect(html).toContain('aria-label="Dato medido · evidencia moderada"');
+      expect(html).toContain('aria-label="Relación (no prueba causa) · evidencia débil"');
+      expect(html).toContain('aria-label="Dato de contexto · evidencia débil"');
+
+      // 3. Strength dots are rendered without separate text labels
       expect(html).toContain("●●●");
       expect(html).toContain("●●○");
       expect(html).toContain("●○○");
 
-      // 3. Narrative texts are preserved
+      // 4. Narrative texts are preserved
       expect(html).toContain("Historial persistente de baja participación en casillas urbanas");
       expect(html).toContain("Participación juvenil en la elección 2024");
       expect(html).toContain("Relación moderada con grado de marginación");
       expect(html).toContain("Movilidad y población nacida en otra entidad según Censo");
 
-      // 4. No bracketed tag strings or stray brackets remain visible in text
+      // 5. No bracketed tag strings or stray brackets remain visible in text
       expect(html).not.toContain("[Cálculo del modelo · Fuerte]");
       expect(html).not.toContain("[Dato medido · Moderada]");
       expect(html).not.toContain("[Relación, no prueba causa · Débil]");
@@ -628,7 +632,7 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
       expect(textContent).not.toContain("]");
     });
 
-    it("renders parentheses variation of asociacion as EvidenceBadge without brackets", () => {
+    it("renders parentheses variation of asociacion as compact EvidenceBadge without brackets", () => {
       const markdown = "- [Relación (no prueba causa) · Débil] Asociación observada a nivel municipal";
       const html = renderToStaticMarkup(
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
@@ -636,9 +640,10 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
         </ReactMarkdown>
       );
 
-      expect(html).toContain("Relación (no prueba causa)");
-      expect(html).toContain("Débil");
+      expect(html).toContain("Relación");
       expect(html).toContain("●○○");
+      expect(html).toContain('aria-label="Relación (no prueba causa) · evidencia débil"');
+      expect(html).toContain("whitespace-nowrap");
       expect(html).not.toContain("[Relación (no prueba causa) · Débil]");
 
       const textContent = html.replace(/<[^>]+>/g, "");
@@ -686,7 +691,7 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
       expect(html).not.toContain("●●●");
     });
 
-    it("renders tag without explicit strength using default 'moderada' badge", () => {
+    it("renders tag without explicit strength using default 'moderada' badge in compact mode", () => {
       // Documented behavior per F2-C specification:
       // When strength is omitted in the tag, default strength is 'moderada' (●●○)
       const markdown = "- [Dato medido] Registro de participación ciudadana oficial";
@@ -697,8 +702,9 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
       );
 
       expect(html).toContain("Dato medido");
-      expect(html).toContain("Moderada");
       expect(html).toContain("●●○");
+      expect(html).toContain('aria-label="Dato medido · evidencia moderada"');
+      expect(html).toContain("whitespace-nowrap");
       expect(html).toContain("Registro de participación ciudadana oficial");
       expect(html).not.toContain("[Dato medido]");
       const textContent = html.replace(/<[^>]+>/g, "");
@@ -714,11 +720,29 @@ describe("ChatPanel Explain Integration Suite (chatExplain.test.tsx)", () => {
         </ReactMarkdown>
       );
 
-      expect(html).toContain("Cálculo del modelo");
-      expect(html).toContain("Fuerte");
+      expect(html).toContain("Modelo");
       expect(html).toContain("●●●");
+      expect(html).toContain('aria-label="Cálculo del modelo · evidencia fuerte"');
+      expect(html).toContain("whitespace-nowrap");
       expect(html).not.toContain("[Cálculo del modelo · Fuerte]");
       expect(html).toContain("Razón explicativa en párrafo con viñeta unicode");
+    });
+
+    it("uses compact variant in narrative with single InfoTip and one line", () => {
+      const markdown = "- [Cálculo del modelo · Fuerte] Explicación breve";
+      const html = renderToStaticMarkup(
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+          {markdown}
+        </ReactMarkdown>
+      );
+
+      expect(html).toContain("whitespace-nowrap");
+      expect(html).toContain("Modelo");
+      expect(html).toContain("●●●");
+      expect(html).toContain('aria-label="Cálculo del modelo · evidencia fuerte"');
+      // Single InfoTip in compact badge (1 button for InfoTip instead of 2 in default)
+      const buttonMatches = html.match(/<button/g);
+      expect(buttonMatches?.length).toBe(1);
     });
 
     it("does not affect user messages (tags remain raw text with brackets)", () => {

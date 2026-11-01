@@ -182,6 +182,7 @@ export function replaceEvidenceTagsInText(text: string): React.ReactNode[] {
           key={`evidence-badge-${match.index}-${matchCount++}`}
           type={parsed.type}
           strength={parsed.strength}
+          size="compact"
           className="mr-1.5 align-middle"
         />
       );
