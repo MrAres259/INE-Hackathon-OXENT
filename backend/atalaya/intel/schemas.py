@@ -283,6 +283,9 @@ class SocialPost(BaseModel):
     published: str | None = None             # ISO date/datetime when known
     engagement: Engagement = Engagement()
     excerpt: str = ""                        # <= 280 chars
+    link_status: Literal["citado_en_fuente", "grounding", "sin_verificar"] = "sin_verificar"
+    evidence_url: str | None = None        # página que cita/incrusta la publicación
+    evidence_outlet: str | None = None     # nombre del medio de esa página
 
 
 class StateImpact(BaseModel):

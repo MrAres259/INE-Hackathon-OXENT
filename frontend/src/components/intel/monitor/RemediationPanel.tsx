@@ -3,7 +3,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import type { Remediation, NewsTopic } from "@/lib/intel/types";
+import type { Remediation, NewsTopic, SocialPost } from "@/lib/intel/types";
 import { ACTION_LABELS, PLATFORM_LABELS } from "@/lib/intel/labels";
 import { InfoTip } from "@/components/ui/InfoTip";
 import { campaignPrefillUrl } from "@/lib/intel/prefill";
@@ -12,13 +12,25 @@ export interface RemediationPanelProps {
   remediation: Remediation;
   itemTopic?: NewsTopic;
   affectedEnt?: string | null;
+  posts?: SocialPost[];
   className?: string;
+}
+
+function getDomain(urlStr?: string | null): string {
+  if (!urlStr) return "";
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return urlStr;
+  }
 }
 
 export function RemediationPanel({
   remediation,
   itemTopic,
   affectedEnt,
+  posts,
   className = "",
 }: RemediationPanelProps) {
   const [copied, setCopied] = useState(false);
@@ -170,6 +182,23 @@ export function RemediationPanel({
         </div>
       )}
 
+      {/* Notice when action is reportar_plataforma and no targets */}
+      {remediation.action === "reportar_plataforma" &&
+        (!remediation.report_targets || remediation.report_targets.length === 0) && (
+          <div
+            role="status"
+            className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground leading-relaxed pt-2 border-t border-border/80"
+            data-testid="no-report-targets-notice"
+          >
+            <span className="font-semibold text-foreground block">
+              Objetivos de denuncia / reporte ante plataformas:
+            </span>
+            <p>
+              No hay enlaces verificables para reportar. Ubica la publicación desde la nota del verificador citada en las fuentes.
+            </p>
+          </div>
+        )}
+
       {/* Report Targets (Plataformas a reportar) */}
       {remediation.report_targets && remediation.report_targets.length > 0 && (
         <div className="space-y-2 pt-2 border-t border-border/80 text-xs">
@@ -177,34 +206,82 @@ export function RemediationPanel({
             Objetivos de denuncia / reporte ante plataformas ({remediation.report_targets.length}):
           </span>
 
-          <div className="space-y-1.5">
-            {remediation.report_targets.map((tgt, idx) => (
-              <div
-                key={tgt.url || idx}
-                className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg border border-border bg-card text-[11px]"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded font-semibold bg-muted text-foreground border border-border">
-                    {PLATFORM_LABELS[tgt.platform] ?? tgt.platform}
-                  </span>
-                  <span className="font-mono text-muted-foreground">{tgt.author || "Autor"}</span>
-                  <span className="text-muted-foreground">·</span>
-                  <span className="text-foreground">{tgt.reason}</span>
-                </div>
+          <div className="space-y-2">
+            {remediation.report_targets.map((tgt, idx) => {
+              const matchedPost = posts?.find((p) => p.url === tgt.url);
+              const linkStatus =
+                matchedPost?.link_status || (tgt as unknown as { link_status?: string }).link_status;
+              const evidenceUrl =
+                matchedPost?.evidence_url || (tgt as unknown as { evidence_url?: string }).evidence_url;
+              const evidenceOutlet =
+                matchedPost?.evidence_outlet ||
+                (tgt as unknown as { evidence_outlet?: string }).evidence_outlet;
+              const sourceName =
+                evidenceOutlet || (evidenceUrl ? getDomain(evidenceUrl) : "fuente");
 
-                {tgt.url && (
-                  <a
-                    href={tgt.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline font-medium inline-flex items-center gap-0.5"
-                  >
-                    <span>Reportar enlace</span>
-                    <span>↗</span>
-                  </a>
-                )}
-              </div>
-            ))}
+              return (
+                <div
+                  key={tgt.url || idx}
+                  className="p-2.5 rounded-lg border border-border bg-card text-[11px] space-y-1.5"
+                  data-testid="report-target-card"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded font-semibold bg-muted text-foreground border border-border">
+                        {PLATFORM_LABELS[tgt.platform] ?? tgt.platform}
+                      </span>
+                      <span className="font-mono text-muted-foreground font-semibold">
+                        {tgt.author || "Cuenta sin nombre en el enlace"}
+                      </span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-foreground">{tgt.reason}</span>
+                    </div>
+
+                    {tgt.url && (
+                      <a
+                        href={tgt.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline font-medium inline-flex items-center gap-1 min-h-[36px] py-1 break-words"
+                      >
+                        <span>Reportar enlace</span>
+                        <span aria-hidden="true">↗</span>
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Proof line if available */}
+                  {linkStatus === "citado_en_fuente" && (
+                    <div className="pt-1 border-t border-border/40 text-[11px] text-muted-foreground">
+                      {evidenceUrl ? (
+                        <a
+                          href={evidenceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-primary hover:underline min-h-[36px] py-1 break-words font-medium"
+                        >
+                          <span>Enlace citado en la nota de {sourceName}</span>
+                          <span aria-hidden="true">↗</span>
+                        </a>
+                      ) : (
+                        <span className="inline-flex items-center min-h-[36px] py-1 break-words">
+                          Enlace citado en la nota de {sourceName}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {linkStatus === "grounding" && (
+                    <div className="pt-1 border-t border-border/40 text-[11px] text-muted-foreground flex items-center gap-1.5 min-h-[36px] py-1">
+                      <svg className="size-3 text-muted-foreground shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      <span>Encontrado por búsqueda web</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

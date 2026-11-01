@@ -5,6 +5,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { fetchGeoIndex } from "@/lib/geo";
 import type { GeoIndexItem } from "@/lib/types";
 import { useAtalaya } from "@/lib/state";
+import { GUIDE_EVENTS } from "@/lib/tours";
 
 export interface UnitPickerProps {
   selectedUnitId: string | null;
@@ -88,6 +89,23 @@ export function UnitPicker({
     };
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  // Close suggestions dropdown and blur search input when tour guide opens
+  useEffect(() => {
+    const handleGuideOpen = () => {
+      setIsOpen(false);
+      inputRef.current?.blur();
+      if (
+        containerRef.current &&
+        document.activeElement &&
+        containerRef.current.contains(document.activeElement)
+      ) {
+        (document.activeElement as HTMLElement).blur?.();
+      }
+    };
+    window.addEventListener(GUIDE_EVENTS.opened, handleGuideOpen);
+    return () => window.removeEventListener(GUIDE_EVENTS.opened, handleGuideOpen);
   }, []);
 
   const normalize = (text: string) =>

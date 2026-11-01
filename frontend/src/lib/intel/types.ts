@@ -105,7 +105,15 @@ export type RegistryState =
 export interface GeoScope { level: "nacional" | "estatal" | "municipal"; ents: string[]; muns: string[] }
 export interface Engagement { likes?: number | null; shares?: number | null; comments?: number | null; views?: number | null }
 export interface SocialPost {
-  platform: Platform; url: string; author?: string | null; published?: string | null; engagement: Engagement; excerpt: string;
+  platform: Platform;
+  url: string;
+  author?: string | null;
+  published?: string | null;
+  engagement: Engagement;
+  excerpt: string;
+  link_status?: "citado_en_fuente" | "grounding" | "sin_verificar";
+  evidence_url?: string | null;
+  evidence_outlet?: string | null;
 }
 
 export interface StateImpact {

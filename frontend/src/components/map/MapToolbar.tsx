@@ -5,7 +5,7 @@ import { useAtalaya } from "@/lib/state";
 import type { MapRiskData } from "@/lib/mapRisk";
 import type { MapMode } from "@/lib/types";
 import { InfoTip } from "@/components/ui/InfoTip";
-import { MapGuide, shouldShowGuide } from "./MapGuide";
+import { GUIDE_EVENTS } from "@/lib/tours";
 
 export interface MapLayerSwitcherProps {
   data?: MapRiskData;
@@ -141,43 +141,30 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
     setView3d,
   } = useAtalaya();
 
-  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideActive, setGuideActive] = useState(false);
 
-  // First-visit auto-open with ~900ms delay to ensure tour anchors exist in DOM
   useEffect(() => {
+    const handleOpened = () => setGuideActive(true);
+    const handleClosed = () => setGuideActive(false);
+
+    window.addEventListener(GUIDE_EVENTS.opened, handleOpened);
+    window.addEventListener(GUIDE_EVENTS.closed, handleClosed);
+
+    return () => {
+      window.removeEventListener(GUIDE_EVENTS.opened, handleOpened);
+      window.removeEventListener(GUIDE_EVENTS.closed, handleClosed);
+    };
+  }, []);
+
+  const handleOpenGuide = () => {
     if (typeof window !== "undefined") {
-      if (shouldShowGuide(window.localStorage)) {
-        const timer = setTimeout(() => {
-          if (shouldShowGuide(window.localStorage)) {
-            setGuideOpen(true);
-          }
-        }, 900);
-        return () => clearTimeout(timer);
-      }
+      try {
+        window.dispatchEvent(new CustomEvent(GUIDE_EVENTS.open));
+      } catch {}
     }
-  }, []);
-
-  // Contract C1: listen to "atalaya:open-guide" event dispatched on window
-  useEffect(() => {
-    const handleOpen = () => setGuideOpen(true);
-    window.addEventListener("atalaya:open-guide", handleOpen);
-    return () => window.removeEventListener("atalaya:open-guide", handleOpen);
-  }, []);
-
-  const handleToggleGuide = () => {
-    setGuideOpen((prev) => {
-      const next = !prev;
-      if (next && typeof window !== "undefined") {
-        try {
-          window.dispatchEvent(new CustomEvent("atalaya:guide-open"));
-        } catch {}
-      }
-      return next;
-    });
   };
 
   return (
-    <>
       <div
         role="toolbar"
         aria-label="Herramientas del mapa"
@@ -304,11 +291,11 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
           type="button"
           role="button"
           aria-label="Cómo leer este mapa"
-          aria-pressed={guideOpen}
-          onClick={handleToggleGuide}
+          aria-pressed={guideActive}
+          onClick={handleOpenGuide}
           title="Cómo leer este mapa (recorrido interactivo)"
           className={`size-8 [@media(pointer:coarse)]:size-10 [@media(orientation:landscape)_and_(max-height:540px)]:!size-9 [@media(orientation:landscape)_and_(max-height:540px)]:min-w-[36px] [@media(orientation:landscape)_and_(max-height:540px)]:min-h-[36px] grid place-items-center rounded-md text-xs font-semibold transition-colors cursor-pointer ${
-            guideOpen
+            guideActive
               ? "bg-primary text-primary-foreground shadow-xs"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           }`}
@@ -327,9 +314,5 @@ export function MapToolbar({ onExportPng, className = "" }: MapToolbarProps) {
           </svg>
         </button>
       </div>
-
-      {/* Recorrido interactivo guiado anclado */}
-      <MapGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
-    </>
   );
 }

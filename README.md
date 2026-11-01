@@ -1,307 +1,193 @@
-# Atalaya Electoral — Riesgo y Escenarios de Abstención Electoral en México
+# Atalaya Electoral — Riesgo de abstención en México
 
-> **INE Hackathon 2026 · Reto 2: Predicción y escenarios de riesgo de abstención**  
-> **Tablero público desplegado:** [http://46.250.172.193:8080](http://46.250.172.193:8080)  
-> **Documento técnico completo y arquitectura:** [explanation.md](explanation.md) (fuente de verdad técnica).
-
----
-
-## 1. Qué es Atalaya Electoral
-
-**Atalaya Electoral** es una plataforma de analítica predictiva y visualización estratégica desarrollada para el Hackathon INE 2026 (Reto 2: Predicción y escenarios de riesgo de abstención). A partir de la serie histórica oficial de **Conteos Censales de Participación Ciudadana (CCPC 2009–2024)** y la **Elección Judicial 2025**, combinados con indicadores sociodemográficos del **INEGI Censo 2020** y del **Índice de Marginación CONAPO 2020**, Atalaya Electoral identifica de forma anticipada los municipios y entidades con mayor riesgo de abstención para la elección federal **2027**, permitiendo al INE planear y priorizar recursos institucionales sin utilizar datos personales:
-
-1. **Pronostica** la participación y abstención de los 2,478 municipios del Marco Geoestadístico 2024 mediante un modelo transparente de persistencia relativa con selección honesta entre candidatos y backtest en los cortes electorales 2021 y 2024.
-2. **Clasifica** cada zona territorial en un semáforo de riesgo de cuatro niveles (🟢 Verde, 🟡 Amarillo, 🟠 Naranja, 🔴 Rojo) ponderando abstención esperada, vulnerabilidad sociodemográfica estructural, tendencia histórica y volatilidad electoral.
-3. **Prioriza recursos** calculando el volumen estimado de personas que no acudirían a las urnas (`abstencion_esperada = pred_abstention × lista_nominal`) y ordenando los municipios de atención prioritaria (rojo/naranja).
-4. **Simula escenarios interactivos**: escenario base (*sin intervención*), escenario *con intervención focalizada* (por nivel de riesgo, grupo prioritario e impacto parametrizable) y escenario *pesimista*.
-5. **Genera recomendaciones preventivas específicas** basadas en los factores estructurales y demográficos que más empujan el abstencionismo en cada territorio.
-6. **Integra un asistente conversacional híbrido**: interpreta preguntas en lenguaje natural, ejecuta consultas deterministas sobre los datos oficiales (vía OpenSearch / Huawei CSS o almacén en memoria) y redacta respuestas auditables citando fuentes y año, respaldado por un LLM (GLM-5.2) o mediante generación determinista sin conexión.
+> **Hackathon INE 2026 «Hackea la participación: Datos que construyen democracia» · Reto 2: Predicción y escenarios de riesgo de abstención** · equipo OXENT
+> **Tablero público:** [http://46.250.172.193:8080](http://46.250.172.193:8080) (requiere usuario y contraseña)
+> **Documento técnico y fuente de verdad:** [explanation.md](explanation.md) — qué hace cada funcionalidad y en qué módulo vive.
 
 ---
 
-## 2. Requisitos del sistema
+## 1. Qué es
 
-- **Python**: 3.12 (64-bit)
-- **Node.js**: 20+ LTS y npm 10+
-- **Google Chrome** (o **Microsoft Edge**): Instalado en el sistema para la compilación headless de reportes y diapositivas en PDF (`--headless=new`).
-- **Sistema Operativo**: Windows Server / Windows 10/11 (PowerShell 5.1 o PowerShell Core).
+Atalaya Electoral responde la pregunta guía del reto —*¿qué zonas podrían presentar mayor abstención en 2027 si no se interviene?*— con
+datos agregados y sin datos personales, para que el INE planee y priorice recursos rumbo a la elección federal del **6 de junio de 2027**.
+
+| Funcionalidad | Qué hace |
+|---|---|
+| **Pronóstico y semáforo** | Pronostica la abstención de los **2,478 municipios** y 32 estados y los clasifica en 🟢 🟡 🟠 🔴 combinando abstención esperada, vulnerabilidad sociodemográfica, tendencia y volatilidad. Modelo transparente elegido por *backtest* honesto (2021 y 2024). |
+| **Mapa navegable** | País → estado → municipio con MapLibre GL (teselas vectoriales oficiales INEGI), modos Semáforo, Cambio Δ, Comparar (cortina) y 3D. Funciona en celular, tablet y PC. |
+| **Escenarios** | Base (sin intervención), **Intervención** con hasta 4 campañas combinadas (voto joven, casillas rurales, lenguas indígenas, campaña general; país o estados) y Pesimista. Votos ganados o perdidos frente a la base. |
+| **Priorización y recomendaciones** | Abstención esperada en personas, ranking de zonas prioritarias y recomendaciones preventivas por zona. |
+| **«¿Por qué este color?»** | Explicación para quien no es estadístico: componentes del índice, qué grupos votan menos (dato medido), rasgos asociados (relación, no causa) y contexto, cada razón con su **tipo y fuerza de evidencia**. |
+| **Asistente** | Preguntas en lenguaje natural sobre los datos (GLM-5.3 en Huawei MaaS) con cifras siempre tomadas de los datos y *guardrails* (solo participación y abstención, sin datos personales ni temas partidistas). |
+| **Plan de campaña con IA** | Para un estado o municipio: investigación en fuentes públicas verificables (Gemini), plan redactado por GLM-5.3, impacto calculado por el simulador y 10 diapositivas editables exportables a PPTX y PDF. |
+| **Monitor INE** | Detecta noticias desfavorables y rumores sobre el INE, los clasifica, estima su efecto en la participación con un modelo determinista, mide su difusión y propone remediación. Solo enlaza publicaciones en redes **cuya URL aparece en una nota descargada por la app**. |
+| **Guías interactivas** | Cada sección (Mapa, Plan de campaña, Monitor INE) tiene su recorrido guiado; además, cada concepto lleva una ayuda ⓘ de un glosario único. |
+| **Entregables del reto** | Reporte metodológico (PDF, 14 cuartillas), presentación ejecutiva (10 diapositivas), mapa de escenarios (GeoJSON + visor HTML autónomo), base de datos anonimizada (XLSX/CSV) y paquete de entrega verificado contra la convocatoria. |
+
+**Principios:** solo datos agregados; celdas con menos de 10 personas suprimidas; **la IA nunca escribe cifras** (todo número sale de
+modelos deterministas con supuestos explícitos); todo flujo con IA tiene respaldo determinista; los escenarios son hipotéticos, no efectos
+causales.
 
 ---
 
-## 3. Cómo obtener los datos (Descargas oficiales)
+## 2. Arquitectura en una mirada
 
-Para reproducir el pipeline completo desde las fuentes primarias oficiales, descargue los siguientes conjuntos de datos abiertos y colóquelos en sus respectivas carpetas bajo `data/raw/`:
-
-| Fuente | Conjunto de datos / Archivos | URL oficial de descarga | Carpeta destino |
-|---|---|---|---|
-| **INE CCPC** | Conteos Censales de Participación Ciudadana 2009–2024 (6 archivos zip, uno por elección federal): `DatosAbiertos_DECEyEC_ConteosCensales{2009,2012,2015,2018,2021,2024}.zip` | [INE CCPC Datos Abiertos](https://ine.mx/transparencia/datos-abiertos/visualizacion-datos/conteos-censales-participacion/) | `data/raw/ccpc/` |
-| **INE CCPC** | Conteos Censales Elección Judicial Extraordinaria 2025: `DatosAbiertos_DECEyEC_ConteosCensalesPJ2025.zip` | [INE CCPC Datos Abiertos](https://ine.mx/transparencia/datos-abiertos/visualizacion-datos/conteos-censales-participacion/) | `data/raw/ccpc/` |
-| **INEGI Censo 2020** | Censo de Población y Vivienda 2020, Principales resultados por localidad (ITER): `iter_00_cpv2020_csv.zip` | [INEGI Censo 2020 Datos Abiertos](https://www.inegi.org.mx/programas/ccpv/2020/#datos_abiertos) | `data/raw/inegi/` |
-| **CONAPO** | Índice de Marginación a nivel municipal 2020: `IMM_2020.csv` | [Datos Abiertos México (datos.gob.mx)](https://datos.gob.mx/busca/dataset/indice-de-marginacion-a-nivel-municipio-y-entidad-federativa-2020) | `data/raw/conapo/` |
-| **INEGI Marco Geo** | Marco Geoestadístico 2024: capas vectoriales nacionales `00ent.*` y `00mun.*` (`.shp, .shx, .dbf, .prj, .cpg`) | [INEGI Marco Geoestadístico](https://www.inegi.org.mx/temas/mg/) | `data/raw/geo/` |
-
----
-
-## 4. Estructura del repositorio
-
-```text
-├── backend/
-│   ├── atalaya/
-│   │   ├── api/          # Endpoints FastAPI, esquemas Pydantic y dependencias
-│   │   ├── chat/         # Asistente conversacional (guard, planner, executor, writer)
-│   │   ├── ingest/       # Ingesta y normalización (CCPC, ITER, CONAPO, crosswalk)
-│   │   ├── model/        # Modelado predictivo, semáforo de riesgo, escenarios y recomendaciones
-│   │   ├── report/       # Generación de gráficas SVG y renderizado de PDF
-│   │   ├── privacy.py    # Control estadístico de revelación y supresión de celdas pequeñas
-│   │   └── store.py      # Almacén de datos (PandasStore offline, OpenSearchStore y ResilientStore clúster CSS)
-│   ├── tests/            # Batería de pruebas unitarias y de integración
-│   └── requirements.txt  # Dependencias de Python
-├── frontend/
-│   ├── src/              # Aplicación web Next.js 16 + React 19 + Tailwind CSS 4
-│   └── package.json
-├── tools/geo/            # Pipeline de simplificación cartográfica con mapshaper
-├── scripts/
-│   ├── build_all.ps1     # Orquestador del pipeline completo de datos y modelos
-│   ├── start_demo.ps1    # Lanzador de la demo local (backend :8001 + frontend :3000)
-│   └── stop_demo.ps1     # Detención de procesos de la demo
-├── data/
-│   ├── raw/              # Descargas oficiales primarias
-│   ├── seed/             # Catálogos curados (estados, variables, recomendaciones)
-│   └── build/            # Tablas intermedias Parquet, índices y métricas compiladas
-├── deliverables/         # Entregables oficiales del Reto 2 (PDF, CSV, XLSX, GeoJSON)
-├── explanation.md        # Documentación metodológica y técnica detallada
-└── README.md             # Esta guía rápida de instalación y ejecución
 ```
+data/raw (INE CCPC 2009–2024 + judicial 2025, INEGI ITER 2020, CONAPO IMM 2020, INEGI MG 2024)
+   └─► backend/atalaya/ingest ─► model (pronóstico, semáforo, escenarios, recomendaciones) ─► data/build/*.parquet
+                                                                   │
+        OpenSearch (Huawei CSS) o memoria ◄── store ◄──────────────┘
+                     │
+FastAPI :8001  (/api: riesgo, escenarios, región, explicador, asistente SSE, inteligencia, sesión)
+   ├─ GLM-5.3 (MaaS)  redacta     ├─ Gemini 3.8 → 3.6 → 3.5 Flash  investiga     └─ Google News / Bing RSS + páginas descargadas
+Next.js 16 :3000  (mapa MapLibre, panel, asistente, Plan de campaña, Monitor INE, Metodología)
+Caddy :8080 (borde público) + supervisor + vigilante
+```
+
+| Capa | Tecnología |
+|---|---|
+| Datos y modelo | Python 3.12, pandas, numpy |
+| API | FastAPI + SSE, inicio de sesión propio (scrypt, cookie de sesión, protección contra fuerza bruta) |
+| Búsqueda | OpenSearch 3.x en Huawei CSS con respaldo automático a memoria |
+| IA | GLM-5.3 (Huawei MaaS) para redactar; Gemini Flash (Google AI Studio) para investigar |
+| Frontend | Next.js 16, React 19, Tailwind 4, MapLibre GL 5 |
+| Publicación | Caddy 2.11, supervisor en Python, tareas programadas de Windows |
+
+---
+
+## 3. Requisitos
+
+- **Windows** 10/11 o Windows Server, PowerShell 5.1+.
+- **Python 3.12** (64 bits), **Node.js 20+** y npm 10+.
+- **Google Chrome o Microsoft Edge** (PDF del reporte, presentación y exportación de planes de campaña).
+- Opcional: clúster OpenSearch 3.x (Huawei CSS), llave de Huawei MaaS (GLM-5.3) y llave de Google AI Studio (Gemini). Sin ellas la app
+  funciona con almacén en memoria y respuestas deterministas.
+
+---
+
+## 4. Datos (descargas oficiales en `data/raw/`)
+
+| Fuente | Archivos | Carpeta |
+|---|---|---|
+| INE · Conteos Censales de Participación Ciudadana | `DatosAbiertos_DECEyEC_ConteosCensales{2009,2012,2015,2018,2021,2024}.zip` y `…ConteosCensalesPJ2025.zip` ([INE datos abiertos](https://ine.mx/transparencia/datos-abiertos/visualizacion-datos/conteos-censales-participacion/)) | `data/raw/ccpc/` |
+| INEGI · Censo 2020, resultados por localidad (ITER) | `iter_00_cpv2020_csv.zip` ([INEGI](https://www.inegi.org.mx/programas/ccpv/2020/#datos_abiertos)) | `data/raw/inegi/` |
+| CONAPO · Índice de marginación municipal 2020 | `IMM_2020.csv` ([datos.gob.mx](https://datos.gob.mx/busca/dataset/indice-de-marginacion-a-nivel-municipio-y-entidad-federativa-2020)) | `data/raw/conapo/` |
+| INEGI · Marco Geoestadístico 2024 | `00ent.*`, `00mun.*` ([INEGI](https://www.inegi.org.mx/temas/mg/)) | `data/raw/geo/` |
 
 ---
 
 ## 5. Instalación
 
-1. **Entorno Python**:
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\Activate.ps1
-   pip install -r backend/requirements.txt
-   ```
-
-2. **Entorno Frontend**:
-   ```powershell
-   cd frontend
-   npm ci
-   cd ..
-   ```
-
-3. **Entorno Cartográfico**:
-   ```powershell
-   cd tools/geo
-   npm ci
-   cd ..\..
-   ```
-
----
-
-## 6. Pipeline de datos y modelos
-
-Para compilar todo el conocimiento, capas geográficas, perfiles sociodemográficos, entrenamiento del modelo predictivo y generación de entregables, ejecute:
-
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1
-```
-
-Opciones disponibles en el script:
-- `-SkipGeo`: Omite el procesamiento de capas cartográficas si ya están simplificadas en `frontend/public/geo/`.
-- `-SkipModel`: Omite el re-entrenamiento del modelo estadístico.
-- `-SkipExport`: Omite la exportación de bases de datos finales y archivos shapefile.
-- `-Load`: Si se dispone de conectividad al clúster Huawei CSS / OpenSearch (OpenSearch 3.x), valida y carga los índices.
-
-### 6.1 Operaciones con el clúster OpenSearch
-
-#### Recrear el clúster OpenSearch
-Cuando el clúster se borra o recrea (nueva IP o credenciales):
-1. **Editar `backend/.env`** con los nuevos valores de conexión:
-   - `OPENSEARCH_URL` (ej. `https://10.0.0.205:9200`)
-   - `OPENSEARCH_USERNAME`
-   - `OPENSEARCH_PASSWORD`
-   - `OPENSEARCH_VERIFY_CERTS` (`true` / `false`)
-2. **Ejecutar el arranque en un solo comando**:
-   ```powershell
-   python scripts/bootstrap_cluster.py
-   ```
-   *(o con `--reset` si el clúster ya contenía datos o índices previos de ATALAYA)*:
-   ```powershell
-   python scripts/bootstrap_cluster.py --reset
-   ```
-   Este comando realiza: diagnóstico de conectividad con reintentos → validación de salud → purga (si `--reset`) → plantillas compuestas → carga completa de índices versionados y alias atómico → auditoría de paridad vs. memoria → recarga en caliente de la API.
-3. **Sincronización de la API**: la API en ejecución detecta y cambia sola en ≤ 60 s (circuito de resiliencia y sonda) o de manera inmediata mediante:
-   ```powershell
-   curl -X POST http://127.0.0.1:8001/api/admin/reload
-   ```
-
-#### Comandos individuales de soporte
-- **Diagnóstico de conectividad y estado del clúster**:
-  ```powershell
-  python scripts/check_cluster.py
-  ```
-- **Carga de índices versionados con alias atómico**:
-  ```powershell
-  python -m atalaya.load [--dry-run] [--only units,participation,catalog,profile] [--keep 1] [--replicas N] [--reset]
-  ```
-- **Auditoría de paridad OpenSearch vs. almacén en memoria**:
-  ```powershell
-  python scripts/os_parity.py
-  ```
-
----
-
-## 7. Ejecución de la demo
-
-Inicie la aplicación completa (backend FastAPI en puerto `8001` y frontend Next.js en puerto `3000`):
-
-```powershell
-# Iniciar con los datos compilados reales:
-powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1
-
-# O iniciar en modo demostración con datos sintéticos:
-powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1 -Mock
-```
-
-- **Frontend (Tablero interactivo)**: [http://localhost:3000](http://localhost:3000)
-- **Backend API (Documentación Swagger/OpenAPI)**: [http://localhost:8001/docs](http://localhost:8001/docs)
-
-Para detener los servidores en segundo plano al terminar:
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
-```
-
-### 7.1 Publicación en internet
-
-**Despliegue en un comando (recomendado):** abre CMD como administrador en la raíz del repo y ejecuta
-
-```cmd
-deploy.cmd
-```
-
-Instala la app como servicio de Windows (tarea "ATALAYA", arranca con la máquina) con un vigilante cada 5 minutos
-("ATALAYA-Watchdog") y la publica en `http://<IP pública>:8080`. Otras acciones: `deploy.cmd status`, `stop`,
-`restart`, `rebuild` (tras actualizar el código), `uninstall`, `logs`; puerto opcional como segundo argumento.
-Recuerda abrir TCP 8080 de entrada en el security group de la nube.
-
-ATALAYA incluye un supervisor de procesos tolerante a fallos (`atalaya.ops.supervisor`) con borde inverso **Caddy v2.11.7** (`tools/caddy/caddy.exe`) diseñado para la operación continua y segura en producción.
-
-#### Topología de servicios
-
-```text
-internet :8080 ─► Caddy (0.0.0.0:8080) ─┬─ /api/*  ─► FastAPI 127.0.0.1:8001  (X-Forwarded-For = IP real, SSE sin buffer)
-                                        ├─ /api/admin* (ruta decodificada, sin distinguir mayúsculas) ─► 404
-                                        └─ resto   ─► Next.js 127.0.0.1:3000
-```
-
-- **Borde Caddy (`0.0.0.0:8080`)**: Punto único de entrada público. Reemplaza cualquier `X-Forwarded-For` entrante por `{remote_host}` (garantizando que el límite de tasa del asistente use la IP real), aplica cabeceras de seguridad (`nosniff`, `SAMEORIGIN`, `strict-origin-when-cross-origin`), mantiene streaming SSE sin búfer (`flush_interval -1`), y bloquea de raíz cualquier intento de acceso a `/api/admin*` (con ruta decodificada y sin distinguir mayúsculas) respondiendo 404 antes del proxy.
-- **Frontend Next.js (`127.0.0.1:3000`)**: Escucha exclusivamente en la interfaz local (`127.0.0.1`), protegiendo el renderizado y activos estáticos de exposición directa.
-- **Backend FastAPI (`127.0.0.1:8001`)**: Escucha únicamente en local con 1 worker de Uvicorn (`--proxy-headers --forwarded-allow-ips 127.0.0.1`), garantizando consistencia en el almacén en memoria y límite de peticiones.
-- **Supervisor (`atalaya.ops.supervisor`)**: Vigila la salud de los tres servicios cada 10 s, garantiza arranque en cascada (`backend` → `frontend` → `edge`), parada ordenada en reversa (`edge` → `frontend` → `backend`), recuperación automática con *backoff* exponencial (2 s a 60 s) y protección contra *crash-loop* (5 min tras >10 fallos en 15 min).
-
-> **Importante (Huawei Cloud ECS)**: En este servidor, el puerto 80 está ocupado por otra aplicación independiente y no debe tocarse. ATALAYA se publica de forma predeterminada en el puerto **8080**. Para que el servicio sea accesible desde internet, verifique que el puerto TCP `8080` esté abierto en las reglas de entrada del **Security Group** de Huawei Cloud asociado a la máquina.
-
-#### Comandos de gestión (`scripts\serve_public.ps1`)
-
-```powershell
-# Iniciar ATALAYA en segundo plano supervisado (puerto 8080 por defecto):
-powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080
-
-# Iniciar en primer plano (consola activa):
-powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 -Foreground
-
-# Consultar el estado operativo y PIDs de los servicios:
-powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Status
-
-# Detener ordenadamente el supervisor y los procesos hijos:
-powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Stop
-
-# Descargar y verificar Caddy v2.11.7 (SHA-512) si no estuviera presente:
-powershell -ExecutionPolicy Bypass -File scripts\get_caddy.ps1
-
-# Recompilar la aplicación Next.js y arrancar:
-powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 -Rebuild
-
-# Instalar como Tarea Programada de Windows ('ATALAYA' como SYSTEM al iniciar la máquina):
-powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Port 8080 -Install
-
-# Desinstalar la tarea programada:
-powershell -ExecutionPolicy Bypass -File scripts\serve_public.ps1 -Uninstall
+python -m venv .venv; .venv\Scripts\Activate.ps1
+pip install -r backend/requirements.txt
+cd frontend; npm ci; cd ..
+cd tools/geo; npm ci; cd ..\..
+copy backend\.env.example backend\.env     # y completa las llaves que tengas (sección 9)
 ```
 
 ---
 
-## 8. Pruebas automatizadas
+## 6. Construir datos, modelo y entregables
 
-Ejecución de la suite completa de pruebas unitarias y de integración del backend:
+```powershell
+# Pipeline completo: geografía → CCPC → INEGI/CONAPO → crosswalk → modelo → exportación → reporte y presentación
+powershell -ExecutionPolicy Bypass -File scripts\build_all.ps1 [-SkipGeo] [-SkipModel] [-SkipExport] [-SkipReports] [-Load]
+
+# Visor autónomo y paquete de entrega del Reto 2 (verifica la convocatoria)
+cd backend; python -m atalaya.viewer; python -m atalaya.submission
+```
+
+`-Load` carga el clúster OpenSearch (o usa `python scripts\bootstrap_cluster.py [--reset]` desde `backend`).
+
+---
+
+## 7. Usuarios
+
+Toda la app requiere inicio de sesión. Las cuentas se crean en el servidor con la CLI (la contraseña se imprime una sola vez):
 
 ```powershell
 cd backend
-python -m pytest tests/ -q -p no:cacheprovider
+python -m atalaya.auth create-user <usuario> --generate
+python -m atalaya.auth list | unlock <usuario|ip> | reset-password <usuario> --generate | disable <usuario> | enable <usuario>
 ```
 
-Verificación del frontend:
+---
+
+## 8. Ejecutar
+
+**Local (demo):**
+
 ```powershell
-cd frontend
-npm test            # Pruebas con Vitest
-npm run typecheck   # Comprobación de tipos con TypeScript
+powershell -ExecutionPolicy Bypass -File scripts\start_demo.ps1     # API :8001 + web :3000 (-Mock: solo frontend con datos de demostración)
+powershell -ExecutionPolicy Bypass -File scripts\stop_demo.ps1
+```
+
+**Publicación en internet (CMD como administrador, en la raíz del repo):**
+
+```cmd
+deploy.cmd                 :: instala servicio "ATALAYA" + vigilante "ATALAYA-Watchdog" y publica en http://<IP>:8080
+deploy.cmd rebuild         :: tras actualizar el código
+deploy.cmd status | stop | start | restart | logs | uninstall
+```
+
+Abre TCP 8080 de entrada en el *security group*. En la ECS del proyecto el puerto 80 pertenece a otra aplicación: no lo uses. Caddy
+bloquea `/api/admin*` desde internet y fija la IP real del cliente; el supervisor reinicia cualquier servicio caído y el vigilante
+recupera la pila completa.
+
+---
+
+## 9. Configuración (`backend/.env`)
+
+| Variable | Uso |
+|---|---|
+| `OPENSEARCH_URL`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`, `OPENSEARCH_VERIFY_CERTS`, `OPENSEARCH_CA_CERTS`, `OPENSEARCH_TIMEOUT_S`, `OPENSEARCH_REPLICAS` | Clúster OpenSearch (opcional) |
+| `ATALAYA_STORE` | `auto` \| `opensearch` \| `memory` |
+| `MAAS_BASE_URL`, `MAAS_API_KEY`, `MAAS_MODEL=glm-5.3`, `MAAS_REASONING_EFFORT=high` | Asistente y redacción (Huawei MaaS) |
+| `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.8-flash`, `GEMINI_FALLBACK_MODELS`, `GEMINI_MODEL_TIMEOUTS` | Investigación (Google AI Studio). Sin facturación no hay búsqueda de Google: se usa la búsqueda de respaldo verificada |
+| `INTEL_GEMINI_DAILY_LIMIT`, `INTEL_MONITOR_COOLDOWN_MIN`, `INTEL_CAMPAIGN_TTL_H`, `INTEL_MONITOR_TTL_H` | Presupuesto y cachés de Inteligencia |
+| `ATALAYA_CHAT_RATE_PER_MIN`, `ATALAYA_CHAT_RATE_PER_DAY` | Límite del asistente por IP |
+| `ATALAYA_LLM_ENABLED`, `ATALAYA_TARGET_YEAR=2027`, `ATALAYA_PUBLIC_URL` | Generales |
+
+Nunca subas `backend/.env` al repositorio. Lista completa y valores por omisión en [explanation.md §5](explanation.md).
+
+---
+
+## 10. Pruebas
+
+```powershell
+cd backend;  python -m pytest -q -p no:cacheprovider        # sin red: Gemini, MaaS y RSS simulados
+cd frontend; npm run typecheck; npm test; npm run build      # Vitest + TypeScript + build de producción (verifica tipos de páginas)
+cd tools/geo; npm test
 ```
 
 ---
 
-## 9. Entregables generados (`deliverables/`)
+## 11. Estructura
 
-La carpeta `deliverables/` contiene los artefactos oficiales requeridos por el Reto 2:
-
-1. **Reporte Metodológico y Preventivo (PDF)**: Documento de 10 a 15 cuartillas con fundamentación estadística, auditoría del modelo, análisis del semáforo territorial 2027 y plan de intervención focalizada.
-2. **Presentación Ejecutiva (PDF)**: Síntesis de alto nivel en 10 diapositivas para toma de decisiones y planeación estratégica institucional.
-3. **Base de Datos Territorial Anonimizada**: Archivos `atalaya_riesgo_2027.csv` y `atalaya_riesgo_2027.xlsx` con los 2,478 municipios y 32 entidades federativas, conteniendo pronóstico, semáforo, componentes de riesgo, factores estructurales y priorización de recursos.
-4. **Capas Cartográficas**: Archivos GeoJSON y Shapefile con la cartografía nacional y los escenarios de riesgo asociados a cada polígono territorial.
-
----
-
-## 10. Configuración (`.env`)
-
-Las variables de configuración se gestionan mediante el archivo `backend/.env` (tome como referencia `backend/.env.example`):
-
-| Variable | Descripción |
-|---|---|
-| `OPENSEARCH_URL` | URL(s) del clúster OpenSearch 3.x / Huawei Cloud CSS (separadas por coma). Respaldo heredado: `ES_URL`. |
-| `OPENSEARCH_USERNAME` | Usuario para autenticación básica en el clúster OpenSearch. Respaldo: `ES_USERNAME`. |
-| `OPENSEARCH_PASSWORD` | Contraseña del clúster OpenSearch. Respaldo: `ES_PASSWORD`. |
-| `OPENSEARCH_VERIFY_CERTS` | Verificación SSL/TLS de certificados (`true`/`false`, default `true`). Respaldo: `ES_INSECURE=true` ⇒ `False`. |
-| `OPENSEARCH_CA_CERTS` | Ruta al archivo de certificados CA en formato PEM (opcional). |
-| `OPENSEARCH_TIMEOUT_S` | Tiempo límite de espera para consultas al clúster en segundos (default `30.0`). Respaldo: `ES_TIMEOUT_S`. |
-| `OPENSEARCH_REPLICAS` | Número de réplicas de índice (`null`/omitido = cálculo automático según número de nodos). |
-| `ATALAYA_INDEX_PREFIX` | Prefijo para los índices, alias y plantillas en OpenSearch (default `atalaya-`). |
-| `ATALAYA_STORE` | Modo del almacén de datos: `auto`, `opensearch` o `memory` (`es` se normaliza a `opensearch`). |
-| `MAAS_BASE_URL` | Endpoint del servicio ModelArts MaaS (Huawei Cloud). |
-| `MAAS_API_KEY` | Clave de acceso a la API del modelo de lenguaje. |
-| `MAAS_MODEL` | Modelo LLM configurado (ej. `glm-5.2`). |
-| `MAAS_EXTRA_BODY` | Parámetros adicionales en formato JSON para el proveedor LLM. |
-| `ATALAYA_LLM_ENABLED` | Habilita (`1`) o deshabilita (`0`) la consulta al LLM en el asistente. |
-| `ATALAYA_TARGET_YEAR` | Año electoral federal objetivo de planeación (`2027`). |
+```text
+backend/atalaya/   ingest · model · store · api · chat (guardrails) · explain (explicador y verificación) · intel (campañas, monitor,
+                   enlaces a redes) · report · export · viewer · submission · auth · ops (supervisor)
+backend/tests/     pruebas offline
+frontend/src/      app (mapa, campanas, monitor, metodologia, login) · components (map, panel, explain, guide, intel, layout, ui) · lib
+tools/geo/         geografía y teselas vectoriales
+data/seed/         catálogos y reglas curadas        data/raw · data/build · data/cache   (no versionados)
+scripts/           build_all · start_demo · stop_demo · serve_public · get_caddy        deploy.cmd   despliegue en un comando
+deliverables/      entregables generados (no versionados)
+```
 
 ---
 
-## 11. Política de privacidad y control estadístico de revelación
+## 12. Privacidad y neutralidad
 
-Atalaya Electoral está diseñado bajo principios estrictos de **confidencialidad estadística y privacidad por diseño**:
+- Solo información **agregada**: ningún nombre, domicilio, CURP ni clave de elector.
+- Celdas edad × sexo con lista nominal < 10 suprimidas; sexo no binario solo a nivel estatal y nacional.
+- Sin análisis de partidos, candidaturas ni intención de voto; las campañas se dirigen solo por criterios territoriales y de riesgo.
+- De las publicaciones en redes solo se guarda el enlace público y el *handle* que aparece en él, para poder reportarlas.
 
-- **Cero datos personales nominativos**: No se recopila, almacena ni procesa ningún dato de identificación individual, nombres, domicilios, CURP ni claves de elector.
-- **Supresión de celdas pequeñas (k-anonimato / thresholding)**: Para evitar cualquier riesgo de re-identificación indirecta en municipios de baja densidad demográfica, toda celda demográfica (edad × sexo × municipio) con una Lista Nominal menor a 10 personas (`LN < 10`) tiene sus conteos y tasas suprimidos (retornando `null` en API y `N/D` en interfaz/chat, con marca explícita `suprimido: true`).
-- **Protección de género no binario**: Los registros de género no binario (`sexo = "X"`), incorporados en el CCPC 2024, se publican exclusivamente a nivel agregado estatal y nacional. Para salvaguardar la privacidad individual, se descartan a nivel municipal.
-- **Agregación territorial canónica**: Toda la información analítica se consolida exclusivamente a nivel de sección, municipio o entidad federativa.
+## 13. Fuentes
 
----
+Instituto Nacional Electoral (Conteos Censales de Participación Ciudadana 2009–2024 y Elección Judicial 2025), INEGI (Censo 2020 ITER y
+Marco Geoestadístico 2024) y CONAPO (Índice de Marginación 2020). Todas públicas y abiertas.
 
-## 12. Licencia de datos públicos y créditos
-
-El desarrollo de Atalaya Electoral utiliza exclusivamente fuentes abiertas de carácter público gubernamental:
-- **Instituto Nacional Electoral (INE)**: Plataforma de Conteos Censales de Participación Ciudadana (CCPC 2009–2024), Elección Judicial Extraordinaria 2025 y Sistema de Consulta de la Estadística de las Elecciones (SICEE).
-- **Instituto Nacional de Estadística y Geografía (INEGI)**: Censo de Población y Vivienda 2020 (ITER) y Marco Geoestadístico Nacional 2024.
-- **Consejo Nacional de Población (CONAPO)**: Índice de Marginación por Municipio 2020.
-
-**INE Hackathon 2026** · Proyecto de analítica predictiva para la participación ciudadana y fortalecimiento democrático.
+**Hackathon INE 2026** · Propuesta del equipo OXENT.

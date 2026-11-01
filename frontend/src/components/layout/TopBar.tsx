@@ -9,11 +9,12 @@ import { BrandLockup, BrandMark } from "@/components/brand/BrandMark";
 import { RegionSearch } from "@/components/map/RegionSearch";
 import { InfoTip } from "@/components/ui/InfoTip";
 import { getSession, logout } from "@/lib/auth";
+import { tourForPath, GUIDE_EVENTS } from "@/lib/tours";
 
-const SCENARIOS: { id: ScenarioId; label: string }[] = [
-  { id: "base", label: "Base" },
-  { id: "intervencion", label: "Intervención" },
-  { id: "pesimista", label: "Pesimista" },
+const SCENARIOS: { id: ScenarioId; label: string; shortLabel: string }[] = [
+  { id: "base", label: "Base", shortLabel: "Base" },
+  { id: "intervencion", label: "Intervención", shortLabel: "Interv." },
+  { id: "pesimista", label: "Pesimista", shortLabel: "Pesim." },
 ];
 
 const SECTIONS = [
@@ -77,7 +78,7 @@ function UserMenuDropdown({
 }: {
   username: string | null;
   onLogout: () => void;
-  variant?: "button" | "icon";
+  variant?: "button" | "icon" | "responsive";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -93,9 +94,38 @@ function UserMenuDropdown({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleGuideOpened = () => {
+      setOpen(false);
+    };
+    window.addEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+    return () => window.removeEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+  }, []);
+
   return (
     <div className="relative shrink-0" ref={ref}>
-      {variant === "button" ? (
+      {variant === "responsive" ? (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label="Menú de usuario"
+          title={username ? `Usuario: ${username}` : "Usuario"}
+          className="size-8 2xl:w-auto 2xl:h-8 2xl:px-2.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center 2xl:justify-start gap-1.5 transition-colors cursor-pointer 2xl:border 2xl:border-border 2xl:bg-card/60 shrink-0"
+        >
+          <svg className="size-4 2xl:size-3.5 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+          <span className="hidden 2xl:inline text-xs font-semibold max-w-[100px] truncate text-foreground">
+            {username || "Usuario"}
+          </span>
+          <svg className="hidden 2xl:inline size-3 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </button>
+      ) : variant === "button" ? (
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -281,11 +311,26 @@ export function TopBar() {
       ? paramsByScenario.intervencion.campaigns.length
       : 1;
 
+  const hasTour = tourForPath(pathname) !== null;
+
   const handleOpenGuide = () => {
+    if (moreMenuOpen) {
+      setMoreMenuOpen(false);
+    }
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("atalaya:open-guide"));
+      window.dispatchEvent(new CustomEvent(GUIDE_EVENTS.open));
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleGuideOpened = () => {
+      setMoreMenuOpen(false);
+      setMobileSearchOpen(false);
+    };
+    window.addEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+    return () => window.removeEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+  }, []);
 
   const isDemo = isMock || !apiAvailable;
   const storeLabel = isDemo
@@ -297,15 +342,16 @@ export function TopBar() {
   return (
     <header ref={headerRef} className="shrink-0 bg-card border-b border-border pt-[env(safe-area-inset-top,0px)] sticky top-0 z-30 select-none">
       {/* PC single-row layout (>= 1024px and not compact-landscape) */}
-      <div data-layout-mode="desktop" className="hidden lg:flex [@media(orientation:landscape)_and_(max-height:540px)]:!hidden h-14 items-center justify-between px-4 gap-3 min-w-0 w-full">
+      <div data-layout-mode="desktop" className="hidden lg:flex [@media(orientation:landscape)_and_(max-height:540px)]:!hidden h-14 items-center justify-between px-2 xl:px-4 gap-2 xl:gap-3 min-w-0 w-full">
         {/* Brand Lockup & Section Navigation Tabs */}
-        <div className="flex items-center gap-3 xl:gap-4 shrink-0">
-          <BrandLockup className="shrink-0" />
+        <div className="flex items-center gap-2 xl:gap-4 shrink-0">
+          <BrandLockup className="shrink-0 whitespace-nowrap max-xl:gap-0 xl:gap-2.5 max-xl:[&>div]:!hidden max-2xl:[&_.font-sans]:!hidden 2xl:[&_.font-sans]:!block" />
 
           {/* Section Tabs */}
           <nav
-            className="flex items-center gap-1 rounded-lg bg-muted p-0.5 border border-border shrink-0"
+            className="flex items-center gap-0.5 xl:gap-1 rounded-lg bg-muted p-0.5 border border-border shrink-0"
             aria-label="Secciones principales"
+            data-tour="secciones"
           >
             {SECTIONS.map((sec) => {
               const isActive = sec.href === "/" ? isHome : pathname.startsWith(sec.href);
@@ -313,7 +359,9 @@ export function TopBar() {
                 <div key={sec.id} className="flex items-center shrink-0">
                   <Link
                     href={sec.href}
-                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    aria-label={sec.label}
+                    title={sec.label}
+                    className={`flex items-center gap-1.5 rounded-md px-1.5 xl:px-2 2xl:px-2.5 py-1.5 text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                       isActive
                         ? "bg-card text-primary shadow-xs"
                         : "text-muted-foreground hover:text-foreground"
@@ -321,12 +369,12 @@ export function TopBar() {
                     aria-current={isActive ? "page" : undefined}
                   >
                     {sec.icon}
-                    <span className="whitespace-nowrap">
+                    <span className="hidden 2xl:inline whitespace-nowrap">
                       <span className="hidden 2xl:inline">{sec.label}</span>
                       <span className="2xl:hidden">{sec.shortLabel}</span>
                     </span>
                   </Link>
-                  {sec.infoTerm && <InfoTip term={sec.infoTerm} size="xs" />}
+                  {sec.infoTerm && <InfoTip term={sec.infoTerm} size="xs" className="shrink-0" />}
                 </div>
               );
             })}
@@ -335,32 +383,38 @@ export function TopBar() {
 
         {/* Center: Scenario switcher + Adjust (Visible ONLY on /) */}
         {isHome ? (
-          <div className="flex items-center gap-1.5 shrink-0" data-tour="escenario">
+          <div className="flex items-center gap-1 xl:gap-1.5 shrink-0 whitespace-nowrap" data-tour="escenario">
             <div className="flex rounded-lg bg-muted p-0.5 border border-border shrink-0">
               {SCENARIOS.map((s) => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => setScenario(s.id)}
-                  className={`rounded-md px-2.5 xl:px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                  data-tour={s.id === "intervencion" ? "intervencion" : undefined}
+                  aria-label={s.label}
+                  title={s.label}
+                  className={`rounded-md px-1.5 xl:px-2.5 2xl:px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     scenario === s.id
                       ? "bg-card text-primary shadow-xs"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {s.label}
+                  <span className="xl:hidden">{s.shortLabel}</span>
+                  <span className="hidden xl:inline">{s.label}</span>
                 </button>
               ))}
             </div>
-            <InfoTip term="escenarios" size="sm" />
+            <InfoTip term="escenarios" size="sm" className="shrink-0" />
 
             {scenario !== "base" && (
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 xl:gap-1.5 shrink-0 whitespace-nowrap">
                 <button
                   type="button"
                   onClick={() => setIsScenarioModalOpen(true)}
-                  className="h-8 px-2.5 text-xs font-semibold rounded-md border border-border bg-card hover:bg-accent text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+                  data-tour="ajustar"
+                  className="h-8 px-2 xl:px-2.5 text-xs font-semibold rounded-md border border-border bg-card hover:bg-accent text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
                   aria-label="Ajustar parámetros"
+                  title="Ajustar parámetros"
                 >
                   <svg
                     className="w-3.5 h-3.5 text-primary shrink-0"
@@ -375,14 +429,14 @@ export function TopBar() {
                       d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
                     />
                   </svg>
-                  <span className="whitespace-nowrap">Ajustar</span>
+                  <span className="hidden xl:inline whitespace-nowrap">Ajustar</span>
                 </button>
 
                 {isScenarioModified(scenario) && (
                   <button
                     type="button"
                     onClick={() => resetScenarioParams(scenario)}
-                    className="h-8 px-2 text-xs font-medium rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+                    className="h-8 px-1.5 xl:px-2 text-xs font-medium rounded-md border border-border bg-muted/60 hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1 xl:gap-1.5 transition-colors shadow-xs cursor-pointer whitespace-nowrap shrink-0"
                     title="Restablecer valores originales"
                     aria-label="Restablecer valores originales"
                   >
@@ -410,12 +464,12 @@ export function TopBar() {
         )}
 
         {/* Right side: Search (only on /), Engine indicator, Metodología, Help */}
-        <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
+        <div className={`flex items-center gap-1.5 xl:gap-2 min-w-0 ${isHome ? "flex-1" : "shrink-0"} justify-end`}>
           {/* Global Search - mounted ONLY on / so shortcut '/' is only active on / */}
-          {isHome && <RegionSearch className="min-w-0 flex-1 max-w-[22rem]" />}
+          {isHome && <RegionSearch className="flex-1 min-w-[160px] max-w-[22rem]" />}
 
           {/* Engine indicator */}
-          <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground rounded-full border border-border bg-muted/50 shrink-0">
+          <div className="flex items-center gap-1 xl:gap-1.5 px-1.5 xl:px-2 py-1 text-xs text-muted-foreground rounded-full border border-border bg-muted/50 shrink-0">
             <span
               className={`size-2 rounded-full shrink-0 ${
                 isDemo ? "bg-risk-mid animate-pulse" : "bg-good"
@@ -424,13 +478,13 @@ export function TopBar() {
             <span className="hidden 2xl:inline text-[11px] font-medium font-mono whitespace-nowrap">
               {storeLabel}
             </span>
-            <InfoTip term="motor" size="xs" />
+            <InfoTip term="motor" size="xs" className="shrink-0" />
           </div>
 
           {/* Metodología */}
           <Link
             href="/metodologia"
-            className="h-8 px-2.5 text-xs font-medium rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap"
+            className="size-8 2xl:w-auto 2xl:h-8 2xl:px-2.5 text-xs font-medium rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center 2xl:justify-start gap-1.5 transition-colors shrink-0 whitespace-nowrap"
             title="Metodología"
             aria-label="Metodología"
           >
@@ -451,30 +505,32 @@ export function TopBar() {
           </Link>
 
           {/* Help button (dispatches C1) */}
-          <button
-            type="button"
-            onClick={handleOpenGuide}
-            className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
-            aria-label="Ayuda y guía del sistema"
-            title="Ayuda y guía del sistema"
-          >
-            <svg
-              className="w-4 h-4 shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          {hasTour && (
+            <button
+              type="button"
+              onClick={handleOpenGuide}
+              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              aria-label="Ayuda y guía del sistema"
+              title="Ayuda y guía del sistema"
             >
-              <circle cx="12" cy="12" r="10" strokeWidth={2} />
-              <path
-                strokeLinecap="round"
-                strokeWidth={2}
-                d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
-              />
-            </svg>
-          </button>
+              <svg
+                className="w-4 h-4 shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <circle cx="12" cy="12" r="10" strokeWidth={2} />
+                <path
+                  strokeLinecap="round"
+                  strokeWidth={2}
+                  d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
+                />
+              </svg>
+            </button>
+          )}
 
           {/* User Menu (Desktop) */}
-          <UserMenuDropdown username={username} onLogout={handleLogout} variant="button" />
+          <UserMenuDropdown username={username} onLogout={handleLogout} variant="responsive" />
         </div>
       </div>
 
@@ -493,6 +549,7 @@ export function TopBar() {
         <nav
           className="flex items-center gap-1 rounded-lg bg-muted p-0.5 border border-border shrink-0"
           aria-label="Secciones principales"
+          data-tour="secciones"
         >
           {SECTIONS.map((sec) => {
             const isActive = sec.href === "/" ? isHome : pathname.startsWith(sec.href);
@@ -528,6 +585,7 @@ export function TopBar() {
                   key={s.id}
                   type="button"
                   onClick={() => setScenario(s.id)}
+                  data-tour={s.id === "intervencion" ? "intervencion" : undefined}
                   className={`rounded-md px-2 py-1 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
                     scenario === s.id
                       ? "bg-card text-primary shadow-xs"
@@ -543,6 +601,7 @@ export function TopBar() {
               <button
                 type="button"
                 onClick={() => setIsScenarioModalOpen(true)}
+                data-tour="ajustar"
                 className="size-8 rounded-md border border-border bg-card hover:bg-accent text-primary flex items-center justify-center transition-colors shadow-xs cursor-pointer shrink-0"
                 aria-label="Ajustar parámetros"
                 title="Ajustar parámetros"
@@ -567,6 +626,7 @@ export function TopBar() {
             <button
               type="button"
               onClick={() => setMobileSearchOpen(true)}
+              data-tour="buscar"
               className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
               aria-label="Buscar estado o municipio"
               title="Buscar"
@@ -600,18 +660,20 @@ export function TopBar() {
           </Link>
 
           {/* Help button (dispatches C1) */}
-          <button
-            type="button"
-            onClick={handleOpenGuide}
-            className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
-            aria-label="Ayuda y guía del sistema"
-            title="Ayuda y guía del sistema"
-          >
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" strokeWidth={2} />
-              <path strokeLinecap="round" strokeWidth={2} d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01" />
-            </svg>
-          </button>
+          {hasTour && (
+            <button
+              type="button"
+              onClick={handleOpenGuide}
+              className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              aria-label="Ayuda y guía del sistema"
+              title="Ayuda y guía del sistema"
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" strokeWidth={2} />
+                <path strokeLinecap="round" strokeWidth={2} d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01" />
+              </svg>
+            </button>
+          )}
 
           {/* User Menu (Compact Landscape) */}
           <UserMenuDropdown username={username} onLogout={handleLogout} variant="icon" />
@@ -641,6 +703,7 @@ export function TopBar() {
           <nav
             className="flex items-center gap-1 rounded-lg bg-muted p-0.5 border border-border shrink-0"
             aria-label="Secciones principales"
+            data-tour="secciones"
           >
             {SECTIONS.map((sec) => {
               const isActive = sec.href === "/" ? isHome : pathname.startsWith(sec.href);
@@ -671,6 +734,7 @@ export function TopBar() {
                 <button
                   type="button"
                   onClick={() => setMobileSearchOpen(true)}
+                  data-tour="buscar"
                   className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
                   aria-label="Buscar estado o municipio"
                   title="Buscar"
@@ -734,30 +798,32 @@ export function TopBar() {
                     </svg>
                     <span>Metodología</span>
                   </Link>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      handleOpenGuide();
-                    }}
-                    className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent rounded-sm transition-colors text-left w-full cursor-pointer"
-                  >
-                    <svg
-                      className="w-3.5 h-3.5 shrink-0 text-muted-foreground"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+                  {hasTour && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMoreMenuOpen(false);
+                        handleOpenGuide();
+                      }}
+                      className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-foreground hover:bg-accent rounded-sm transition-colors text-left w-full cursor-pointer"
                     >
-                      <circle cx="12" cy="12" r="10" strokeWidth={2} />
-                      <path
-                        strokeLinecap="round"
-                        strokeWidth={2}
-                        d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
-                      />
-                    </svg>
-                    <span>Guía interactiva</span>
-                  </button>
+                      <svg
+                        className="w-3.5 h-3.5 shrink-0 text-muted-foreground"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle cx="12" cy="12" r="10" strokeWidth={2} />
+                        <path
+                          strokeLinecap="round"
+                          strokeWidth={2}
+                          d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
+                        />
+                      </svg>
+                      <span>Guía interactiva</span>
+                    </button>
+                  )}
                   <div className="px-2.5 py-1 text-[11px] text-muted-foreground border-t border-border mt-0.5 pt-1.5 flex items-center gap-1.5">
                     <svg className="size-3 text-primary shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -800,6 +866,7 @@ export function TopBar() {
                 <button
                   type="button"
                   onClick={() => setMobileSearchOpen(true)}
+                  data-tour="buscar"
                   className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer"
                   aria-label="Buscar estado o municipio"
                   title="Buscar"
@@ -841,27 +908,29 @@ export function TopBar() {
                 </svg>
               </Link>
 
-              <button
-                type="button"
-                onClick={handleOpenGuide}
-                className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
-                aria-label="Ayuda y guía del sistema"
-                title="Ayuda y guía del sistema"
-              >
-                <svg
-                  className="w-4 h-4 shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+              {hasTour && (
+                <button
+                  type="button"
+                  onClick={handleOpenGuide}
+                  className="size-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                  aria-label="Ayuda y guía del sistema"
+                  title="Ayuda y guía del sistema"
                 >
-                  <circle cx="12" cy="12" r="10" strokeWidth={2} />
-                  <path
-                    strokeLinecap="round"
-                    strokeWidth={2}
-                    d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
-                  />
-                </svg>
-              </button>
+                  <svg
+                    className="w-4 h-4 shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle cx="12" cy="12" r="10" strokeWidth={2} />
+                    <path
+                      strokeLinecap="round"
+                      strokeWidth={2}
+                      d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3m.08 4h.01"
+                    />
+                  </svg>
+                </button>
+              )}
 
               {/* User Menu (Compact Portrait >= 400px) */}
               <UserMenuDropdown username={username} onLogout={handleLogout} variant="icon" />
@@ -881,6 +950,7 @@ export function TopBar() {
                   key={s.id}
                   type="button"
                   onClick={() => setScenario(s.id)}
+                  data-tour={s.id === "intervencion" ? "intervencion" : undefined}
                   className={`flex-1 rounded-md py-1 text-center text-xs font-semibold transition-all cursor-pointer ${
                     scenario === s.id
                       ? "bg-card text-primary shadow-xs"
@@ -897,6 +967,7 @@ export function TopBar() {
                 <button
                   type="button"
                   onClick={() => setIsScenarioModalOpen(true)}
+                  data-tour="ajustar"
                   className="h-8 px-2.5 rounded-md border border-border bg-card hover:bg-accent text-primary flex items-center gap-1 transition-colors shadow-xs shrink-0 cursor-pointer text-xs font-semibold"
                   aria-label="Ajustar parámetros"
                 >

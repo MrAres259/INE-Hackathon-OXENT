@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import html as html_module
 import logging
 import re
@@ -14,6 +14,7 @@ import unicodedata
 import httpx
 
 if TYPE_CHECKING:
+    from atalaya.intel.social_links import ExtractedPost
     from atalaya.websearch import NewsCandidate
 
 logger = logging.getLogger("atalaya.explain.verify")
@@ -45,6 +46,7 @@ class CorpusDoc:
     tier: str
     text: str
     from_page: bool
+    posts: list[ExtractedPost] = field(default_factory=list)
 
 
 def fold(text: str) -> str:
@@ -370,10 +372,11 @@ def rank_candidates(
 def fetch_corpus(
     candidates: list[NewsCandidate],
     *,
-    zone_names: list[str],
+    zone_names: list[str] | None = None,
     max_pages: int = 12,
     timeout_s: float = 8.0,
     client: httpx.Client | None = None,
+    extract_posts: bool = False,
 ) -> list[CorpusDoc]:
     """Fetch and extract text from verifiable news candidates, prioritizing zone mentions."""
     from atalaya import gemini
@@ -489,11 +492,19 @@ def fetch_corpus(
 
             # Limit reading to 2 MB
             html_content = resp.text[:2_000_000]
+
+            extracted_posts: list[ExtractedPost] = []
+            if extract_posts:
+                from atalaya.intel.social_links import extract_social_posts
+                outlet_name = cand.outlet or (sources.outlet_name(dom) if hasattr(sources, "outlet_name") else None)
+                extracted_posts = extract_social_posts(html_content, page_url=url, outlet=outlet_name)
+
             clean_text = html_to_text(html_content)
 
             paras = [p.strip() for p in clean_text.split("\n\n") if p.strip()]
-            zone_paras = [p for p in paras if mentions_zone(p, zone_names, min_mentions=1)]
-            other_paras = [p for p in paras if not mentions_zone(p, zone_names, min_mentions=1)]
+            clean_zones = zone_names or []
+            zone_paras = [p for p in paras if mentions_zone(p, clean_zones, min_mentions=1)] if clean_zones else []
+            other_paras = [p for p in paras if not mentions_zone(p, clean_zones, min_mentions=1)] if clean_zones else paras
             reordered = "\n\n".join(zone_paras + other_paras)[:12000]
 
             if not reordered.strip():
@@ -509,6 +520,7 @@ def fetch_corpus(
                 tier=tier,
                 text=reordered,
                 from_page=True,
+                posts=extracted_posts,
             )
         except Exception as exc:
             logger.info("Download failed for %s (%s); using snippet fallback", url, exc)
@@ -541,7 +553,8 @@ def fetch_corpus(
             http_client.close()
 
     # Sort: documents that mention the zone first
-    docs.sort(key=lambda d: (not mentions_zone(d, zone_names), not d.from_page))
+    clean_zones = zone_names or []
+    docs.sort(key=lambda d: (not (clean_zones and mentions_zone(d, clean_zones)), not d.from_page))
 
     # Assign IDs s1..sN
     for idx, d in enumerate(docs, start=1):

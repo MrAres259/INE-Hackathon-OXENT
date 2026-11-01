@@ -11,6 +11,16 @@ export interface SourceListProps {
   title?: string;
 }
 
+function isGoogleNewsUrl(urlStr: string): boolean {
+  if (!urlStr) return false;
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.hostname === "news.google.com" || parsed.hostname.endsWith(".news.google.com");
+  } catch {
+    return urlStr.includes("news.google.com");
+  }
+}
+
 export function SourceList({ sources, className = "", title = "Fuentes consultadas" }: SourceListProps) {
   if (!sources || sources.length === 0) {
     return (
@@ -38,6 +48,17 @@ export function SourceList({ sources, className = "", title = "Fuentes consultad
         {sources.map((src, idx) => {
           const tierMeta = SOURCE_TIER_LABELS[src.tier] ?? SOURCE_TIER_LABELS.no_reconocido;
           const refId = src.id || `s${idx + 1}`;
+          const isGoogleNews = isGoogleNewsUrl(src.url);
+
+          let linkText = src.title || src.domain || src.url;
+          if (isGoogleNews) {
+            const media =
+              src.outlet ||
+              (src.domain && src.domain !== "news.google.com" ? src.domain : null) ||
+              src.title ||
+              "Medio";
+            linkText = media.includes("(vía Google News)") ? media : `${media} (vía Google News)`;
+          }
 
           let chipClass = "bg-muted text-muted-foreground border-border";
           if (tierMeta.style === "solid") {
@@ -54,22 +75,22 @@ export function SourceList({ sources, className = "", title = "Fuentes consultad
           return (
             <li key={src.url || refId} className="pt-2 first:pt-0 space-y-1">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="font-mono font-bold text-primary text-[11px] shrink-0">
+                <div className="flex items-start gap-1.5 min-w-0 flex-1">
+                  <span className="font-mono font-bold text-primary text-[11px] shrink-0 pt-2">
                     [{refId}]
                   </span>
                   <a
                     href={src.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium text-foreground hover:text-primary transition-colors underline-offset-2 hover:underline truncate"
+                    className="inline-flex items-center gap-1 font-medium text-foreground hover:text-primary transition-colors underline-offset-2 hover:underline break-words min-h-[36px] py-1 max-w-full"
                     title={src.title || src.url}
                   >
-                    {src.title || src.domain || src.url}
+                    <span className="break-words">{linkText}</span>
+                    <svg className="size-3 text-muted-foreground shrink-0 inline-block ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
                   </a>
-                  <svg className="size-3 text-muted-foreground shrink-0 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
                 </div>
 
                 {/* Tier Chip */}

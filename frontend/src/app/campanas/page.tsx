@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, Suspense } from "react";
+import React, { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { IntelPageShell } from "@/components/intel/IntelPageShell";
 import { InfoTip } from "@/components/ui/InfoTip";
 import { getIntelStatus } from "@/lib/intel/api";
@@ -23,6 +23,7 @@ function CampanasContent() {
   const [plan, setPlan] = useState<CampaignPlan | null>(null);
   const [drafts, setDrafts] = useState<PlanDrafts>({});
   const [highlightedSourceId, setHighlightedSourceId] = useState<string | null>(null);
+  const mobileBarRef = useRef<HTMLDivElement | null>(null);
 
   // Load Intel AI Status on mount
   useEffect(() => {
@@ -36,6 +37,92 @@ function CampanasContent() {
       active = false;
     };
   }, []);
+
+  // Publish --page-inset-bottom CSS variable based on mobile export bar height
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.documentElement) return;
+
+    if (!plan) {
+      document.documentElement.style.removeProperty("--page-inset-bottom");
+      return;
+    }
+
+    const updateInset = (observedHeight?: number) => {
+      const el = mobileBarRef.current;
+      if (!el) {
+        document.documentElement.style.removeProperty("--page-inset-bottom");
+        return;
+      }
+
+      let isHidden = false;
+      try {
+        if (typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
+          const style = window.getComputedStyle(el);
+          if (style && (style.display === "none" || style.visibility === "hidden")) {
+            isHidden = true;
+          }
+        }
+      } catch {}
+
+      let height = 0;
+      if (!isHidden) {
+        const rect = typeof el.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
+        const rectHeight = rect ? rect.height : 0;
+        if (rectHeight > 0) {
+          height = Math.round(rectHeight);
+        } else if (typeof observedHeight === "number" && observedHeight > 0) {
+          height = Math.round(observedHeight);
+        } else if (el.offsetHeight > 0) {
+          height = Math.round(el.offsetHeight);
+        }
+      }
+
+      if (height > 0) {
+        document.documentElement.style.setProperty("--page-inset-bottom", `${height}px`);
+      } else {
+        document.documentElement.style.setProperty("--page-inset-bottom", "0px");
+      }
+    };
+
+    updateInset();
+
+    const el = mobileBarRef.current;
+    let observer: ResizeObserver | null = null;
+    if (el && typeof ResizeObserver !== "undefined") {
+      try {
+        observer = new ResizeObserver((entries) => {
+          let entryHeight: number | undefined;
+          if (entries && entries.length > 0) {
+            const entry = entries[0];
+            if (entry.borderBoxSize && entry.borderBoxSize.length > 0) {
+              entryHeight = entry.borderBoxSize[0].blockSize;
+            } else if (entry.contentRect) {
+              entryHeight = entry.contentRect.height;
+            }
+          }
+          updateInset(entryHeight);
+        });
+        observer.observe(el);
+      } catch {}
+    }
+
+    const handleResize = () => {
+      updateInset();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", handleResize);
+    }
+
+    return () => {
+      if (observer) {
+        observer.disconnect();
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("resize", handleResize);
+      }
+      document.documentElement.style.removeProperty("--page-inset-bottom");
+    };
+  }, [plan]);
 
   // When plan loads or changes: load draft edits from localStorage
   const handlePlanLoaded = useCallback((newPlan: CampaignPlan | null) => {
@@ -65,9 +152,9 @@ function CampanasContent() {
 
   return (
     <IntelPageShell>
-      <div className="space-y-6 py-2 pb-16 md:pb-6">
+      <div className="space-y-6 py-2 pb-6">
         {/* 1. Header with Title and Intel Engine Status */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-4">
+        <div data-tour="camp-intro" className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-4">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-display text-2xl font-black text-foreground tracking-tight">
@@ -121,20 +208,24 @@ function CampanasContent() {
         </div>
 
         {/* 2. Zone Picker & Focus Input */}
-        <UnitPicker
-          selectedUnitId={selectedUnitId}
-          focus={focus}
-          onUnitSelect={setSelectedUnitId}
-          onFocusChange={setFocus}
-        />
+        <div data-tour="camp-zona">
+          <UnitPicker
+            selectedUnitId={selectedUnitId}
+            focus={focus}
+            onUnitSelect={setSelectedUnitId}
+            onFocusChange={setFocus}
+          />
+        </div>
 
         {/* 3. Campaign Runner & Cache Manager */}
-        <CampaignRunner
-          unitId={selectedUnitId}
-          focus={focus}
-          currentPlan={plan}
-          onPlanLoaded={handlePlanLoaded}
-        />
+        <div data-tour="camp-generar">
+          <CampaignRunner
+            unitId={selectedUnitId}
+            focus={focus}
+            currentPlan={plan}
+            onPlanLoaded={handlePlanLoaded}
+          />
+        </div>
 
         {/* 4. Active Plan Presentation & Research (2 columns on >= 1280px) */}
         {plan && (
@@ -142,12 +233,14 @@ function CampanasContent() {
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
               {/* Left Column (Slides Deck & Export): 7 cols on xl, 8 on 2xl */}
               <div className="xl:col-span-7 2xl:col-span-8 space-y-4">
-                <SlideDeck
-                  plan={plan}
-                  drafts={drafts}
-                  onDraftChange={handleDraftChange}
-                  onSourceSelect={handleSourceSelect}
-                />
+                <div data-tour="camp-diapositivas">
+                  <SlideDeck
+                    plan={plan}
+                    drafts={drafts}
+                    onDraftChange={handleDraftChange}
+                    onSourceSelect={handleSourceSelect}
+                  />
+                </div>
 
                 {/* Permanent Disclaimer */}
                 <div className="rounded-xl border border-border/80 bg-muted/30 p-3 text-[11px] text-muted-foreground leading-relaxed flex items-start gap-2">
@@ -158,13 +251,13 @@ function CampanasContent() {
                 </div>
 
                 {/* Export Bar (Desktop) */}
-                <div className="hidden md:block">
+                <div className="hidden md:block" data-tour="camp-exportar">
                   <ExportBar plan={plan} drafts={drafts} />
                 </div>
               </div>
 
               {/* Right Column (Research Panel & Findings): 5 cols on xl, 4 on 2xl */}
-              <div className="xl:col-span-5 2xl:col-span-4">
+              <div className="xl:col-span-5 2xl:col-span-4" data-tour="camp-investigacion">
                 <ResearchPanel
                   plan={plan}
                   highlightedSourceId={highlightedSourceId}
@@ -173,7 +266,14 @@ function CampanasContent() {
             </div>
 
             {/* Mobile Fixed Export Bar at bottom */}
-            <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 p-2 bg-card/95 backdrop-blur-md border-t border-border shadow-float">
+            <div
+              ref={mobileBarRef}
+              data-tour="camp-exportar"
+              className="md:hidden fixed bottom-0 left-0 right-0 z-40 p-2 bg-card/95 backdrop-blur-md border-t border-border shadow-float"
+              style={{
+                paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))",
+              }}
+            >
               <ExportBar plan={plan} drafts={drafts} />
             </div>
           </div>
@@ -188,7 +288,7 @@ export default function CampanasPage() {
     <Suspense
       fallback={
         <IntelPageShell>
-          <div className="space-y-6 py-2 pb-16 md:pb-6 animate-pulse">
+          <div className="space-y-6 py-2 pb-6 animate-pulse">
             <div className="h-14 bg-muted/40 rounded-xl" />
             <div className="h-28 bg-muted/30 rounded-xl" />
             <div className="h-64 bg-muted/20 rounded-xl" />

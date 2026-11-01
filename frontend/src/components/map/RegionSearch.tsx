@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { fetchGeoIndex } from "@/lib/geo";
 import type { GeoIndexItem } from "@/lib/types";
 import { useAtalaya } from "@/lib/state";
+import { GUIDE_EVENTS, isGuideOpen } from "@/lib/tours";
 
 export interface RegionSearchProps {
   autoFocus?: boolean;
@@ -29,11 +30,12 @@ export function RegionSearch({
     fetchGeoIndex().then((items) => setIndexItems(items));
   }, []);
 
-  // Keyboard shortcut '/' focuses search when not already in an input/textarea
+  // Keyboard shortcut '/' focuses search when not already in an input/textarea and guide is not open
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         e.key === "/" &&
+        !isGuideOpen() &&
         document.activeElement?.tagName !== "INPUT" &&
         document.activeElement?.tagName !== "TEXTAREA"
       ) {
@@ -43,6 +45,16 @@ export function RegionSearch({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Coordination with global interactive guide: close dropdown and blur input on guide open
+  useEffect(() => {
+    const handleGuideOpened = () => {
+      setIsOpen(false);
+      inputRef.current?.blur();
+    };
+    window.addEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+    return () => window.removeEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
   }, []);
 
   // Close dropdown on outside click

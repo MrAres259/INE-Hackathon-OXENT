@@ -145,21 +145,27 @@ export function NewsDetail({
 
       {/* Impact Map (If impact exists, typically for true/misleading news) */}
       {item.impact && (
-        <ImpactMap impact={item.impact} itemId={item.id} />
+        <div data-tour="mon-impacto">
+          <ImpactMap impact={item.impact} itemId={item.id} />
+        </div>
       )}
 
       {/* Virality Panel (If virality exists, typically for fake/viral news) */}
       {item.virality && (
-        <ViralityPanel virality={item.virality} />
+        <div data-tour="mon-viralidad">
+          <ViralityPanel virality={item.virality} />
+        </div>
       )}
 
       {/* Remediation Panel */}
       {item.remediation && (
-        <RemediationPanel
-          remediation={item.remediation}
-          itemTopic={item.topic}
-          affectedEnt={topEnt}
-        />
+        <div data-tour="mon-remediacion">
+          <RemediationPanel
+            remediation={item.remediation}
+            itemTopic={item.topic}
+            affectedEnt={topEnt}
+          />
+        </div>
       )}
 
       {/* Independent Fact-Checks */}
@@ -179,7 +185,9 @@ export function NewsDetail({
       )}
 
       {/* Registry Control (INE Acknowledgement and Operator Actions) */}
-      <RegistryControl item={item} onStatusUpdated={onStatusUpdated} />
+      <div data-tour="mon-registro">
+        <RegistryControl item={item} onStatusUpdated={onStatusUpdated} />
+      </div>
     </div>
   );
 }

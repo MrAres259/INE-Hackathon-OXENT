@@ -14,6 +14,7 @@ import {
   getSnapHeight,
   type SheetSnap,
 } from "@/lib/useMediaQuery";
+import { GUIDE_EVENTS } from "@/lib/tours";
 
 export default function DashboardPage() {
   const { selectedRegionId, isScenarioModalOpen, explainRequest } = useAtalaya();
@@ -153,6 +154,21 @@ export default function DashboardPage() {
       setSnap("peek");
     }
   }, [isScenarioModalOpen, isPortrait]);
+
+  // Coordination with global interactive guide: on open, drop sheet to peek in portrait, close drawer in landscape
+  useEffect(() => {
+    const handleGuideOpened = () => {
+      if (layoutMode === "compact-portrait") {
+        setSnap("peek");
+      } else if (layoutMode === "compact-landscape") {
+        setLandscapeDrawerOpen(false);
+      }
+    };
+    window.addEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+    return () => {
+      window.removeEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+    };
+  }, [layoutMode]);
 
   // Open assistant on explainRequest nonce change (wins over region selection default tab)
   const lastHandledExplainNonceRef = useRef<number>(0);
@@ -382,7 +398,10 @@ export default function DashboardPage() {
 
         {/* Compact Landscape: 40px vertical strip when closed */}
         {isLandscape && !landscapeDrawerOpen && (
-          <div className="flex flex-col items-center py-2 gap-3 w-10 shrink-0 h-full select-none">
+          <div
+            data-tour="panel"
+            className="flex flex-col items-center py-2 gap-3 w-10 shrink-0 h-full select-none"
+          >
             <button
               type="button"
               onClick={() => {

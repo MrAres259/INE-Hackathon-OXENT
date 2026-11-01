@@ -58,7 +58,7 @@ export function MonitorHeader({
     <div className={`space-y-4 ${className}`}>
       {/* Top row: Title, relative time, engine status */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-4">
-        <div>
+        <div data-tour="mon-intro">
           <div className="flex items-center gap-2">
             <h1 className="font-display text-2xl font-bold text-foreground">
               Monitor INE de Medios y Desinformación
@@ -125,7 +125,7 @@ export function MonitorHeader({
 
       {/* Scan Control bar */}
       {onScan && (
-        <div className="rounded-lg border border-primary/20 bg-primary-soft/30 p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div data-tour="mon-escanear" className="rounded-lg border border-primary/20 bg-primary-soft/30 p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground font-semibold">Ventana de escaneo:</span>
             <div className="inline-flex rounded-md border border-border bg-background p-0.5">
@@ -226,7 +226,7 @@ export function MonitorHeader({
 
       {/* KPIs Grid */}
       {kpis && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1" data-testid="monitor-kpis">
+        <div data-tour="mon-kpis" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1" data-testid="monitor-kpis">
           {/* Verdaderas */}
           <div className="rounded-lg border border-[#3f9a5b]/30 bg-[#3f9a5b]/10 p-3 space-y-1">
             <div className="flex items-center justify-between text-xs text-[#2e7444] dark:text-[#52b972]">

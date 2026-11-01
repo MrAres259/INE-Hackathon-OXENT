@@ -8,6 +8,7 @@ import { CATEGORY_COLORS, CATEGORY_LABELS } from "@/lib/format";
 import { GLOSSARY, type GlossaryEntry } from "@/lib/glossary";
 import { BrandLockup } from "@/components/brand/BrandMark";
 import { NEWS_IMPACT_PARAMS, SEVERITY_ACTIONS_RULES } from "@/lib/intel/methodology";
+import { TOURS } from "@/lib/tours";
 
 
 export default function MetodologiaPage() {
@@ -521,6 +522,54 @@ export default function MetodologiaPage() {
                     </p>
                   </div>
                   <span className="text-[10px] text-muted-foreground/80 font-mono">Simulación de impacto</span>
+                </div>
+              </div>
+
+              {/* Guías interactivas */}
+              <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-3 text-xs leading-relaxed">
+                <div>
+                  <h3 className="font-bold text-foreground text-sm">Guías interactivas</h3>
+                  <p className="text-muted-foreground mt-1">
+                    Cada sección (Mapa de riesgo, Plan de campaña, Monitor INE) tiene su propio recorrido que se abre en la primera visita y se reabre con el botón «?» de la barra superior.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                  <div className="p-3.5 rounded-lg bg-card border border-border space-y-2 shadow-2xs">
+                    <span className="font-bold text-primary block text-xs">
+                      Mapa de riesgo ({TOURS.mapa.steps.length} pasos)
+                    </span>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-[11px]">
+                      {TOURS.mapa.steps.map((step, idx) => (
+                        <li key={idx}>
+                          <span className="text-foreground font-medium">{step.title}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                  <div className="p-3.5 rounded-lg bg-card border border-border space-y-2 shadow-2xs">
+                    <span className="font-bold text-primary block text-xs">
+                      Plan de campaña ({TOURS.campanas.steps.length} pasos)
+                    </span>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-[11px]">
+                      {TOURS.campanas.steps.map((step, idx) => (
+                        <li key={idx}>
+                          <span className="text-foreground font-medium">{step.title}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                  <div className="p-3.5 rounded-lg bg-card border border-border space-y-2 shadow-2xs">
+                    <span className="font-bold text-primary block text-xs">
+                      Monitor INE ({TOURS.monitor.steps.length} pasos)
+                    </span>
+                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground text-[11px]">
+                      {TOURS.monitor.steps.map((step, idx) => (
+                        <li key={idx}>
+                          <span className="text-foreground font-medium">{step.title}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
                 </div>
               </div>
             </section>

@@ -167,8 +167,8 @@ describe("Intel Navigation Suite (intelNav.test.tsx)", () => {
     expect(html).toContain("hidden 2xl:inline");
     expect(html).toContain("2xl:hidden");
 
-    // Search input shrinks with min-w-0 flex-1 max-w-[22rem]
-    expect(html).toContain("min-w-0 flex-1 max-w-[22rem]");
+    // Search input shrinks with flex-1 min-w-[160px] max-w-[22rem]
+    expect(html).toContain("flex-1 min-w-[160px] max-w-[22rem]");
 
     // Metodologia and store engine label hidden below 2xl
     expect(html).toContain('hidden 2xl:inline whitespace-nowrap">Metodología');

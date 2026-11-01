@@ -4,6 +4,7 @@ import "./globals.css";
 import { AtalayaProvider } from "@/lib/state";
 import { TopBar } from "@/components/layout/TopBar";
 import { Toaster } from "@/components/ui/Toaster";
+import { GuideHost } from "@/components/guide/GuideHost";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -60,6 +61,7 @@ export default function RootLayout({
             {children}
           </main>
           <Toaster />
+          <GuideHost />
         </AtalayaProvider>
       </body>
     </html>

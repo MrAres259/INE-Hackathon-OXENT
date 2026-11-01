@@ -174,20 +174,24 @@ export default function MonitorPage() {
                   mobileDetailOpen ? "hidden xl:block" : "block"
                 }`}
               >
-                <NewsFilters
-                  filters={filters}
-                  onChange={setFilters}
-                  counts={tabCounts}
-                />
+                <div data-tour="mon-filtros">
+                  <NewsFilters
+                    filters={filters}
+                    onChange={setFilters}
+                    counts={tabCounts}
+                  />
+                </div>
 
-                <NewsList
-                  items={filteredItems}
-                  selectedId={selectedItem?.id ?? null}
-                  onSelect={(item) => {
-                    setSelectedItemId(item.id);
-                    setMobileDetailOpen(true);
-                  }}
-                />
+                <div data-tour="mon-lista">
+                  <NewsList
+                    items={filteredItems}
+                    selectedId={selectedItem?.id ?? null}
+                    onSelect={(item) => {
+                      setSelectedItemId(item.id);
+                      setMobileDetailOpen(true);
+                    }}
+                  />
+                </div>
               </div>
 
               {/* Right Column: Detail View */}

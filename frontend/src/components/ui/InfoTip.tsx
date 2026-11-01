@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useId, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { glossaryFor, type GlossaryKey } from "@/lib/glossary";
+import { GUIDE_EVENTS, isGuideOpen } from "@/lib/tours";
 
 export type DOMRectLike = {
   top: number;
@@ -166,7 +167,7 @@ export function InfoTip({
     };
   }, [isOpen]);
 
-  const cancelTimers = () => {
+  const cancelTimers = useCallback(() => {
     if (openTimerRef.current) {
       clearTimeout(openTimerRef.current);
       openTimerRef.current = null;
@@ -175,12 +176,25 @@ export function InfoTip({
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
-  };
+  }, []);
+
+  // Coordination with global interactive guide: close on open, stay closed while active
+  useEffect(() => {
+    const handleGuideOpened = () => {
+      cancelTimers();
+      setIsOpen(false);
+    };
+    window.addEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+    return () => {
+      window.removeEventListener(GUIDE_EVENTS.opened, handleGuideOpened);
+    };
+  }, [cancelTimers]);
 
   const handleMouseEnter = () => {
-    if (isTouchRef.current) return;
+    if (isTouchRef.current || isGuideOpen()) return;
     cancelTimers();
     openTimerRef.current = setTimeout(() => {
+      if (isGuideOpen()) return;
       setIsOpen(true);
     }, 120);
   };
@@ -196,6 +210,10 @@ export function InfoTip({
     e.preventDefault();
     e.stopPropagation();
     cancelTimers();
+    if (isGuideOpen()) {
+      setIsOpen(false);
+      return;
+    }
     setIsOpen((prev) => !prev);
     setTimeout(() => {
       isTouchRef.current = false;
@@ -203,7 +221,7 @@ export function InfoTip({
   };
 
   const handleFocus = () => {
-    if (isTouchRef.current) return;
+    if (isTouchRef.current || isGuideOpen()) return;
     cancelTimers();
     setIsOpen(true);
   };
@@ -219,10 +237,12 @@ export function InfoTip({
   };
 
   const handleTouchStart = () => {
+    if (isGuideOpen()) return;
     isTouchRef.current = true;
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (isGuideOpen()) return;
     if (e.pointerType === "touch") {
       isTouchRef.current = true;
     }

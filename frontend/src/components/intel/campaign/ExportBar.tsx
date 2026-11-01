@@ -90,6 +90,7 @@ export function ExportBar({ plan, drafts, className = "" }: ExportBarProps) {
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={prefillUrl}
+            data-tour="camp-simular"
             className="h-8 px-3 rounded-lg bg-good/15 hover:bg-good/25 text-good border border-good/30 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
             title="Abre el mapa con las campañas calculadas precargadas en el escenario de intervención"
           >

@@ -45,6 +45,26 @@ logger = logging.getLogger("atalaya.intel.monitor")
 # ---------------------------------------------------------------- helpers & normalization
 
 
+def extract_handle_from_url(url: str) -> str | None:
+    """Extract public handle (@usuario) deterministically from URL if present, else None."""
+    if not url or not isinstance(url, str):
+        return None
+    clean = url.strip()
+    m = re.search(r"(?:twitter|x)\.com/([A-Za-z0-9_]{1,15})(?:/status|\b)", clean, re.IGNORECASE)
+    if m and m.group(1).lower() not in ("home", "explore", "search", "intent", "i"):
+        return f"@{m.group(1)}"
+    m = re.search(r"tiktok\.com/@([A-Za-z0-9_.]+)", clean, re.IGNORECASE)
+    if m:
+        return f"@{m.group(1)}"
+    m = re.search(r"instagram\.com/([A-Za-z0-9_.]+)/(?:p|reel)/", clean, re.IGNORECASE)
+    if m and m.group(1).lower() not in ("p", "reel", "stories", "explore"):
+        return f"@{m.group(1)}"
+    m = re.search(r"youtube\.com/@([A-Za-z0-9_.]+)", clean, re.IGNORECASE)
+    if m:
+        return f"@{m.group(1)}"
+    return None
+
+
 def _compute_search_mode(modes: list[str]) -> str:
     """Compute overall search mode across monitor stages. Worst mode wins (sin_internet < respaldo < grounding)."""
     if not modes or any(m in ("sin_internet", "none", "") for m in modes):
@@ -603,103 +623,364 @@ def run_scan(
     grounded_domains: set[str] = set()
     candidate_sources: list[Any] = []
     sources_scanned_count = 0
+    discarded_posts_count = 0
     model_name = getattr(settings, "gemini_model", "gemini-3.8-flash")
     stage_notes: list[str] = []
     stage1_mode = "none"
     stage2_mode = "none"
     stage3_mode = "none"
 
+    grounding_available = True
+    if hasattr(gemini, "_is_grounding_available"):
+        try:
+            grounding_available, _ = gemini._is_grounding_available()
+        except Exception:
+            grounding_available = True
+
     # ---------------- STAGE 1: Recognized Media
     report("Buscando noticias en medios reconocidos", 10)
     raw_news_items: list[dict[str, Any]] = []
-    try:
-        news_prompt = prompts_monitor.build_news_prompt(today, req.window_days)
-        cache_key_news = f"monitor:noticias:w{req.window_days}:{today.isoformat()}"
+    if grounding_available:
         try:
-            news_data, news_grounded = gemini.grounded_json(
-                news_prompt,
-                system=prompts_monitor.SYSTEM_NEWS,
-                cache_key=cache_key_news,
-                cache_ttl_s=ttl_s,
-                fallback_queries=prompts_monitor.STAGE1_FALLBACK_QUERIES,
-                fallback_days=req.window_days,
-                fallback_max_items=40,
-            )
-        except TypeError as type_err:
-            if "fallback_queries" in str(type_err):
+            news_prompt = prompts_monitor.build_news_prompt(today, req.window_days)
+            cache_key_news = f"monitor:noticias:w{req.window_days}:{today.isoformat()}"
+            try:
                 news_data, news_grounded = gemini.grounded_json(
                     news_prompt,
                     system=prompts_monitor.SYSTEM_NEWS,
                     cache_key=cache_key_news,
                     cache_ttl_s=ttl_s,
+                    fallback_queries=prompts_monitor.STAGE1_FALLBACK_QUERIES,
+                    fallback_days=req.window_days,
+                    fallback_max_items=40,
                 )
-            else:
-                raise
+            except TypeError as type_err:
+                if "fallback_queries" in str(type_err):
+                    news_data, news_grounded = gemini.grounded_json(
+                        news_prompt,
+                        system=prompts_monitor.SYSTEM_NEWS,
+                        cache_key=cache_key_news,
+                        cache_ttl_s=ttl_s,
+                    )
+                else:
+                    raise
 
-        stage1_mode = getattr(news_grounded, "mode", "grounding")
-        if isinstance(news_data, dict) and "items" in news_data:
-            raw_news_items = news_data["items"] or []
-        elif isinstance(news_data, list):
-            raw_news_items = news_data
+            stage1_mode = getattr(news_grounded, "mode", "grounding")
+            if isinstance(news_data, dict) and "items" in news_data:
+                raw_news_items = news_data["items"] or []
+            elif isinstance(news_data, list):
+                raw_news_items = news_data
 
-        queries_collected.extend(news_grounded.queries)
-        for g_src in news_grounded.sources:
-            grounded_urls.add(g_src.url)
-            grounded_domains.add(g_src.domain)
-        candidate_sources.extend(news_grounded.sources)
-        sources_scanned_count += len(news_grounded.sources)
-        if news_grounded.model:
-            model_name = news_grounded.model
-    except Exception as exc:
-        logger.warning("Stage 1 (recognized media) failed: %s", exc)
-        stage_notes.append("Fallo al consultar noticias en medios reconocidos")
+            queries_collected.extend(news_grounded.queries)
+            for g_src in news_grounded.sources:
+                grounded_urls.add(g_src.url)
+                grounded_domains.add(g_src.domain)
+            candidate_sources.extend(news_grounded.sources)
+            sources_scanned_count += len(news_grounded.sources)
+            if news_grounded.model:
+                model_name = news_grounded.model
+        except Exception as exc:
+            logger.warning("Stage 1 (recognized media) failed: %s", exc)
+            stage_notes.append("Fallo al consultar noticias en medios reconocidos")
+    else:
+        stage1_mode = "respaldo"
+        try:
+            from atalaya import websearch
+            from atalaya.explain import verify
+            fetch_fn = getattr(verify, "fetch_corpus", None)
+            candidates = websearch.search_news(
+                prompts_monitor.STAGE1_FALLBACK_QUERIES,
+                days=req.window_days,
+                max_items=40,
+            )
+            try:
+                docs = fetch_fn(candidates, zone_names=[], max_pages=12, extract_posts=True)
+            except TypeError:
+                docs = fetch_fn(candidates, zone_names=[], max_pages=12)
+
+            for idx, d in enumerate(docs, start=1):
+                d.id = f"d{idx}"
+
+            docs_map_stage1 = {d.id: d for d in docs}
+            sys_prompt, user_prompt_inline = prompts_monitor.build_news_prompt_inline(
+                today, req.window_days, docs
+            )
+            cache_key_news = f"monitor:noticias:w{req.window_days}:{today.isoformat()}"
+            settings = get_settings()
+            deadline_s = getattr(settings, "gemini_research_deadline_s", 420.0)
+            research_models = getattr(settings, "gemini_research_models", None)
+
+            parsed_json, meta = gemini.generate_json(
+                user_prompt_inline,
+                system=sys_prompt,
+                models=research_models,
+                cache_key=cache_key_news,
+                cache_ttl_s=ttl_s,
+                deadline_s=deadline_s,
+            )
+
+            if isinstance(parsed_json, dict) and "items" in parsed_json:
+                raw_news_items = parsed_json["items"] or []
+            elif isinstance(parsed_json, list):
+                raw_news_items = parsed_json
+
+            for item in raw_news_items:
+                if not isinstance(item, dict):
+                    continue
+                s_dicts = []
+                for sid in item.get("source_ids", []):
+                    doc = docs_map_stage1.get(sid)
+                    if doc:
+                        s_dicts.append({
+                            "url": doc.url,
+                            "title": doc.title,
+                            "domain": doc.domain,
+                            "outlet": doc.outlet,
+                            "tier": doc.tier,
+                            "published": doc.published,
+                        })
+                item["sources"] = s_dicts
+
+            queries_collected.extend(prompts_monitor.STAGE1_FALLBACK_QUERIES)
+            for d in docs:
+                grounded_urls.add(d.url)
+                grounded_domains.add(d.domain)
+                candidate_sources.append(d)
+            sources_scanned_count += len(docs)
+            if hasattr(meta, "model") and meta.model:
+                model_name = meta.model
+        except Exception as exc:
+            logger.warning("Stage 1 (recognized media) Ruta B failed: %s", exc)
+            stage_notes.append("Fallo al consultar noticias en medios reconocidos")
 
     report("Buscando noticias en medios reconocidos", 35)
 
     # ---------------- STAGE 2: Social Media & Rumors
     report("Buscando publicaciones virales en redes y sitios no reconocidos", 35)
     raw_rumor_items: list[dict[str, Any]] = []
-    try:
-        rumors_prompt = prompts_monitor.build_rumors_prompt(today, req.window_days)
-        cache_key_rumors = f"monitor:rumores:w{req.window_days}:{today.isoformat()}"
+    if grounding_available:
         try:
-            rumors_data, rumors_grounded = gemini.grounded_json(
-                rumors_prompt,
-                system=prompts_monitor.SYSTEM_RUMORS,
-                cache_key=cache_key_rumors,
-                cache_ttl_s=ttl_s,
-                fallback_queries=prompts_monitor.STAGE2_FALLBACK_QUERIES,
-                fallback_days=req.window_days,
-                fallback_max_items=40,
-            )
-        except TypeError as type_err:
-            if "fallback_queries" in str(type_err):
+            rumors_prompt = prompts_monitor.build_rumors_prompt(today, req.window_days)
+            cache_key_rumors = f"monitor:rumores:w{req.window_days}:{today.isoformat()}"
+            try:
                 rumors_data, rumors_grounded = gemini.grounded_json(
                     rumors_prompt,
                     system=prompts_monitor.SYSTEM_RUMORS,
                     cache_key=cache_key_rumors,
                     cache_ttl_s=ttl_s,
+                    fallback_queries=prompts_monitor.STAGE2_FALLBACK_QUERIES,
+                    fallback_days=req.window_days,
+                    fallback_max_items=40,
                 )
-            else:
-                raise
+            except TypeError as type_err:
+                if "fallback_queries" in str(type_err):
+                    rumors_data, rumors_grounded = gemini.grounded_json(
+                        rumors_prompt,
+                        system=prompts_monitor.SYSTEM_RUMORS,
+                        cache_key=cache_key_rumors,
+                        cache_ttl_s=ttl_s,
+                    )
+                else:
+                    raise
 
-        stage2_mode = getattr(rumors_grounded, "mode", "grounding")
-        if isinstance(rumors_data, dict) and "items" in rumors_data:
-            raw_rumor_items = rumors_data["items"] or []
-        elif isinstance(rumors_data, list):
-            raw_rumor_items = rumors_data
+            stage2_mode = getattr(rumors_grounded, "mode", "grounding")
+            if isinstance(rumors_data, dict) and "items" in rumors_data:
+                raw_rumor_items = rumors_data["items"] or []
+            elif isinstance(rumors_data, list):
+                raw_rumor_items = rumors_data
 
-        queries_collected.extend(rumors_grounded.queries)
-        for g_src in rumors_grounded.sources:
-            grounded_urls.add(g_src.url)
-            grounded_domains.add(g_src.domain)
-        candidate_sources.extend(rumors_grounded.sources)
-        sources_scanned_count += len(rumors_grounded.sources)
-        if rumors_grounded.model:
-            model_name = rumors_grounded.model
-    except Exception as exc:
-        logger.warning("Stage 2 (social rumors) failed: %s", exc)
-        stage_notes.append("Fallo al consultar publicaciones virales en redes")
+            queries_collected.extend(rumors_grounded.queries)
+            for g_src in rumors_grounded.sources:
+                grounded_urls.add(g_src.url)
+                grounded_domains.add(g_src.domain)
+            candidate_sources.extend(rumors_grounded.sources)
+            sources_scanned_count += len(rumors_grounded.sources)
+            if rumors_grounded.model:
+                model_name = rumors_grounded.model
+        except Exception as exc:
+            logger.warning("Stage 2 (social rumors) failed: %s", exc)
+            stage_notes.append("Fallo al consultar publicaciones virales en redes")
+    else:
+        stage2_mode = "respaldo"
+        try:
+            from atalaya import websearch
+            from atalaya.explain import verify
+            fetch_fn = getattr(verify, "fetch_corpus", None)
+            candidates = websearch.search_news(
+                prompts_monitor.STAGE2_FALLBACK_QUERIES,
+                days=req.window_days,
+                max_items=40,
+            )
+            try:
+                docs = fetch_fn(candidates, zone_names=[], max_pages=12, extract_posts=True)
+            except TypeError:
+                docs = fetch_fn(candidates, zone_names=[], max_pages=12)
+
+            for idx, d in enumerate(docs, start=1):
+                d.id = f"d{idx}"
+
+            docs_map_stage2 = {d.id: d for d in docs}
+            posts_map_stage2: dict[str, tuple[Any, Any]] = {}
+            p_idx = 1
+            for d in docs:
+                for p in getattr(d, "posts", []) or []:
+                    p_id = f"p{p_idx}"
+                    posts_map_stage2[p_id] = (d, p)
+                    p_idx += 1
+
+            sys_prompt, user_prompt_inline = prompts_monitor.build_rumors_prompt_inline(
+                today, req.window_days, docs, posts_map_stage2
+            )
+            cache_key_rumors = f"monitor:rumores:w{req.window_days}:{today.isoformat()}"
+            settings = get_settings()
+            deadline_s = getattr(settings, "gemini_research_deadline_s", 420.0)
+            research_models = getattr(settings, "gemini_research_models", None)
+
+            parsed_json, meta = gemini.generate_json(
+                user_prompt_inline,
+                system=sys_prompt,
+                models=research_models,
+                cache_key=cache_key_rumors,
+                cache_ttl_s=ttl_s,
+                deadline_s=deadline_s,
+            )
+
+            if isinstance(parsed_json, dict) and "items" in parsed_json:
+                raw_rumor_items = parsed_json["items"] or []
+            elif isinstance(parsed_json, list):
+                raw_rumor_items = parsed_json
+
+            for item in raw_rumor_items:
+                if not isinstance(item, dict):
+                    continue
+                s_dicts = []
+                for sid in item.get("source_ids", []):
+                    doc = docs_map_stage2.get(sid)
+                    if doc:
+                        s_dicts.append({
+                            "url": doc.url,
+                            "title": doc.title,
+                            "domain": doc.domain,
+                            "outlet": doc.outlet,
+                            "tier": doc.tier,
+                            "published": doc.published,
+                        })
+                item["sources"] = s_dicts
+
+                resolved_posts: list[SocialPost] = []
+                p_ids = item.get("post_ids", [])
+                if isinstance(p_ids, str):
+                    p_ids = [p_ids]
+                elif not isinstance(p_ids, list):
+                    p_ids = []
+
+                raw_posts = item.get("posts", [])
+                if not isinstance(raw_posts, list):
+                    raw_posts = []
+
+                excerpts_by_pid: dict[str, str] = {}
+                for rp in raw_posts:
+                    if isinstance(rp, dict):
+                        pid_rp = rp.get("post_id")
+                        if pid_rp and rp.get("excerpt"):
+                            excerpts_by_pid[pid_rp] = str(rp.get("excerpt"))
+
+                seen_pids = set()
+                for pid in p_ids:
+                    if pid in seen_pids:
+                        continue
+                    seen_pids.add(pid)
+                    if pid in posts_map_stage2:
+                        doc, ext_p = posts_map_stage2[pid]
+                        raw_ex = excerpts_by_pid.get(pid, item.get("excerpt", ""))
+                        clean_ex = ""
+                        if raw_ex and verify.quote_in_text(raw_ex, doc.text):
+                            clean_ex = raw_ex[:280]
+
+                        author = getattr(ext_p, "handle", None) or extract_handle_from_url(ext_p.url)
+                        resolved_posts.append(
+                            SocialPost(
+                                platform=ext_p.platform,
+                                url=ext_p.url,
+                                author=author,
+                                published=getattr(ext_p, "published", None),
+                                engagement=Engagement(),
+                                excerpt=clean_ex,
+                                link_status="citado_en_fuente",
+                                evidence_url=doc.url,
+                                evidence_outlet=doc.outlet,
+                            )
+                        )
+                    else:
+                        discarded_posts_count += 1
+
+                for rp in raw_posts:
+                    if isinstance(rp, dict):
+                        pid_rp = rp.get("post_id")
+                        url_rp = rp.get("url")
+                        if pid_rp and pid_rp not in seen_pids:
+                            seen_pids.add(pid_rp)
+                            if pid_rp in posts_map_stage2:
+                                doc, ext_p = posts_map_stage2[pid_rp]
+                                raw_ex = rp.get("excerpt", "")
+                                clean_ex = ""
+                                if raw_ex and verify.quote_in_text(raw_ex, doc.text):
+                                    clean_ex = raw_ex[:280]
+                                author = getattr(ext_p, "handle", None) or extract_handle_from_url(ext_p.url)
+                                resolved_posts.append(
+                                    SocialPost(
+                                        platform=ext_p.platform,
+                                        url=ext_p.url,
+                                        author=author,
+                                        published=getattr(ext_p, "published", None),
+                                        engagement=Engagement(),
+                                        excerpt=clean_ex,
+                                        link_status="citado_en_fuente",
+                                        evidence_url=doc.url,
+                                        evidence_outlet=doc.outlet,
+                                    )
+                                )
+                            else:
+                                discarded_posts_count += 1
+                        elif url_rp and not pid_rp:
+                            matched = None
+                            for _, (d_ref, p_ref) in posts_map_stage2.items():
+                                if p_ref.url == url_rp:
+                                    matched = (d_ref, p_ref)
+                                    break
+                            if matched:
+                                doc, ext_p = matched
+                                if not any(sp.url == ext_p.url for sp in resolved_posts):
+                                    author = getattr(ext_p, "handle", None) or extract_handle_from_url(ext_p.url)
+                                    resolved_posts.append(
+                                        SocialPost(
+                                            platform=ext_p.platform,
+                                            url=ext_p.url,
+                                            author=author,
+                                            published=getattr(ext_p, "published", None),
+                                            engagement=Engagement(),
+                                            excerpt="",
+                                            link_status="citado_en_fuente",
+                                            evidence_url=doc.url,
+                                            evidence_outlet=doc.outlet,
+                                        )
+                                    )
+                            else:
+                                discarded_posts_count += 1
+
+                item["posts"] = resolved_posts
+
+            queries_collected.extend(prompts_monitor.STAGE2_FALLBACK_QUERIES)
+            for d in docs:
+                grounded_urls.add(d.url)
+                grounded_domains.add(d.domain)
+                candidate_sources.append(d)
+            sources_scanned_count += len(docs)
+            if hasattr(meta, "model") and meta.model:
+                model_name = meta.model
+        except Exception as exc:
+            logger.warning("Stage 2 (social rumors) Ruta B failed: %s", exc)
+            stage_notes.append("Fallo al consultar publicaciones virales en redes")
 
     report("Buscando publicaciones virales en redes y sitios no reconocidos", 60)
 
@@ -766,11 +1047,16 @@ def run_scan(
                     target["sources"].append(s)
                     existing_src_urls.add(s.get("url"))
 
-            existing_post_urls = {p.get("url") for p in target.get("posts", []) if p.get("url")}
+            existing_post_urls = {
+                (p.url if isinstance(p, SocialPost) else p.get("url"))
+                for p in target.get("posts", [])
+                if (isinstance(p, SocialPost) and p.url) or (isinstance(p, dict) and p.get("url"))
+            }
             for p in candidate.get("posts", []):
-                if p.get("url") and p.get("url") not in existing_post_urls:
+                p_url = p.url if isinstance(p, SocialPost) else p.get("url")
+                if p_url and p_url not in existing_post_urls:
                     target["posts"].append(p)
-                    existing_post_urls.add(p.get("url"))
+                    existing_post_urls.add(p_url)
 
             # Elevate kind to noticia if candidate is noticia
             if default_kind == "noticia" and candidate.get("sources"):
@@ -815,51 +1101,127 @@ def run_scan(
     report("Verificando afirmaciones con verificadores y fuentes oficiales", 60)
     verifications_map: dict[str, dict[str, Any]] = {}
     if preliminary_items:
-        try:
-            verif_prompt = prompts_monitor.build_verification_prompt(preliminary_items, today)
-            cache_key_verif = f"monitor:verificacion:w{req.window_days}:{today.isoformat()}"
-            stage3_fallback_queries = prompts_monitor.build_verification_fallback_queries(preliminary_items)
+        if grounding_available:
             try:
-                verif_data, verif_grounded = gemini.grounded_json(
-                    verif_prompt,
-                    system=prompts_monitor.SYSTEM_VERIFICATION,
-                    cache_key=cache_key_verif,
-                    cache_ttl_s=ttl_s,
-                    fallback_queries=stage3_fallback_queries,
-                    fallback_days=req.window_days,
-                    fallback_max_items=40,
-                )
-            except TypeError as type_err:
-                if "fallback_queries" in str(type_err):
+                verif_prompt = prompts_monitor.build_verification_prompt(preliminary_items, today)
+                cache_key_verif = f"monitor:verificacion:w{req.window_days}:{today.isoformat()}"
+                stage3_fallback_queries = prompts_monitor.build_verification_fallback_queries(preliminary_items)
+                try:
                     verif_data, verif_grounded = gemini.grounded_json(
                         verif_prompt,
                         system=prompts_monitor.SYSTEM_VERIFICATION,
                         cache_key=cache_key_verif,
                         cache_ttl_s=ttl_s,
+                        fallback_queries=stage3_fallback_queries,
+                        fallback_days=req.window_days,
+                        fallback_max_items=40,
                     )
-                else:
-                    raise
+                except TypeError as type_err:
+                    if "fallback_queries" in str(type_err):
+                        verif_data, verif_grounded = gemini.grounded_json(
+                            verif_prompt,
+                            system=prompts_monitor.SYSTEM_VERIFICATION,
+                            cache_key=cache_key_verif,
+                            cache_ttl_s=ttl_s,
+                        )
+                    else:
+                        raise
 
-            stage3_mode = getattr(verif_grounded, "mode", "grounding")
-            raw_verifs = []
-            if isinstance(verif_data, dict) and "verifications" in verif_data:
-                raw_verifs = verif_data["verifications"] or []
-            elif isinstance(verif_data, list):
-                raw_verifs = verif_data
+                stage3_mode = getattr(verif_grounded, "mode", "grounding")
+                raw_verifs = []
+                if isinstance(verif_data, dict) and "verifications" in verif_data:
+                    raw_verifs = verif_data["verifications"] or []
+                elif isinstance(verif_data, list):
+                    raw_verifs = verif_data
 
-            for v in raw_verifs:
-                if isinstance(v, dict) and "id" in v:
-                    verifications_map[str(v["id"])] = v
+                for v in raw_verifs:
+                    if isinstance(v, dict) and "id" in v:
+                        verifications_map[str(v["id"])] = v
 
-            queries_collected.extend(verif_grounded.queries)
-            for g_src in verif_grounded.sources:
-                grounded_urls.add(g_src.url)
-                grounded_domains.add(g_src.domain)
-            candidate_sources.extend(verif_grounded.sources)
-            sources_scanned_count += len(verif_grounded.sources)
-        except Exception as exc:
-            logger.warning("Stage 3 (verification) failed: %s", exc)
-            stage_notes.append("Fallo al verificar con fuentes de fact-checking y canales oficiales")
+                queries_collected.extend(verif_grounded.queries)
+                for g_src in verif_grounded.sources:
+                    grounded_urls.add(g_src.url)
+                    grounded_domains.add(g_src.domain)
+                candidate_sources.extend(verif_grounded.sources)
+                sources_scanned_count += len(verif_grounded.sources)
+            except Exception as exc:
+                logger.warning("Stage 3 (verification) failed: %s", exc)
+                stage_notes.append("Fallo al verificar con fuentes de fact-checking y canales oficiales")
+        else:
+            stage3_mode = "respaldo"
+            try:
+                from atalaya import websearch
+                from atalaya.explain import verify
+                fetch_fn = getattr(verify, "fetch_corpus", None)
+                stage3_fallback_queries = prompts_monitor.build_verification_fallback_queries(preliminary_items)
+                candidates = websearch.search_news(
+                    stage3_fallback_queries,
+                    days=req.window_days,
+                    max_items=40,
+                )
+                try:
+                    docs = fetch_fn(candidates, zone_names=[], max_pages=12, extract_posts=True)
+                except TypeError:
+                    docs = fetch_fn(candidates, zone_names=[], max_pages=12)
+
+                for idx, d in enumerate(docs, start=1):
+                    d.id = f"d{idx}"
+
+                docs_map_stage3 = {d.id: d for d in docs}
+                sys_prompt, user_prompt_inline = prompts_monitor.build_verification_prompt_inline(
+                    preliminary_items, today, docs
+                )
+                cache_key_verif = f"monitor:verificacion:w{req.window_days}:{today.isoformat()}"
+                settings = get_settings()
+                deadline_s = getattr(settings, "gemini_research_deadline_s", 420.0)
+                research_models = getattr(settings, "gemini_research_models", None)
+
+                parsed_json, meta = gemini.generate_json(
+                    user_prompt_inline,
+                    system=sys_prompt,
+                    models=research_models,
+                    cache_key=cache_key_verif,
+                    cache_ttl_s=ttl_s,
+                    deadline_s=deadline_s,
+                )
+
+                raw_verifs = []
+                if isinstance(parsed_json, dict) and "verifications" in parsed_json:
+                    raw_verifs = parsed_json["verifications"] or []
+                elif isinstance(parsed_json, list):
+                    raw_verifs = parsed_json
+
+                for v in raw_verifs:
+                    if not isinstance(v, dict) or "id" not in v:
+                        continue
+                    v_item_id = str(v["id"])
+                    fcs = []
+                    fc_ids = v.get("fact_check_ids", []) or v.get("source_ids", [])
+                    if isinstance(fc_ids, str):
+                        fc_ids = [fc_ids]
+                    for sid in fc_ids:
+                        doc = docs_map_stage3.get(sid)
+                        if doc:
+                            fcs.append({
+                                "url": doc.url,
+                                "title": doc.title,
+                                "domain": doc.domain,
+                                "outlet": doc.outlet,
+                                "tier": doc.tier,
+                                "published": doc.published,
+                            })
+                    v["fact_checks"] = fcs
+                    verifications_map[v_item_id] = v
+
+                queries_collected.extend(stage3_fallback_queries)
+                for d in docs:
+                    grounded_urls.add(d.url)
+                    grounded_domains.add(d.domain)
+                    candidate_sources.append(d)
+                sources_scanned_count += len(docs)
+            except Exception as exc:
+                logger.warning("Stage 3 (verification) Ruta B failed: %s", exc)
+                stage_notes.append("Fallo al verificar con fuentes de fact-checking y canales oficiales")
 
     report("Verificando afirmaciones con verificadores y fuentes oficiales", 80)
 
@@ -927,9 +1289,32 @@ def run_scan(
         # 3. Social posts
         social_posts: list[SocialPost] = []
         for p in raw_it.get("posts", []):
+            if isinstance(p, SocialPost):
+                if p.link_status != "sin_verificar":
+                    social_posts.append(p)
+                continue
+
             url = str(p.get("url") or "").strip()
             if not url:
                 continue
+
+            is_in_grounding = (url in grounded_urls)
+            if not is_in_grounding:
+                for cs in candidate_sources:
+                    if getattr(cs, "url", "") == url:
+                        is_in_grounding = True
+                        break
+                    for ep in getattr(cs, "posts", []) or []:
+                        if getattr(ep, "url", "") == url:
+                            is_in_grounding = True
+                            break
+                    if is_in_grounding:
+                        break
+
+            if not is_in_grounding:
+                discarded_posts_count += 1
+                continue
+
             plat = p.get("platform")
             if not plat or plat == "otro":
                 plat = sources.platform_of(url)
@@ -942,17 +1327,17 @@ def run_scan(
                 views=eng_raw.get("views") if isinstance(eng_raw.get("views"), int) else None,
             )
             excerpt = str(p.get("excerpt") or "")[:280]
-            author = p.get("author")
-            author_clean = str(author).strip() if author else None
+            author = extract_handle_from_url(url)
 
             social_posts.append(
                 SocialPost(
                     platform=plat,
                     url=url,
-                    author=author_clean,
+                    author=author,
                     published=p.get("published"),
                     engagement=eng,
                     excerpt=excerpt,
+                    link_status="grounding",
                 )
             )
 
@@ -1145,14 +1530,15 @@ def run_scan(
             a in ("reportar_plataforma", "responder_corregir", "desmentido_oficial") for a in sec_actions
         ):
             for post in social_posts:
-                report_targets.append(
-                    ReportTarget(
-                        platform=post.platform,
-                        url=post.url,
-                        author=post.author,
-                        reason="Publicación con afirmaciones desfavorables no verificadas o desmentidas institucionalmente.",
+                if post.link_status != "sin_verificar":
+                    report_targets.append(
+                        ReportTarget(
+                            platform=post.platform,
+                            url=post.url,
+                            author=post.author,
+                            reason="Publicación con afirmaciones desfavorables no verificadas o desmentidas institucionalmente.",
+                        )
                     )
-                )
 
         news_item = NewsItem(
             id=item_id,
@@ -1275,7 +1661,7 @@ def run_scan(
 
     # Construct institutional note including modes per stage and explanation if RSS mode was used
     note_parts: list[str] = []
-    if any(m == "rss_url_context" for m in (stage1_mode, stage2_mode, stage3_mode)):
+    if any(m in ("rss_url_context", "respaldo") for m in (stage1_mode, stage2_mode, stage3_mode)):
         note_parts.append(
             "Búsqueda de respaldo activa: noticias indexadas (Google News/Bing) leídas por Gemini; sin búsqueda web completa. "
             "En modo RSS los rumores provienen de notas de verificadores y sitios no reconocidos; "
@@ -1286,6 +1672,11 @@ def run_scan(
 
     if discarded_unsupported_count > 0:
         note_parts.append(f"{discarded_unsupported_count} afirmaciones descartadas por no tener fuente verificable.")
+
+    if discarded_posts_count > 0:
+        note_parts.append(
+            f"{discarded_posts_count} {'publicación descartada' if discarded_posts_count == 1 else 'publicaciones descartadas'} por no tener enlace comprobable."
+        )
 
     if stage_notes:
         note_parts.append(f"Escaneo parcial: {'; '.join(stage_notes)}.")
@@ -1345,6 +1736,10 @@ def latest_snapshot(*, public: bool = True) -> MonitorSnapshot | None:
     """Load latest scan from cache, merge operator registry status, and recalculate pending count."""
     try:
         from atalaya.intel import storage, registry
+        try:
+            from atalaya.intel import virality
+        except ImportError:
+            virality = _FallbackVirality
     except ImportError:
         return None
 
@@ -1372,6 +1767,40 @@ def latest_snapshot(*, public: bool = True) -> MonitorSnapshot | None:
     except Exception as exc:
         logger.warning("Error parsing latest.json: %s", exc)
         return None
+
+    # Retirar publicaciones sin verificar al cargar y recalcular viralidad / report_targets
+    removed_posts_count = 0
+    now_dt = datetime.now(timezone.utc)
+    for it in snapshot.items:
+        if it.virality and it.virality.posts:
+            valid_posts = [
+                p for p in it.virality.posts
+                if getattr(p, "link_status", "sin_verificar") != "sin_verificar"
+            ]
+            diff = len(it.virality.posts) - len(valid_posts)
+            if diff > 0:
+                removed_posts_count += diff
+                if valid_posts:
+                    try:
+                        it.virality = virality.virality(valid_posts, topic=it.topic, today=now_dt)
+                    except Exception:
+                        it.virality.posts = valid_posts
+                else:
+                    it.virality = None
+
+        if it.remediation and it.remediation.report_targets:
+            valid_urls = {p.url for p in it.virality.posts} if (it.virality and it.virality.posts) else set()
+            it.remediation.report_targets = [
+                rt for rt in it.remediation.report_targets
+                if rt.url in valid_urls
+            ]
+
+    if removed_posts_count > 0:
+        retire_msg = f"Se retiraron {removed_posts_count} enlaces a redes que no pudieron verificarse."
+        if snapshot.note:
+            snapshot.note = f"{snapshot.note} {retire_msg}".strip()
+        else:
+            snapshot.note = retire_msg
 
     item_ids = [it.id for it in snapshot.items]
     if item_ids:
@@ -1638,6 +2067,7 @@ def reclassify_cached_snapshot() -> MonitorSnapshot | None:
                             reason="Publicación con afirmaciones desfavorables no verificadas o desmentidas institucionalmente.",
                         )
                         for post in item.virality.posts
+                        if getattr(post, "link_status", "sin_verificar") != "sin_verificar"
                     ]
             if action == "campana_intervencion" or "campana_intervencion" in sec_actions:
                 if item.impact is not None:

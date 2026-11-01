@@ -2,16 +2,33 @@
 "use client";
 
 import React from "react";
-import type { Virality } from "@/lib/intel/types";
+import type { Virality, Verdict } from "@/lib/intel/types";
 import { SEVERITY_LABELS, PLATFORM_LABELS } from "@/lib/intel/labels";
 import { InfoTip } from "@/components/ui/InfoTip";
 
 export interface ViralityPanelProps {
   virality: Virality;
+  itemVerdict?: Verdict;
+  itemKind?: "noticia" | "rumor";
   className?: string;
 }
 
-export function ViralityPanel({ virality, className = "" }: ViralityPanelProps) {
+function getDomain(urlStr?: string | null): string {
+  if (!urlStr) return "";
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return urlStr;
+  }
+}
+
+export function ViralityPanel({
+  virality,
+  itemVerdict,
+  itemKind,
+  className = "",
+}: ViralityPanelProps) {
   const severityMeta = SEVERITY_LABELS[virality.level] ?? SEVERITY_LABELS.baja;
 
   const growthColor =
@@ -139,77 +156,148 @@ export function ViralityPanel({ virality, className = "" }: ViralityPanelProps) 
         </div>
       )}
 
-      {/* Social Posts List */}
-      {virality.posts && virality.posts.length > 0 && (
-        <div className="space-y-2 pt-2 border-t border-border/80">
-          <div className="flex items-center justify-between text-xs font-semibold text-foreground">
-            <span>Publicaciones monitoreadas en redes ({virality.posts.length}):</span>
-          </div>
+      {/* Social Posts List or Unverified Notice */}
+      {(() => {
+        const verifiedPosts = (virality.posts || []).filter(
+          (post) => post.link_status === "citado_en_fuente" || post.link_status === "grounding"
+        );
 
-          <div className="space-y-2">
-            {virality.posts.map((post, idx) => {
-              const eng = post.engagement;
-              return (
+        const isRumorOrUnverified =
+          itemKind === "rumor" ||
+          itemVerdict === "falsa" ||
+          itemVerdict === "enganosa" ||
+          itemVerdict === "sin_verificar" ||
+          (!itemVerdict && itemKind !== "noticia");
+
+        if (verifiedPosts.length === 0) {
+          if (isRumorOrUnverified) {
+            return (
+              <div className="space-y-2 pt-2 border-t border-border/80" data-testid="no-verified-posts">
                 <div
-                  key={post.url || idx}
-                  className="rounded-lg border border-border bg-card p-3 space-y-2 text-xs"
+                  role="status"
+                  className="rounded-lg border border-border bg-muted/20 p-3.5 text-xs text-muted-foreground leading-relaxed"
+                  data-testid="no-verified-posts-notice"
                 >
-                  {/* Top: Platform & Author */}
-                  <div className="flex flex-wrap items-center justify-between gap-1 text-[11px]">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded font-semibold bg-primary/10 text-primary border border-primary/20">
-                        {PLATFORM_LABELS[post.platform] ?? post.platform}
-                      </span>
-                      <span className="font-mono text-foreground font-semibold">
-                        {post.author || "Autor anónimo"}
-                      </span>
-                    </div>
-
-                    {post.published && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {new Date(post.published).toLocaleDateString("es-MX", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Excerpt */}
-                  {post.excerpt && (
-                    <blockquote className="border-l-2 border-primary/40 pl-2.5 py-0.5 text-muted-foreground text-[11px] italic leading-relaxed">
-                      "{post.excerpt}"
-                    </blockquote>
-                  )}
-
-                  {/* Metrics & External Link */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/60 text-[10px] text-muted-foreground">
-                    <div className="flex flex-wrap items-center gap-2.5 font-mono">
-                      {eng.likes != null && <span>👍 {eng.likes.toLocaleString("es-MX")}</span>}
-                      {eng.shares != null && <span>🔄 {eng.shares.toLocaleString("es-MX")}</span>}
-                      {eng.comments != null && <span>💬 {eng.comments.toLocaleString("es-MX")}</span>}
-                      {eng.views != null && <span>👁️ {eng.views.toLocaleString("es-MX")}</span>}
-                    </div>
-
-                    {post.url && (
-                      <a
-                        href={post.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-primary hover:underline inline-flex items-center gap-1"
-                      >
-                        <span>Ver publicación</span>
-                        <span>↗</span>
-                      </a>
-                    )}
-                  </div>
+                  No se encontraron enlaces públicos verificables a publicaciones en redes. Los rumores se detectan a través de verificadores y medios; con búsqueda web completa la cobertura aumenta.
                 </div>
-              );
-            })}
+              </div>
+            );
+          }
+          return null;
+        }
+
+        return (
+          <div className="space-y-2 pt-2 border-t border-border/80">
+            <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+              <span>Publicaciones monitoreadas en redes ({verifiedPosts.length}):</span>
+            </div>
+
+            <div className="space-y-2">
+              {verifiedPosts.map((post, idx) => {
+                const eng = post.engagement;
+                const hasMetrics =
+                  eng &&
+                  (eng.likes != null || eng.shares != null || eng.comments != null || eng.views != null);
+                const sourceName =
+                  post.evidence_outlet || (post.evidence_url ? getDomain(post.evidence_url) : "fuente");
+
+                return (
+                  <div
+                    key={post.url || idx}
+                    className="rounded-lg border border-border bg-card p-3 space-y-2 text-xs"
+                    data-testid="social-post-card"
+                  >
+                    {/* Top: Platform & Author */}
+                    <div className="flex flex-wrap items-center justify-between gap-1 text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded font-semibold bg-primary/10 text-primary border border-primary/20">
+                          {PLATFORM_LABELS[post.platform] ?? post.platform}
+                        </span>
+                        <span className="font-mono text-foreground font-semibold">
+                          {post.author || "Cuenta sin nombre en el enlace"}
+                        </span>
+                      </div>
+
+                      {post.published && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(post.published).toLocaleDateString("es-MX", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Excerpt */}
+                    {post.excerpt && (
+                      <blockquote className="border-l-2 border-primary/40 pl-2.5 py-0.5 text-muted-foreground text-[11px] italic leading-relaxed">
+                        "{post.excerpt}"
+                      </blockquote>
+                    )}
+
+                    {/* Metrics & External Link */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/60 text-[10px] text-muted-foreground">
+                      {hasMetrics ? (
+                        <div className="flex flex-wrap items-center gap-2.5 font-mono">
+                          {eng.likes != null && <span>👍 {eng.likes.toLocaleString("es-MX")}</span>}
+                          {eng.shares != null && <span>🔄 {eng.shares.toLocaleString("es-MX")}</span>}
+                          {eng.comments != null && <span>💬 {eng.comments.toLocaleString("es-MX")}</span>}
+                          {eng.views != null && <span>👁️ {eng.views.toLocaleString("es-MX")}</span>}
+                        </div>
+                      ) : (
+                        <div />
+                      )}
+
+                      {post.url && (
+                        <a
+                          href={post.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-primary hover:underline inline-flex items-center gap-1 min-h-[36px] py-1 break-words"
+                        >
+                          <span>Ver publicación</span>
+                          <span aria-hidden="true">↗</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Proof Line */}
+                    {post.link_status === "citado_en_fuente" && (
+                      <div className="pt-1 border-t border-border/40 text-[11px] text-muted-foreground">
+                        {post.evidence_url ? (
+                          <a
+                            href={post.evidence_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-primary hover:underline min-h-[36px] py-1 break-words font-medium"
+                          >
+                            <span>Enlace citado en la nota de {sourceName}</span>
+                            <span aria-hidden="true">↗</span>
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center min-h-[36px] py-1 break-words">
+                            Enlace citado en la nota de {sourceName}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {post.link_status === "grounding" && (
+                      <div className="pt-1 border-t border-border/40 text-[11px] text-muted-foreground flex items-center gap-1.5 min-h-[36px] py-1">
+                        <svg className="size-3 text-muted-foreground shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                        <span>Encontrado por búsqueda web</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
