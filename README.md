@@ -22,7 +22,7 @@ datos agregados y sin datos personales, para que el INE planee y priorice recurs
 | **Plan de campaña con IA** | Para un estado o municipio: investigación en fuentes públicas verificables (Gemini), plan redactado por GLM-5.3, impacto calculado por el simulador y 10 diapositivas editables exportables a PPTX y PDF. |
 | **Monitor INE** | Detecta noticias desfavorables y rumores sobre el INE, los clasifica, estima su efecto en la participación con un modelo determinista, mide su difusión y propone remediación. Solo enlaza publicaciones en redes **cuya URL aparece en una nota descargada por la app**. |
 | **Guías interactivas** | Cada sección (Mapa, Plan de campaña, Monitor INE) tiene su recorrido guiado; además, cada concepto lleva una ayuda ⓘ de un glosario único. |
-| **Entregables del reto** | Reporte metodológico (PDF, 14 cuartillas), presentación ejecutiva (10 diapositivas), mapa de escenarios (GeoJSON + visor HTML autónomo), base de datos anonimizada (XLSX/CSV) y paquete de entrega verificado contra la convocatoria. |
+| **Entregables del reto** | Reporte metodológico (PDF, 15 cuartillas), presentación ejecutiva (10 diapositivas), mapa de escenarios (GeoJSON + visor HTML autónomo), base de datos anonimizada (XLSX/CSV) y paquete de entrega verificado contra la convocatoria. |
 
 **Principios:** solo datos agregados; celdas con menos de 10 personas suprimidas; **la IA nunca escribe cifras** (todo número sale de
 modelos deterministas con supuestos explícitos); todo flujo con IA tiene respaldo determinista; los escenarios son hipotéticos, no efectos

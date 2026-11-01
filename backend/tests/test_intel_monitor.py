@@ -779,7 +779,7 @@ def test_message_length_trimmings(monkeypatch: pytest.MonkeyPatch):
     assert not reply_item.remediation.draft_message.endswith(" ")
 
 
-def test_monitor_run_scan_fallback_queries_and_rss_mode(monkeypatch):
+def test_monitor_run_scan_fallback_queries_and_rss_mode_actualizada_enlaces_verificados(monkeypatch):
     """Verify fallback_queries passed to all 3 stages, mode tracking per stage, and snapshot note."""
     from atalaya.intel import monitor, prompts_monitor
 
@@ -842,7 +842,10 @@ def test_monitor_run_scan_fallback_queries_and_rss_mode(monkeypatch):
                 ]
             }
             res = DummyGroundedResult(
-                sources=[DummyGroundedSource(url="https://verificado.com.mx/desmentido-boletas", title="Verificado", domain="verificado.com.mx")],
+                sources=[
+                    DummyGroundedSource(url="https://verificado.com.mx/desmentido-boletas", title="Verificado", domain="verificado.com.mx"),
+                    DummyGroundedSource(url="https://x.com/post_viral/1", title="Post viral en X", domain="x.com"),
+                ],
                 queries=["INE falso"],
                 mode="rss_url_context",
             )

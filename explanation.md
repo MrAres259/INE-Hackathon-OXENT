@@ -376,14 +376,14 @@ Verificado en navegador (`temp/ux-redesign/tools/guide_probe.py`, 12 tamaños de
 |---|---|---|
 | Base de datos anonimizada `base_datos_atalaya.xlsx` + `csv/` | `python -m atalaya.export` | Hojas `LEEME`, `diccionario`, `semaforo_ponderado`, `priorizacion`, `municipios`, `estados`, `participacion_historica`, `perfil_edad_sexo` (protegido), `drivers`, `recomendaciones`, `metricas_modelo`. Valida antes de exportar |
 | Mapa de escenarios `mapa_escenarios_{municipal,estatal}.geojson` | `python -m atalaya.export` | Semáforo y abstención por escenario, factor y recomendación principal |
-| Reporte metodológico `reporte_metodologico.{html,pdf}` (14 pp.) | `python -m atalaya.report.build_report [--svg-maps] [--today AAAA-MM-DD]` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, limitaciones |
+| Reporte metodológico `reporte_metodologico.{html,pdf}` (15 pp.) | `python -m atalaya.report.build_report [--svg-maps] [--today AAAA-MM-DD]` | Datos, modelo, semáforo, escenarios, recomendaciones, priorización, implementación, **9.1 herramientas para la adopción institucional** (explicador con niveles de evidencia, Plan de campaña, Monitor INE con enlaces comprobados, guías y uso en cualquier pantalla), limitaciones; portada y recuadro final con los datos del equipo **por completar** (`[INTEGRANTE 1]`… `[CORREO]`) |
 | Presentación ejecutiva `presentacion_ejecutiva.{html,pdf}` (10 diapositivas) | `python -m atalaya.report.build_slides [--svg-maps]` | Mensajes clave con mapas y gráficas |
 | Figuras `figuras/*.png` | (las escriben los dos comandos anteriores) | `state_part_2024`, `state_semaforo`, `mun_semaforo_base`, `mun_semaforo_intervencion`, `mun_diff`, `chart_map_base` a 2× |
 
 | Visor autónomo de escenarios `visor_escenarios.html` (≈ 6 MB) | `python -m atalaya.viewer` | **Archivo ejecutable** del mapa de escenarios: un solo HTML con MapLibre y los GeoJSON incrustados; abre con doble clic, sin servidor ni internet; mismo estilo claro, logo y paleta que la app, usable en celular; modos semáforo base, con intervención, cambio Δ y comparador con cortina; estados/municipios, buscador, tooltip con recomendación principal |
 | Paquete de entrega `entrega/OXENT_Reto2_Prediccion_y_escenarios_de_riesgo_de_abstencion.zip` | `python -m atalaya.submission [--allow-missing-letters]` | Verifica la convocatoria y arma el zip (ver §4.13) |
 
-El reporte usa formato de cuartilla (carta, Arial 11, interlineado 1.5) y `build_report` falla si sale con menos de 10 o más de 15 páginas (hoy 14). Reporte y presentación incluyen la URL del tablero público (`--app-url`, default `ATALAYA_PUBLIC_URL` = `http://46.250.172.193:8080`) y la referencia al visor y a los GeoJSON.
+El reporte usa formato de cuartilla (carta, Arial 11, interlineado 1.5) y `build_report` falla si sale con menos de 10 o más de 15 páginas (hoy 15: está en el límite; cualquier texto nuevo debe caber en las páginas existentes —`temp/ux-redesign/tools/report_page_fit.py` mide cada página—). Reporte y presentación incluyen la URL del tablero público (`--app-url`, default `ATALAYA_PUBLIC_URL` = `http://46.250.172.193:8080`) y la referencia al visor y a los GeoJSON.
 
 **Marca en los documentos.** Reporte, presentación, visor, hojas LEEME/diccionario del XLSX y `ENLACES.txt` dicen "Atalaya Electoral" y llevan el logo **incrustado** en el HTML (se lee de `report/assets/`, sin depender de internet): portada y encabezado del reporte, portada (variante clara sobre magenta) y esquina de cada diapositiva, barra y favicon del visor. Acentos de marca magenta/tinta y semáforo con la paleta única (§4.3). La **fecha de generación** del reporte se calcula al generarlo (`facts.format_date_es`, sin depender del *locale*; `--today` la fija para pruebas). La presentación inserta su CSS sin escapar (`{{ styles_css | safe }}`), de lo contrario las tipografías caían en serif.
 
@@ -526,8 +526,8 @@ cd tools/geo; node --max-old-space-size=6144 build_geo.mjs --tiles-only
 # Usuarios de la app (inicio de sesión obligatorio)
 cd backend; python -m atalaya.auth create-user <usuario> --generate   # imprime la contraseña una sola vez
 cd backend; python -m atalaya.auth list | unlock <usuario|ip> | reset-password <usuario> --generate | disable <usuario>
-cd backend;  python -m pytest -q          # 714 pruebas (el resumen lo oculta la configuración: usar --junitxml o el código de salida)
-cd frontend; npm run typecheck; npm test; npm run build   # 638+ pruebas (pageExports.test.ts detecta exports prohibidos en páginas; solo `next build` detecta el resto)
+cd backend;  python -m pytest -q          # 726 pruebas (el resumen lo oculta la configuración: usar --junitxml o el código de salida)
+cd frontend; npm run typecheck; npm test; npm run build   # 650 pruebas (pageExports.test.ts detecta exports prohibidos en páginas; solo `next build` detecta el resto)
 # Humo real de Inteligencia (usa red y cuota de Gemini; nunca en pruebas)
 cd backend; python scripts\smoke_gemini.py; python scripts\smoke_intel_campaign.py 32 [--focus "..."]; python scripts\smoke_intel_monitor.py --days 14
 cd tools/geo; npm test                    # 15 pruebas
@@ -629,7 +629,7 @@ AGENTS.md · .agent-guard.json   reglas para agentes automatizados
 
 **Publicación verificada** (2026-10-20): borde Caddy + supervisor en la ECS (EIP 46.250.172.193, puerto 8080), recuperación automática, admin cerrado, límite del chat por IP real; mapa 4/4 en `map_probe.py` a través del borde.
 
-**Entregables del Reto 2:** reporte 14 pp (cuartilla), presentación 10 diapositivas, GeoJSON, visor autónomo, base anonimizada y figuras; `atalaya.submission` los valida todos.
+**Entregables del Reto 2:** reporte 15 pp (cuartilla, regenerado 2026-10-31 con la participación estatal corregida y la sección 9.1), presentación 10 diapositivas, GeoJSON, visor autónomo, base anonimizada y figuras; `atalaya.submission` los valida todos.
 
 **Optimización y correcciones** (rama `Optimization-n-fixes`, 2026-10-26): modo 3D de bloques con foco (altura = índice de riesgo, ya no población; al acercarse solo se levantan los municipios del estado en foco y el resto queda plano; vistas Inclinada/Cenital), rendimiento del mapa (hover limitado por cuadro, extrusión acotada al foco, `pixelRatio` acotado), guardrails del asistente (batería en vivo 56/56), ayuda ⓘ en toda la interfaz con glosario único, guía de primera visita y Metodología como manual. Corregido además un error previo del asistente: la comparación entre dos zonas reportaba "diferencia absoluta +0.0 pp" porque restaba fracciones; ahora da los pp correctos (p. ej., Tijuana 46.6 % vs Mexicali 47.5 % ⇒ 0.9 pp). Verificado: 473 pruebas backend, 199 frontend, 14 geo, build de producción, sondas de rendimiento y capturas de la UI en Chrome headless a 1280 y 1500 px.
 

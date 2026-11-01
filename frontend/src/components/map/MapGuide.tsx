@@ -604,6 +604,9 @@ export function scrollAnchorIntoViewIfNeeded(
   if (!el || typeof el.getBoundingClientRect !== "function") {
     return false;
   }
+  if (isInFixedLayer(el)) {
+    return false;
+  }
   const d = doc !== undefined ? doc : typeof document !== "undefined" ? document : null;
   const r = el.getBoundingClientRect();
   if (!r) return false;
@@ -1170,6 +1173,7 @@ export function MapGuide({
   }, []);
 
   const handleClose = useCallback(() => {
+    clearFixedLayerCache();
     if (typeof window !== "undefined") {
       dismissGuide(window.localStorage, storageKey);
     }
@@ -1198,6 +1202,7 @@ export function MapGuide({
   const prevStepsRef = useRef(steps);
   useEffect(() => {
     if (prevStepsRef.current !== steps) {
+      clearFixedLayerCache();
       prevStepsRef.current = steps;
       if (effectiveOpen) {
         setI(initialStep);
@@ -1206,6 +1211,11 @@ export function MapGuide({
       }
     }
   }, [steps, effectiveOpen, initialStep]);
+
+  // Clear fixed layer cache on step index change
+  useEffect(() => {
+    clearFixedLayerCache();
+  }, [i]);
 
   // Sync body dataset and emit open/close events
   useEffect(() => {
@@ -1228,6 +1238,7 @@ export function MapGuide({
   // Emit close on unmount if guide was open
   useEffect(() => {
     return () => {
+      clearFixedLayerCache();
       emitClose();
       syncGuideBodyAttr(false);
       if (scrollCleanupRef.current) {

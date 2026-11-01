@@ -289,7 +289,7 @@
   <div class="callout-box" style="margin: 3px 0; padding: 4px 8px;">
     <strong>Convocatoria:</strong> Hackathon INE 2026 · Reto 2 | <strong>Equipo:</strong> {{ stats.team }} (propuesta del equipo)<br>
     <strong>Eje Temático:</strong> Predicción y escenarios de riesgo de abstención<br>
-    <strong>Fecha de generación:</strong> {{ stats.generated_date_label }} | <strong>Objetivo:</strong> Anticipar zonas de abstención y priorizar recursos institucionales hacia 2027.
+    <strong>Integrantes:</strong> [INTEGRANTE 1] (representante) · [INTEGRANTE 2] · [INTEGRANTE 3] · [INTEGRANTE 4]
   </div>
 
   <h2 style="margin-top: 5px; margin-bottom: 3px;">1. Resumen Ejecutivo</h2>
@@ -886,7 +886,7 @@
   <ul>
     <li><strong>Tablero Web Interactivo WebGL:</strong> Desarrollado en Next.js con MapLibre GL, ofrece navegación fluida, semáforo de riesgo, comparador base | intervención, mapa de diferencias y vista 3D por abstención esperada.</li>
     <li><strong>Backend FastAPI y Almacén Analítico Dual:</strong> Soporta consultas analíticas sobre Parquet en memoria y clúster distribuido OpenSearch 3.4.0 (Huawei Cloud CSS) con conmutación resiliente.</li>
-    <li><strong>Asistente Conversacional Inteligente con IA:</strong> Traduce lenguaje natural a consultas estructuradas mediante modelos fundacionales (GLM-5.2) con respaldo determinista offline.</li>
+    <li><strong>Asistente Conversacional Inteligente con IA:</strong> Traduce lenguaje natural a consultas estructuradas mediante GLM-5.3 (Huawei MaaS) con respaldo determinista; toda cifra de la respuesta debe existir en los datos consultados y las preguntas fuera del dominio electoral, partidistas o sobre datos personales se rechazan.</li>
   </ul>
 
   <div class="callout-box">
@@ -896,9 +896,44 @@
     • <strong>Capas territoriales GeoJSON:</strong> <code>mapa_escenarios_estatal.geojson</code> y <code>mapa_escenarios_municipal.geojson</code><br>
     • <strong>Base de datos analítica:</strong> <code>base_datos_atalaya.xlsx</code> (hojas de escenarios y priorización) y directorio <code>csv/</code>
   </div>
+
+  <h3>Uso por cualquier persona del Instituto</h3>
+  <ul>
+    <li><strong>Guías interactivas por sección</strong> (mapa, plan de campaña y monitor) y ayuda contextual en cada concepto, tomada de un glosario único.</li>
+    <li><strong>Celular, tablet y computadora</strong> con el mismo contenido, para uso en campo por Juntas Locales y Distritales.</li>
+    <li><strong>Acceso con usuario y contraseña</strong>, protección contra intentos repetidos, bitácora sin contraseñas y sin datos personales del electorado.</li>
+  </ul>
 </div>
 
-<!-- PÁGINA 14: LIMITACIONES Y ANEXOS -->
+<!-- PÁGINA 14: HERRAMIENTAS PARA LA ADOPCIÓN INSTITUCIONAL -->
+<div class="page">
+  <h2>9.1 Herramientas para la Adopción Institucional</h2>
+  <p>
+    Para que el semáforo se use en la toma de decisiones —y no solo se consulte— el tablero incorpora cuatro capacidades que traducen el modelo a acciones verificables. En todas rige la misma regla: <strong>la inteligencia artificial investiga y redacta, pero ninguna cifra sale de ella</strong>; todo número proviene de los datos oficiales o de los modelos deterministas descritos en las secciones 5 a 8.
+  </p>
+
+  <h3>«¿Por qué este color?»: explicación para personas no especialistas</h3>
+  <p>
+    Cada estado o municipio tiene una explicación en lenguaje llano que descompone su índice en los cuatro componentes del semáforo (abstención pronosticada, vulnerabilidad, tendencia y volatilidad) y la acompaña de razones etiquetadas por <strong>tipo y fuerza de evidencia</strong>: <em>dato medido</em> (participación observada por edad, sexo y tipo de sección en los Conteos Censales), <em>cálculo del modelo</em> (aporte exacto de cada componente y persistencia histórica), <em>relación, no prueba causa</em> (rasgos sociodemográficos que solo se muestran cuando su asociación nacional es clara y la zona está en el cuartil desfavorable) y <em>dato de contexto</em>. Así se evita presentar correlaciones como causas.
+  </p>
+
+  <h3>Plan de campaña con IA</h3>
+  <p>
+    Para una zona prioritaria, el sistema busca en fuentes públicas las causas documentadas de abstención, descarga las notas y solo acepta hallazgos cuya <strong>cita textual aparece en la página original</strong>. Con ello redacta un plan (problemáticas, grupo objetivo, propuestas por palanca del simulador, calendario hasta mayo de 2027 con el área responsable del INE, riesgos e indicadores) cuyo impacto calcula el simulador de escenarios, y lo entrega como presentación editable en PPTX y PDF para revisión del personal del Instituto.
+  </p>
+
+  <h3>Monitor INE de medios y desinformación</h3>
+  <p>
+    Detecta noticias desfavorables y rumores sobre el Instituto, los clasifica con reglas deterministas según el número y nivel de las fuentes (verificadores, medios reconocidos, canales oficiales), estima su efecto en la participación por estado con supuestos explícitos y propone una respuesta proporcional (registrar, comunicado, corrección, reporte a la plataforma o campaña de intervención precargada en el simulador). Una publicación en redes solo se enlaza si su dirección <strong>aparece en una nota que el sistema descargó</strong>, con la referencia a esa nota; los enlaces que no pueden comprobarse se descartan.
+  </p>
+
+  <div class="callout-box">
+    <strong>Datos del equipo {{ stats.team }} (por completar):</strong> Representante: [NOMBRE COMPLETO] · Correo: [CORREO] · Teléfono: [TELÉFONO] · Entidad: [ENTIDAD]<br>
+    Integrantes: [NOMBRE COMPLETO 1] · [NOMBRE COMPLETO 2] · [NOMBRE COMPLETO 3] · [NOMBRE COMPLETO 4]
+  </div>
+</div>
+
+<!-- PÁGINA 15: LIMITACIONES Y ANEXOS -->
 <div class="page">
   <h2>10. Limitaciones y Anexo</h2>
   <p>En apego al rigor institucional, se señalan las siguientes limitaciones metodológicas:</p>

@@ -27,6 +27,8 @@ import {
   getMapInsets,
   getUsefulBand,
   isDocumentScroller,
+  isInFixedLayer,
+  clearFixedLayerCache,
 } from "../components/map/MapGuide";
 
 vi.mock("react-dom", async (importOriginal) => {
@@ -2352,6 +2354,377 @@ describe("MapGuide Pure Storage Logic (mapGuide.test.ts)", () => {
         const finalTop = tallAnchorRect.top - callArg.top;
         expect(finalTop).toBe(65);
         expect(finalTop).not.toBe(0);
+      });
+    });
+
+    describe("F4-A · Guía: los controles que viven dentro de una barra fija o pegajosa no se miden contra la banda útil", () => {
+      const originalDocument = (globalThis as any).document;
+      const originalWindow = (globalThis as any).window;
+
+      beforeEach(() => {
+        clearFixedLayerCache();
+      });
+
+      afterEach(() => {
+        clearFixedLayerCache();
+        (globalThis as any).document = originalDocument;
+        (globalThis as any).window = originalWindow;
+      });
+
+      it("ancla dentro de un ancestro position: sticky en y = 10…40 con --topbar-h: 56px => utilizable, sin scrollBy, contador la incluye", () => {
+        const scrollByMock = vi.fn();
+        (globalThis as any).window = {
+          innerWidth: 1024,
+          innerHeight: 768,
+          visualViewport: { width: 1024, height: 768 },
+          scrollBy: scrollByMock,
+          matchMedia: vi.fn(() => ({ matches: false })),
+          localStorage: { getItem: () => null, setItem: () => {} },
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        };
+
+        const stickyHeader = {
+          style: { position: "sticky" },
+          parentElement: null,
+          nodeType: 1,
+        };
+
+        const anchorRect = { top: 10, bottom: 40, left: 120, right: 280, width: 160, height: 30 };
+        const stickyAnchor: any = {
+          parentElement: stickyHeader,
+          style: { display: "block" },
+          isConnected: true,
+          getBoundingClientRect: () => anchorRect,
+          contains: (el: any) => el === stickyAnchor,
+        };
+
+        const scrollingElement = {
+          scrollHeight: 3000,
+          scrollTop: 0,
+        };
+
+        const steps = [
+          { sel: "escenario", title: "Escenario", text: "Texto escenario" },
+        ];
+
+        const mockDoc = {
+          scrollingElement,
+          documentElement: {
+            scrollHeight: 3000,
+            style: {
+              getPropertyValue: (name: string) => (name === "--topbar-h" ? "56px" : ""),
+            },
+          },
+          querySelector: vi.fn((sel: string) => {
+            if (sel === "header") return { getBoundingClientRect: () => ({ bottom: 56 }) };
+            if (sel === '[data-tour="escenario"]') return stickyAnchor;
+            return null;
+          }),
+          querySelectorAll: vi.fn((sel: string) => {
+            if (sel === '[data-tour="escenario"]') return [stickyAnchor];
+            return [];
+          }),
+          elementsFromPoint: vi.fn(() => [stickyAnchor]),
+        };
+
+        (globalThis as any).document = mockDoc;
+
+        // 1. isInFixedLayer is true
+        expect(isInFixedLayer(stickyAnchor)).toBe(true);
+
+        // 2. getScrollParent is null (no container moves it)
+        expect(getScrollParent(stickyAnchor, mockDoc as any)).toBeNull();
+
+        // 3. getUsefulBand returns full screen viewport (0..768)
+        const band = getUsefulBand(stickyAnchor, mockDoc as any);
+        expect(band.top).toBe(0);
+        expect(band.bottom).toBe(768);
+
+        // 4. isAnchorUsable is true
+        expect(isAnchorUsable(stickyAnchor, mockDoc as any)).toBe(true);
+
+        // 5. scrollAnchorIntoViewIfNeeded returns false and does NOT call scrollBy
+        const scrolled = scrollAnchorIntoViewIfNeeded(stickyAnchor, mockDoc as any, 160);
+        expect(scrolled).toBe(false);
+        expect(scrollByMock).not.toHaveBeenCalled();
+
+        // 6. getUsableStepIndices includes it (counter includes it)
+        const usable = getUsableStepIndices(steps, mockDoc as any);
+        expect(usable).toEqual([0]);
+
+        // 7. Rendered component includes it in the counter ("1/1")
+        const html = renderToStaticMarkup(
+          React.createElement(MapGuide, {
+            open: true,
+            steps,
+            initialStep: 0,
+          })
+        );
+        expect(html).toContain("1/1");
+      });
+
+      it("ancla dentro de un ancestro position: fixed al fondo (y = 700…812) con --page-inset-bottom: 121px => utilizable, sin desplazamiento", () => {
+        const scrollByMock = vi.fn();
+        (globalThis as any).window = {
+          innerWidth: 375,
+          innerHeight: 812,
+          visualViewport: { width: 375, height: 812 },
+          scrollBy: scrollByMock,
+          matchMedia: vi.fn(() => ({ matches: false })),
+          localStorage: { getItem: () => null, setItem: () => {} },
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        };
+
+        const fixedFooter = {
+          style: { position: "fixed" },
+          parentElement: null,
+          nodeType: 1,
+        };
+
+        const anchorRect = { top: 720, bottom: 780, left: 10, right: 365, width: 355, height: 60 };
+        const fixedAnchor: any = {
+          parentElement: fixedFooter,
+          style: { display: "block" },
+          isConnected: true,
+          getBoundingClientRect: () => anchorRect,
+          contains: (el: any) => el === fixedAnchor,
+        };
+
+        const scrollingElement = {
+          scrollHeight: 3000,
+          scrollTop: 0,
+        };
+
+        const steps = [
+          { sel: "camp-exportar", title: "Exportar", text: "Texto exportar" },
+        ];
+
+        const mockDoc = {
+          scrollingElement,
+          documentElement: {
+            scrollHeight: 3000,
+            style: {
+              getPropertyValue: (name: string) => (name === "--page-inset-bottom" ? "121px" : ""),
+            },
+          },
+          querySelector: vi.fn((sel: string) => {
+            if (sel === '[data-tour="camp-exportar"]') return fixedAnchor;
+            return null;
+          }),
+          querySelectorAll: vi.fn((sel: string) => {
+            if (sel === '[data-tour="camp-exportar"]') return [fixedAnchor];
+            return [];
+          }),
+          elementsFromPoint: vi.fn(() => [fixedAnchor]),
+        };
+
+        (globalThis as any).document = mockDoc;
+
+        // 1. isInFixedLayer is true
+        expect(isInFixedLayer(fixedAnchor)).toBe(true);
+
+        // 2. isAnchorUsable is true
+        expect(isAnchorUsable(fixedAnchor, mockDoc as any)).toBe(true);
+
+        // 3. scrollAnchorIntoViewIfNeeded returns false without displacement
+        const scrolled = scrollAnchorIntoViewIfNeeded(fixedAnchor, mockDoc as any, 160);
+        expect(scrolled).toBe(false);
+        expect(scrollByMock).not.toHaveBeenCalled();
+
+        // 4. Counter includes it
+        const usable = getUsableStepIndices(steps, mockDoc as any);
+        expect(usable).toEqual([0]);
+      });
+
+      it("ancla normal dentro del documento bajo la franja inferior => se desplaza como en F3-A (la prueba existente sigue pasando)", () => {
+        const scrollByMock = vi.fn();
+        (globalThis as any).window = {
+          innerWidth: 1024,
+          innerHeight: 768,
+          visualViewport: { width: 1024, height: 768 },
+          scrollBy: scrollByMock,
+          matchMedia: vi.fn(() => ({ matches: false })),
+        };
+
+        const normalParent = {
+          style: { position: "static" },
+          parentElement: null,
+          nodeType: 1,
+        };
+
+        const anchorRect = { top: 700, bottom: 760, left: 10, right: 100, width: 90, height: 60 };
+        const normalAnchor: any = {
+          parentElement: normalParent,
+          style: { display: "block" },
+          isConnected: true,
+          getBoundingClientRect: () => anchorRect,
+          contains: (el: any) => el === normalAnchor,
+        };
+
+        const scrollingElement = {
+          scrollHeight: 2500,
+          scrollTop: 0,
+        };
+
+        const styles: Record<string, string> = {
+          "--page-inset-bottom": "120px",
+        };
+
+        const fixedBottomBar = { id: "fixed-bottom-bar", contains: () => false };
+
+        const mockDoc = {
+          scrollingElement,
+          documentElement: {
+            scrollHeight: 2500,
+            style: {
+              getPropertyValue: (name: string) => styles[name] || "",
+            },
+          },
+          querySelector: vi.fn((sel: string) => {
+            if (sel === "header") return { getBoundingClientRect: () => ({ bottom: 56 }) };
+            if (sel === '[data-tour="target"]') return normalAnchor;
+            return null;
+          }),
+          querySelectorAll: vi.fn((sel: string) => {
+            if (sel === '[data-tour="target"]') return [normalAnchor];
+            return [];
+          }),
+          elementsFromPoint: vi.fn(() => [fixedBottomBar, normalAnchor]),
+        };
+
+        // Anchor is NOT in a fixed layer
+        expect(isInFixedLayer(normalAnchor)).toBe(false);
+
+        // Document scroller is detected
+        expect(getScrollParent(normalAnchor, mockDoc as any)).toBe(scrollingElement);
+
+        // Anchor is usable and gets displaced via scrollBy
+        expect(isAnchorUsable(normalAnchor, mockDoc as any)).toBe(true);
+        const scrolled = scrollAnchorIntoViewIfNeeded(normalAnchor, mockDoc as any, 160);
+        expect(scrolled).toBe(true);
+        expect(scrollByMock).toHaveBeenCalledWith({
+          top: 378,
+          behavior: "smooth",
+        });
+      });
+
+      it("recorrido del mapa con las 8 anclas presentes (4 dentro de una barra pegajosa simulada: escenario, intervención, buscar, secciones) => 'n/8' en todos los pasos", () => {
+        (globalThis as any).window = {
+          innerWidth: 1024,
+          innerHeight: 768,
+          visualViewport: { width: 1024, height: 768 },
+          localStorage: { getItem: () => null, setItem: () => {} },
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        };
+
+        const stickyHeader = {
+          style: { position: "sticky" },
+          parentElement: null,
+          nodeType: 1,
+        };
+
+        // 4 anchors inside sticky header: escenario(0), intervencion(1), buscar(4), secciones(7)
+        // 4 anchors normal: capas(2), panel(3), herramientas(5), leyenda(6)
+        const makeAnchor = (name: string, inHeader: boolean, rect: any) => {
+          const anchor: any = {
+            parentElement: inHeader ? stickyHeader : null,
+            style: { display: "block" },
+            isConnected: true,
+            getBoundingClientRect: () => rect,
+            contains: (el: any) => el === anchor,
+          };
+          return anchor;
+        };
+
+        const anchors: Record<string, any> = {
+          escenario: makeAnchor("escenario", true, { top: 12, bottom: 44, left: 120, right: 280, width: 160, height: 32 }),
+          intervencion: makeAnchor("intervencion", true, { top: 12, bottom: 44, left: 290, right: 370, width: 80, height: 32 }),
+          capas: makeAnchor("capas", false, { top: 70, bottom: 106, left: 20, right: 140, width: 120, height: 36 }),
+          panel: makeAnchor("panel", false, { top: 70, bottom: 650, left: 600, right: 1000, width: 400, height: 580 }),
+          buscar: makeAnchor("buscar", true, { top: 12, bottom: 44, left: 380, right: 540, width: 160, height: 32 }),
+          herramientas: makeAnchor("herramientas", false, { top: 120, bottom: 260, left: 500, right: 540, width: 40, height: 140 }),
+          leyenda: makeAnchor("leyenda", false, { top: 300, bottom: 350, left: 20, right: 150, width: 130, height: 50 }),
+          secciones: makeAnchor("secciones", true, { top: 12, bottom: 44, left: 20, right: 110, width: 90, height: 32 }),
+        };
+
+        const mockDoc = {
+          scrollingElement: { scrollHeight: 768 },
+          documentElement: {
+            scrollHeight: 768,
+            style: {
+              getPropertyValue: (name: string) => (name === "--topbar-h" ? "56px" : ""),
+            },
+          },
+          querySelector: vi.fn((sel: string) => {
+            if (sel === "header") return { getBoundingClientRect: () => ({ bottom: 56 }) };
+            for (const key of Object.keys(anchors)) {
+              if (sel === `[data-tour="${key}"]`) return anchors[key];
+            }
+            return null;
+          }),
+          querySelectorAll: vi.fn((sel: string) => {
+            for (const key of Object.keys(anchors)) {
+              if (sel === `[data-tour="${key}"]`) return [anchors[key]];
+            }
+            return [];
+          }),
+          elementsFromPoint: vi.fn((x: number, y: number) => {
+            for (const key of Object.keys(anchors)) {
+              const r = anchors[key].getBoundingClientRect();
+              if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+                return [anchors[key]];
+              }
+            }
+            return [];
+          }),
+        };
+
+        (globalThis as any).document = mockDoc;
+
+        // Verify that all 4 header anchors are identified as in fixed layer
+        expect(isInFixedLayer(anchors.escenario)).toBe(true);
+        expect(isInFixedLayer(anchors.intervencion)).toBe(true);
+        expect(isInFixedLayer(anchors.buscar)).toBe(true);
+        expect(isInFixedLayer(anchors.secciones)).toBe(true);
+
+        // Verify that the other 4 are NOT in fixed layer
+        expect(isInFixedLayer(anchors.capas)).toBe(false);
+        expect(isInFixedLayer(anchors.panel)).toBe(false);
+        expect(isInFixedLayer(anchors.herramientas)).toBe(false);
+        expect(isInFixedLayer(anchors.leyenda)).toBe(false);
+
+        // All 8 steps must be usable
+        const usableIndices = getUsableStepIndices(TOUR_STEPS, mockDoc as any);
+        expect(usableIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+        expect(usableIndices).toHaveLength(8);
+
+        // For each of the 8 steps: renders "n/8"
+        for (let stepIndex = 0; stepIndex < 8; stepIndex++) {
+          clearFixedLayerCache();
+          const html = renderToStaticMarkup(
+            React.createElement(MapGuide, {
+              open: true,
+              steps: TOUR_STEPS,
+              initialStep: stepIndex,
+            })
+          );
+          expect(html).toContain(`${stepIndex + 1}/8`);
+        }
+      });
+
+      it("placeBalloon para un ancla dentro de la barra superior coloca el globo debajo de la barra (top >= safeTop)", () => {
+        const anchor = { top: 10, bottom: 40, left: 120, right: 280, width: 160, height: 30 };
+        const balloon = { w: 280, h: 160 };
+        const viewport = { w: 1024, h: 768 };
+        const safeTop = 56;
+
+        const result = placeBalloon(anchor, balloon, viewport, 12, safeTop);
+        expect(result.side).toBe("bottom");
+        expect(result.top).toBeGreaterThanOrEqual(safeTop);
+        expect(result.top).toBe(56);
       });
     });
   });

@@ -456,6 +456,7 @@ def test_report_dynamic_generation_date(synthetic_workspace):
     assert "31 de octubre de 2026" in content
     assert "20 de octubre de 2026" not in content
     assert "Fecha de generación: 31 de octubre de 2026" in content
-    assert "<strong>Fecha de generación:</strong> 31 de octubre de 2026" in content
+    # La portada lleva la fecha en el encabezado; el recuadro de la portada ahora lista a los integrantes (por completar)
+    assert "<strong>Integrantes:</strong> [INTEGRANTE 1] (representante)" in content
 
 
